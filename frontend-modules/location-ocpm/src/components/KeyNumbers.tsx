@@ -7,6 +7,7 @@ import { filterParams, filterRequest, usePageFilter } from "../lib/filters";
 import { num, pct } from "../lib/format";
 import { UI } from "../lib/palette";
 import { useScheme } from "./plots";
+import { ShortList } from "./ShortList";
 
 /** One tile: label, big number (whole log), filtered value (if filtered), small grey line. */
 const Tile = ({ label, value, filtered, sub }: { label: string; value: ReactNode; filtered?: ReactNode; sub?: ReactNode }) => {
@@ -51,7 +52,7 @@ export const KeyNumbers = ({ ocelId }: { ocelId: string }) => {
         label="Handling units"
         value={num(data.handling_units)}
         filtered={f && num(f.handling_units)}
-        sub={data.handling_units_per_type.map((t) => `${t.object_type} ${num(t.count)}`).join(" · ")}
+        sub={<ShortList items={data.handling_units_per_type.map((t) => `${t.object_type} ${num(t.count)}`)} />}
       />
       <Tile
         label="Agreed located events"

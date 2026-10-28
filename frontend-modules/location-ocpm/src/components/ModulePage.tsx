@@ -7,6 +7,7 @@ import { type ReactNode, useState } from "react";
 import { type DerivationConfig, useGetConfig, useGetStatus } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
 import { ConfigForm } from "./ConfigForm";
+import { ShortList } from "./ShortList";
 
 export { errorText };
 
@@ -27,12 +28,17 @@ const locationSource = (locations: DerivationConfig["target_locations"]) => {
 
 /**
  * The configuration summary in one line (overview/Deriving Locations.md, "shared header"),
- * e.g. 'handling units coil, slab; locations from "to_loc"; Level 3'.
+ * e.g. 'handling units coil, slab; locations from "to_loc"; Level 3'. More than five
+ * object types are shortened to the first five (in the order selected) and "+ n more".
  */
-export const summaryLine = (config: DerivationConfig) => {
+export const SummaryLine = ({ config }: { config: DerivationConfig }) => {
   const hu = config.handling_units;
-  const handlingUnits = "table" in hu ? `from table "${hu.table}"` : hu.object_types.join(", ");
-  return `handling units ${handlingUnits}; locations ${locationSource(config.target_locations)}; Level ${config.level ?? 3}`;
+  return (
+    <>
+      handling units {"table" in hu ? `from table "${hu.table}"` : <ShortList items={hu.object_types} separator=", " />};
+      locations {locationSource(config.target_locations)}; Level {config.level ?? 3}
+    </>
+  );
 };
 
 /** Backend versions, as a small grey line (confirms the connection). */
@@ -70,7 +76,7 @@ export const ModulePage = ({ title, children }: { title: string; children: (cont
     header = (
       <Card withBorder padding="xs">
         <Group justify="space-between">
-          <Text size="sm">Configuration: {summaryLine(config)}.</Text>
+          <Text size="sm">Configuration: <SummaryLine config={config} />.</Text>
           <Button size="xs" variant="default" leftSection={<SettingsIcon size={14} />} onClick={() => setEditing(true)}>
             Edit configuration
           </Button>

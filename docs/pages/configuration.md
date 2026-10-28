@@ -6,10 +6,11 @@ How the inputs are resolved and checked: `docs/resources/location-derivation.md`
 ## 1. Configuration summary
 **What it shows:** one line, e.g. `Configuration: handling units slab, coil; locations from "to_loc"; Level 3.`, and the button "Edit configuration". The notices of the applied configuration appear on the page below the key numbers (`overview.md`, section 2).
 Locations read `from qualifier "to"` for the e2o-qualifier option and `from table "target_locations.csv"` for a table.
+More than five selected object types show the first five (in the order selected) and "+ n more"; hovering it lists all (`components/ShortList.tsx`).
 **Example:** running example configuration (see `data/running_example/README.md`) gives the line above.
 **Filtering:** not affected by filters.
-**Code:** `ModulePage.tsx`, `summaryLine(config)` (the text) and `locationSource(locations)` (the locations part); the card is built in `ModulePage`.
-**How to change:** add a part (e.g. movement activities) in `summaryLine`; keep it one line.
+**Code:** `ModulePage.tsx`, `SummaryLine` (the text) and `locationSource(locations)` (the locations part); the card is built in `ModulePage`.
+**How to change:** add a part (e.g. movement activities) in `SummaryLine`; keep it one line. The number of entries before "+ n more" is `SHORT_LIST_LIMIT` in `ShortList.tsx`.
 **Alternatives:** listing every input in the line was too long for logs with many activities; the full configuration is one click away.
 
 ## 2. Configuration form

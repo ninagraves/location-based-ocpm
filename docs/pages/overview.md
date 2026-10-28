@@ -28,7 +28,7 @@ Still to come: data overview charts, activity profile, overview charts, flag exp
 
 | Tile | Big number | Small line |
 |---|---|---|
-| Handling units | \|HU\|, including handling units without events | count per object type, largest first, e.g. "coil 5 · slab 1" |
+| Handling units | \|HU\|, including handling units without events | count per object type, largest first, e.g. "coil 5 · slab 1"; beyond five types "+ n more", hovering it lists all |
 | Agreed located events | events with eloc(e) ≠ ⊥ at the selected level, "x of \|E\|" | share of all events |
 | Relations with a known location | relations with loc ≠ ⊥ at the selected level, "x of \|E2HU\|" | share · "loc at Level k" |
 | Movement events | \|M\| | "provided" |
@@ -44,7 +44,7 @@ Pickup locations are counted after ignoring pickups of non-movement events (as r
 **Filtering:** big numbers never; filtered values as above (`filtered_numbers`). Example "Location B1, after (target)": 6 (4); 15 of 17 (5); 26 of 28 (8 of 8); 8 (2); 4 (1); 3 (1).
 Implementation choice: the concept's filter line names "kept events with a location from the input" for the second tile, but the tile itself counts agreed located events; the filtered value follows the tile (kept events with eloc ≠ ⊥: 5 in the example; with "location from the input" it would be 3).
 **Settings:** the selected level (configuration).
-**Code:** backend `key_numbers(derivation, page_filter)` and `filtered_numbers` (route `GET /{ocel_id}/overview/key-numbers`, `getKeyNumbers`); frontend `components/KeyNumbers.tsx` (`KeyNumbers`, `Tile`; accent colour from `lib/palette.ts`, `UI`).
+**Code:** backend `key_numbers(derivation, page_filter)` and `filtered_numbers` (route `GET /{ocel_id}/overview/key-numbers`, `getKeyNumbers`); frontend `components/KeyNumbers.tsx` (`KeyNumbers`, `Tile`; the shortened type list is `components/ShortList.tsx`, limit `SHORT_LIST_LIMIT`; accent colour from `lib/palette.ts`, `UI`).
 **How to change:** a new tile needs a field in `KeyNumbers`, its computation in `key_numbers`, `pnpm run build:modules`, a `Tile` in `KeyNumbers.tsx`, and an assertion in `tests/test_overview_key_numbers.py`.
 **Alternatives:** counting located events by locatedness (fully located) instead of eloc ≠ ⊥; the concept chose agreed located events.
 
