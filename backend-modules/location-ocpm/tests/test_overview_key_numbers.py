@@ -14,6 +14,8 @@ def test_key_numbers_level_3(derivation):
     assert (numbers.agreed_located_events, numbers.events) == (15, 17)  # e14 not agreeing, e17 unlocated
     assert (numbers.located_relations, numbers.relations, numbers.level) == (26, 28, 3)
     assert numbers.movement_events == 8
+    assert [(a.activity, a.count) for a in numbers.movement_activities][0][0] == "crane move"
+    assert sum(a.count for a in numbers.movement_activities) == 8
     assert numbers.locations == 4
     assert numbers.target_locations == 4
     assert numbers.pickup_locations == 2
