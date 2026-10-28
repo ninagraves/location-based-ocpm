@@ -1,0 +1,18 @@
+packages:
+  - app
+  - frontend-modules/*
+# Wait a day before installing newly published dependencies (protects against
+# broken or compromised releases), but take new Ocelescope releases right away.
+minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  - "@ocelescope/*"
+# `pnpm run` only warns about outdated dependencies instead of installing them,
+# so `pnpm run add:module` works before `pnpm run sync`.
+verifyDepsBeforeRun: warn
+allowBuilds:
+  core-js: true
+  es5-ext: true
+  esbuild: true
+  sharp: true
+configDependencies:
+  '@ocelescope/pnpm-plugin-catalog': latest

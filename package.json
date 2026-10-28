@@ -1,0 +1,21 @@
+{
+	"name": "ocelescope-instance",
+	"version": "0.1.0",
+	"private": true,
+	"packageManager": "pnpm@11.15.1+sha512.81350b07e53c9538a02f1f2303b4290fa2d7be04e56e2a970c4cc4b417dc761de196edabd49d55c7dc9580db81007c44143e4e3d7e462b3000d23c255122d065",
+	"scripts": {
+		"add:module": "node scripts/add-module.mjs module",
+		"add:backend": "node scripts/add-module.mjs backend",
+		"add:frontend": "node scripts/add-module.mjs frontend",
+		"sync": "pnpm run sync:backend && pnpm run sync:frontend",
+		"sync:backend": "uv sync",
+		"sync:frontend": "pnpm install && pnpm run build:modules",
+		"build:modules": "pnpm -r --filter \"!@instance/app\" run build",
+		"dev": "pnpm run dev:backend & pnpm run dev:app",
+		"dev:backend": "uv run ocelescope-backend serve --port 8002 --reload --reload-dir backend-modules --env-file .env",
+		"dev:app": "pnpm --filter @instance/app dev",
+		"dev:modules": "pnpm -r --parallel --filter \"!@instance/app\" run dev",
+		"docker": "docker compose up --build",
+		"docker:down": "docker compose down"
+	}
+}

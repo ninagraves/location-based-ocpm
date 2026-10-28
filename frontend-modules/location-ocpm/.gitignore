@@ -1,0 +1,5 @@
+node_modules/
+dist/
+# Generated API client (`pnpm run build` regenerates it)
+openapi.json
+src/api/

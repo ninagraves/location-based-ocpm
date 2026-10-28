@@ -1,0 +1,8 @@
+# Changes here will be overwritten by Copier; do NOT edit manually
+_commit: 36a9b58
+_src_path: gh:promi4s/create-ocelescope-frontend-module
+api_module: locationBasedOcpm
+author: Nina Graves
+description: Location-based object-centric process mining for production and logistics
+module_label: Location-based OCPM
+npm_package: '@instance/location-based-ocpm'

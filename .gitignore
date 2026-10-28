@@ -1,0 +1,28 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.env
+
+# Node / Next.js
+node_modules/
+**/dist/
+app/.next/
+app/next-env.d.ts
+**/.env.local
+
+.DS_Store
+
+# Generated API clients (run `pnpm run build:modules` to regenerate)
+frontend-modules/*/openapi.json
+frontend-modules/*/src/api/
+
+# Local Docker overrides
+compose.override.yaml
+
+# IDE and local backups
+.idea/
+.pycharm-starter-backup/
+
+# Written by `next dev` on every start
+app/AGENTS.md
