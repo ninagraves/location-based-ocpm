@@ -1,8 +1,8 @@
 # Overview page
 
 Concept: `overview/Deriving Locations.md`, section "overview" (outside this repo).
-Content elements are added one at a time; built so far: page filter bar, key numbers (with filtered values), configuration notices, flag badges, data overview charts.
-Still to come: activity profile, overview charts, flag explore sections.
+Content elements are added one at a time; built so far: page filter bar, key numbers (with filtered values), configuration notices, flag badges, data overview charts, activity profile.
+Still to come: overview charts, flag explore sections.
 
 ## Code
 - Page: `frontend-modules/location-ocpm/src/routes/Overview.tsx`
@@ -91,3 +91,26 @@ A sunburst click never zooms into the segment.
 **Code:** route `GET /{ocel_id}/overview/data-charts` (`getDataCharts`); `Segment` carries id, label, parent, count and the click's `filter`; frontend `components/DataCharts.tsx` (`Sunburst`, `Donut`, `Legend`, `useAddFilter`). Colours: `STATUS` in `lib/palette.ts`. Click handling: `ThemedPlot` in `components/plots.tsx` (see `docs/hosting/dependencies.md`).
 **How to change:** a new ring value needs a branch in `event_categories`, an entry in `EVENT_TYPES` / `AGREEMENT` (backend) and `RINGS` (frontend), a colour in `STATUS`, and, if clicking should filter, an entry in `EVENT_FILTERS`. Height: `HEIGHT` in `DataCharts.tsx`. Tests: `tests/test_overview_data_charts.py`.
 **Alternatives:** bar charts instead of donuts (easier to compare small segments); a click that sets the whole path of a sunburst segment would need an AND between activity values, which the filter bar does not have.
+
+## 5. Activity profile
+**What it shows:** a table with one row per activity with kept events, a search box ("Search activity", only hides rows) and sortable columns (click a heading; activity, events, share at location, role, HUs per event by max, located by the share of fully located events, agreed). Default: most events first. Every heading has a hover text. The arrow in front of an activity expands the row and shows its top 5 locations with count, share and the number of distinct locations.
+
+| Column | Content | Example (crane move, Level 3) |
+|---|---|---|
+| events | kept events of the activity | 4 |
+| share at location | only with a location filter: events / all kept events | (B1, post: quality check 3/6 = 50 %) |
+| role | share of movement events (M) and transformation events (T; "–" if none are configured) | M 100 %, T 0 % |
+| HUs per event | median (max) handling units per event; hover: object types counted as hu-event relations | 1.5 (2), hover "coil 6" |
+| typical location | most frequent loc over the located relations (count/total = share; "n tied" if tied, alphabetically first shown); "unknown" if none; "provided x/y" = events in dom(uloc) | A2 (4/6 = 67 %); provided 4/4 |
+| located | fully (partially, unlocated) located events · share fully located | 4 (0, 0) · 100 % |
+| agreed (tested) | agreeing events by the definition / events (in brackets: agreeing among events with ≥ 2 located handling units / such events) | 4/4 (2/2) |
+| typical route | most frequent "ploc → loc" over the relations of movement events whose location changed (⊥ written as "⊥" and counted as a change), with share, distinct routes and ties; "–" without such relations | A1 → A2 (2/3 = 67 %; 2 distinct) |
+
+**How it is calculated:** `overview/activity_profile.py`, `activity_profile(derivation, page_filter) -> ActivityProfile`. Event properties come from `derivation.event_locations[level]` (n_relations, n_located, located, agreeing) and `derivation.events` (is_movement, is_transformation, uloc); typical values from `ranked` (count per activity and value, ties alphabetical); routes from `moved_routes`.
+**Example** (running example, Level 3, no filter): as in the concept's table "Step 2"; e.g. quality check: 4 events, B1 (3/4 = 75 %); provided 1/4, 2 (1, 1) · 50 %, 3/4 (0/1); load truck route "A1 → T (1/4 = 25 %; 4 distinct; 4 tied)". Expanded crane move: A2 4 (67 %), B1 2 (33 %); 2 distinct.
+**Filtering:** one row per activity with kept events; events, role, HUs per event, located and agreed describe the kept events as a whole; typical location, top locations and typical route count passing relations only; share at location appears only with a location (or exclude location) filter. Example "Location B1, post": crane move 1, quality check 3 (50 %, B1 3/3, 2/3 (0/1): e14 still disagreeing), unload truck 1, cut 1.
+Events without handling units have no relation and therefore never appear.
+**Settings:** the selected level; sort order kept across pages and reloads (`profile.sort`, `lib/pageState.ts`); the search box is not kept.
+**Code:** route `GET /{ocel_id}/overview/activity-profile` (`getActivityProfile`); frontend `components/ActivityProfile.tsx` (`ActivityProfile`, `Row`, `Heading`; hover texts in `INFO`, sort keys in `sortValue`). Tests: `tests/test_overview_activity_profile.py`.
+**How to change:** a new column needs a field in `ActivityRow` and its aggregation in `activity_profile` (backend), `pnpm run build:modules`, a heading and a cell in `ActivityProfile.tsx` (and a `sortValue` entry if sortable). Number of expanded locations: `TOP` in `activity_profile.py`.
+**Alternatives:** the typical recipe and a high-level clause for routes are struck in the concept until defined.
