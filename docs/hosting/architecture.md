@@ -5,6 +5,7 @@
 - **Backend module** `backend-modules/location-ocpm/`: a FastAPI app. `ocelescope-backend` discovers it through the entry point `ocelescope_backend.modules` in its `pyproject.toml` and serves it under `/modules/locationBasedOcpm/v1`.
   - `module.py`: module class `LocationBasedOcpm` (key, version, app creation).
   - `routes.py`: API routes. Currently only `GET /status`.
+  - `derivation/`: location derivation (content; documented in `docs/resources/location-derivation.md`).
 - **Frontend module** `frontend-modules/location-ocpm/`: React (Mantine UI), registered in `app/ocelescope.config.ts`.
   - `src/index.ts`: module definition and pages.
   - `src/routes/`: one file per page.

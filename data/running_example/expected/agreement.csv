@@ -1,0 +1,9 @@
+event,level,located,agreement,eloc
+e8,1,fully located,agreeing,T
+e3,1,partially located,agreeing,A1
+e4,1,unlocated,agreeing,
+e4,2,partially located,agreeing,A1
+e4,3,fully located,agreeing,A1
+e14,1,fully located,disagreeing,
+e16,3,partially located,agreeing,B1
+e17,3,unlocated,agreeing,

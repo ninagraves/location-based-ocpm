@@ -1,0 +1,10 @@
+event,activity,previous,current,count
+e5,crane move,A1,A2,1
+e6,crane move,A1,A2,1
+e8,load truck,B1,T,1
+e8,load truck,A2,T,1
+e8,load truck,,T,1
+e9,unload truck,T,A2,2
+e10,unload truck,T,B1,1
+e12,crane move,A2,B1,1
+e13,load truck,A1,T,1
