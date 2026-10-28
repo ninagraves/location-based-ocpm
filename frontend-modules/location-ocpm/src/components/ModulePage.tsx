@@ -6,7 +6,7 @@ import { SettingsIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { type DerivationConfig, useGetConfig, useGetStatus } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
-import { ConfigForm, Notices } from "./ConfigForm";
+import { ConfigForm } from "./ConfigForm";
 
 export { errorText };
 
@@ -69,15 +69,12 @@ export const ModulePage = ({ title, children }: { title: string; children: (cont
   else if (config && !editing)
     header = (
       <Card withBorder padding="xs">
-        <Stack gap={4}>
-          <Group justify="space-between">
-            <Text size="sm">Configuration: {summaryLine(config)}.</Text>
-            <Button size="xs" variant="default" leftSection={<SettingsIcon size={14} />} onClick={() => setEditing(true)}>
-              Edit configuration
-            </Button>
-          </Group>
-          <Notices notices={state?.notices} />
-        </Stack>
+        <Group justify="space-between">
+          <Text size="sm">Configuration: {summaryLine(config)}.</Text>
+          <Button size="xs" variant="default" leftSection={<SettingsIcon size={14} />} onClick={() => setEditing(true)}>
+            Edit configuration
+          </Button>
+        </Group>
       </Card>
     );
   else

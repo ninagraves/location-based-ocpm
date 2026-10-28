@@ -54,6 +54,7 @@ class Derivation:
         flags: Flags at the selected level; None if there are blocking errors.
         notices: Non-blocking reports of the input resolution.
         errors: Blocking errors (input resolution and RQ1-RQ3); if not empty, nothing is derived.
+        handling_units: All handling units with columns hu, object_type (also those without events).
     """
 
     config: DerivationConfig
@@ -63,6 +64,7 @@ class Derivation:
     flags: Flags | None = None
     notices: list[Notice] = field(default_factory=list)
     errors: list[BlockingError] = field(default_factory=list)
+    handling_units: pl.DataFrame = field(default_factory=pl.DataFrame)
 
     @property
     def level(self) -> int:
@@ -141,6 +143,7 @@ def derive(ocel: OCEL, config: DerivationConfig, tables: dict[str, pl.DataFrame]
         events=resolved.events,
         notices=resolved.notices,
         errors=errors,
+        handling_units=resolved.handling_units,
     )
     if errors:
         return result
