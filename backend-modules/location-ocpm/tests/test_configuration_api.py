@@ -1,12 +1,13 @@
 """Configuration routes and caching, called as plain functions with a stand-in session."""
 
+import json
 from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
 
 from ocelescope_module_location_based_ocpm import configuration_routes as routes
-from ocelescope_module_location_based_ocpm.derivation.config import LocationTable
+from ocelescope_module_location_based_ocpm.derivation.config import DerivationConfig, LocationTable
 from ocelescope_module_location_based_ocpm.state import ModuleState
 
 from conftest import EXAMPLE, example_config
@@ -99,3 +100,9 @@ def test_no_config_gives_409(ocel, session, state):
     with pytest.raises(HTTPException) as raised:
         routes.current_derivation("log", ocel, session, state)
     assert raised.value.status_code == 409
+
+
+def test_example_configuration_file_matches_the_tests():
+    """data/running_example/configuration.json loads into the running example's configuration."""
+    loaded = DerivationConfig.model_validate(json.loads((EXAMPLE / "configuration.json").read_text()))
+    assert loaded == example_config()

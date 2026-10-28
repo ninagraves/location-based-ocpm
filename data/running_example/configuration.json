@@ -1,0 +1,8 @@
+{
+  "handling_units": { "option": "object_types", "object_types": ["slab", "coil"] },
+  "movement_events": { "option": "activities", "activities": ["crane move", "load truck", "unload truck"] },
+  "transformation_events": { "option": "activities", "activities": ["cast slab", "roll", "cut"] },
+  "target_locations": { "option": "attribute", "attribute": "to_loc" },
+  "pickup_locations": { "option": "attribute", "attribute": "from_loc" },
+  "level": 3
+}
