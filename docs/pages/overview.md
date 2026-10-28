@@ -1,8 +1,8 @@
 # Overview page
 
 Concept: `overview/Deriving Locations.md`, section "overview" (outside this repo).
-Content elements are added one at a time; built so far: page filter bar, key numbers (with filtered values), configuration notices, flag badges.
-Still to come: data overview charts, activity profile, overview charts, flag explore sections.
+Content elements are added one at a time; built so far: page filter bar, key numbers (with filtered values), configuration notices, flag badges, data overview charts.
+Still to come: activity profile, overview charts, flag explore sections.
 
 ## Code
 - Page: `frontend-modules/location-ocpm/src/routes/Overview.tsx`
@@ -60,3 +60,34 @@ Implementation choice: the concept's filter line names "kept events with a locat
 **Filtering:** never filtered (whole log).
 **Code:** route `GET /{ocel_id}/overview/flags` (`getFlagCounts`); frontend `components/FlagBadges.tsx`.
 **How to change:** wording in `FLAGS`; colours in `FlagBadges` (`color` of the `Badge`).
+
+## 4. Data overview charts
+**What it shows:** three small charts in one row, each with its legend beneath; hovering a segment shows its count, its share and what a click does.
+- **Events** (sunburst): inner ring locatedness (fully / partially / unlocated), middle ring type (movement, transformation, movement and transformation, other), outer ring agreement (agreeing, not agreeing, not tested). Counts events.
+- **Relations: first level with a location** (donut): for every hu-event relation the lowest level k with loc_k ≠ ⊥, or ⊥ if there is none. Always all levels, independent of the selected one (helps to choose a level). Counts relations.
+- **Handling units** (donut): locatedness of each handling unit's trace at the selected level. Counts handling units with at least one event.
+
+**How it is calculated:** `overview/data_charts.py`, `data_charts(derivation, page_filter) -> DataCharts`.
+- Type: movement if e ∈ M \ T, transformation if e ∈ T \ M, "movement and transformation" if e ∈ M ∩ T, other otherwise (`event_categories`).
+- Agreement: "not tested" if fewer than two handling units of the event are located (agreeing by definition, but nothing is compared); otherwise agreeing or not agreeing at the selected level (`derivation.event_locations[level]`).
+- First level: `first_levels` over loc_0 … loc_3.
+- Locatedness of events and handling units: as in the filter bar (`derivation/agreement.py`).
+
+**Example** (running example, Level 3, no filter): events fully 15 (movement: 4 agreeing, 4 not tested; transformation: 2 agreeing, 1 not tested; other: 1 agreeing, 1 not agreeing (e14), 2 not tested), partially 1 (e16, other, not tested), unlocated 1 (e17, other, not tested); relations Level 0: 15, Level 1: 4, Level 2: 3, Level 3: 4, ⊥: 2; handling units fully 5, unlocated 1 (c5).
+**Filtering:** the sunburst counts kept events, the relations chart passing relations, the handling-unit chart kept handling units; properties come from the whole event or trace. Example "Location B1, after (target)": 6 events (e14 still fully located and not agreeing); relations Level 0: 4, Level 1: 2, Level 3: 2; handling units 4 fully located.
+**Clicking** a segment adds its filter value to the filter bar (once):
+
+| Segment | Filter value |
+|---|---|
+| fully / partially / unlocated (events) | Activity "[fully / partially / unlocated events]" |
+| movement, transformation | Activity "[movement events]", "[transformation events]" |
+| agreeing, not agreeing | Activity "[agreeing events]", "[disagreeing events]" |
+| fully / partially / unlocated (handling units) | Object type "[fully / partially / unlocated HUs]" |
+| movement and transformation, other, not tested, every segment of the relations chart | nothing (no filter value matches them) |
+
+Values within the Activity filter are combined with OR, so clicking an inner and then an outer segment widens the filter instead of narrowing it.
+A sunburst click never zooms into the segment.
+**Settings:** the selected level (events and handling units; the relations chart shows all levels).
+**Code:** route `GET /{ocel_id}/overview/data-charts` (`getDataCharts`); `Segment` carries id, label, parent, count and the click's `filter`; frontend `components/DataCharts.tsx` (`Sunburst`, `Donut`, `Legend`, `useAddFilter`). Colours: `STATUS` in `lib/palette.ts`. Click handling: `ThemedPlot` in `components/plots.tsx` (see `docs/hosting/dependencies.md`).
+**How to change:** a new ring value needs a branch in `event_categories`, an entry in `EVENT_TYPES` / `AGREEMENT` (backend) and `RINGS` (frontend), a colour in `STATUS`, and, if clicking should filter, an entry in `EVENT_FILTERS`. Height: `HEIGHT` in `DataCharts.tsx`. Tests: `tests/test_overview_data_charts.py`.
+**Alternatives:** bar charts instead of donuts (easier to compare small segments); a click that sets the whole path of a sunburst segment would need an AND between activity values, which the filter bar does not have.

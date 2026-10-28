@@ -1,18 +1,54 @@
 // Plotly basics shared by every chart: the theme-aware plot and the chart toolbar.
 import { Loader, useComputedColorScheme } from "@mantine/core";
 import { useMounted } from "@mantine/hooks";
-import { type ComponentProps, lazy, Suspense } from "react";
+import { type ComponentProps, lazy, Suspense, useRef } from "react";
 import type { Scheme } from "../lib/palette";
 
 // Plotly needs the browser, so the plot is only loaded there (like Ocelescope's own charts).
 const LazyPlot = lazy(() => import("@r4pm/components/charts").then((m) => ({ default: m.ThemedPlot })));
 
-/** Plotly chart in Ocelescope's theme, rendered only in the browser. */
-export const ThemedPlot = (props: ComponentProps<typeof LazyPlot>) => {
+type PlotProps = ComponentProps<typeof LazyPlot>;
+type PlotlyHandler = (event: Readonly<{ points: unknown[] }>) => unknown;
+type PlotlyDiv = HTMLElement & {
+  on: (event: string, handler: PlotlyHandler) => void;
+  removeListener: (event: string, handler: PlotlyHandler) => void;
+};
+
+/**
+ * Plotly chart in Ocelescope's theme, rendered only in the browser.
+ *
+ * `onClick` and `onSunburstClick` are attached here instead of by react-plotly.js: its 4.1.0
+ * loses them when React runs effects twice (development mode), because the plot is purged and
+ * rebuilt after the handlers were attached. Here they are (re)attached every time the plot is
+ * initialised, always calling the latest handler. `onSunburstClick` returning false prevents the
+ * zoom into the clicked segment.
+ */
+export const ThemedPlot = ({ onClick, onSunburstClick, onInitialized, ...props }: PlotProps) => {
   const mounted = useMounted();
+  const latest = useRef({ onClick, onSunburstClick });
+  latest.current = { onClick, onSunburstClick };
+  const handlers = useRef<Record<string, PlotlyHandler>>({
+    plotly_click: (e) => (latest.current.onClick as PlotlyHandler | undefined)?.(e),
+    plotly_sunburstclick: (e) => (latest.current.onSunburstClick as PlotlyHandler | undefined)?.(e),
+  });
+  const attach: PlotProps["onInitialized"] = (figure, gd) => {
+    const div = gd as unknown as PlotlyDiv;
+    const reattach = () => {
+      for (const [event, handler] of Object.entries(handlers.current)) {
+        div.removeListener?.(event, handler);
+        div.on?.(event, handler);
+      }
+    };
+    reattach();
+    // Again once react-plotly.js has added its own listeners (right after this callback):
+    // Plotly only honours the last listener's return value, and `false` must win so that a
+    // sunburst click does not zoom.
+    queueMicrotask(reattach);
+    onInitialized?.(figure, gd);
+  };
   return mounted ? (
     <Suspense fallback={<Loader size="sm" />}>
-      <LazyPlot {...props} />
+      <LazyPlot {...props} onInitialized={attach} />
     </Suspense>
   ) : null;
 };
