@@ -28,20 +28,20 @@ Still to come: data overview charts, activity profile, overview charts, flag exp
 
 | Tile | Big number | Small line |
 |---|---|---|
-| Handling units | \|HU\|, including handling units without events | count per object type, largest first, e.g. "coil 5 · slab 1"; beyond five types "+ n more", hovering it lists all |
+| Handling units | \|HU\|, including handling units without events | count per object type, largest first, e.g. "coil 5 · slab 1"; beyond five types the first five and "(+n)" for the n further types, hovering it lists all |
 | Agreed located events | events with eloc(e) ≠ ⊥ at the selected level, "x of \|E\|" | share of all events |
 | Relations with a known location | relations with loc ≠ ⊥ at the selected level, "x of \|E2HU\|" | share · "loc at Level k" |
 | Movement events | \|M\| | "provided" |
 | Locations | \|L\| = distinct locations in uloc ∪ puloc | "target n · pickup m" (pickup "–" if no pickup locations are configured) |
-| Transformation events | \|T\|; "–" if none are configured | "no transformation events configured" if none are configured |
+| Transformation events | \|T\|; "–" if none are configured | events per transformation activity, largest first, e.g. "cast slab 1 · cut 1 · roll 1"; beyond three activities "(+n)", hovering it lists all; "no transformation events configured" if none are configured |
 
 With an active filter, each tile shows the filtered value in brackets next to the big number, smaller and in the accent colour: kept handling units; kept events with eloc ≠ ⊥; passing relations with loc ≠ ⊥ "of" passing relations; kept movement events; distinct locations of the passing relations (loc for "after", ploc for "before", both for "either"); kept transformation events.
 
 **How it is calculated:** `overview/key_numbers.py`, `key_numbers(derivation) -> KeyNumbers`.
 eloc and loc come from the derivation at the selected level (`derivation.event_locations[level]["eloc"]`, `derivation.relations[derivation.loc]`); see `docs/resources/location-derivation.md`.
 Pickup locations are counted after ignoring pickups of non-movement events (as resolved).
-**Example** (running example, Level 3): 6 (coil 5 · slab 1); 15 of 17, 88 % (e14 not agreeing, e17 unlocated); 26 of 28, 93 % · loc at Level 3; 8; 4 (target 4 · pickup 2); 3.
-**Filtering:** big numbers never; filtered values as above (`filtered_numbers`). Example "Location B1, after (target)": 6 (4); 15 of 17 (5); 26 of 28 (8 of 8); 8 (2); 4 (1); 3 (1).
+**Example** (running example, Level 3): 6 (coil 5 · slab 1); 15 of 17, 88 % (e14 not agreeing, e17 unlocated); 26 of 28, 93 % · loc at Level 3; 8; 4 (target 4 · pickup 2); 3 (cast slab 1 · cut 1 · roll 1).
+**Filtering:** big numbers never; filtered values as above (`filtered_numbers`). Example "Location B1, after (target)": 6 (4); 15 of 17 (5); 26 of 28 (8 of 8); 8 (2); 4 (1); 3 (1). The small grey lines are never filtered.
 Implementation choice: the concept's filter line names "kept events with a location from the input" for the second tile, but the tile itself counts agreed located events; the filtered value follows the tile (kept events with eloc ≠ ⊥: 5 in the example; with "location from the input" it would be 3).
 **Settings:** the selected level (configuration).
 **Code:** backend `key_numbers(derivation, page_filter)` and `filtered_numbers` (route `GET /{ocel_id}/overview/key-numbers`, `getKeyNumbers`); frontend `components/KeyNumbers.tsx` (`KeyNumbers`, `Tile`; the shortened type list is `components/ShortList.tsx`, limit `SHORT_LIST_LIMIT`; accent colour from `lib/palette.ts`, `UI`).

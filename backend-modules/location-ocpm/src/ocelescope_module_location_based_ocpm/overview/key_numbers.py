@@ -19,6 +19,13 @@ class TypeCount(BaseModel):
     count: int
 
 
+class ActivityCount(BaseModel):
+    """Number of events of one activity."""
+
+    activity: str
+    count: int
+
+
 class FilteredNumbers(BaseModel):
     """The tiles' values under the page filter.
 
@@ -59,6 +66,8 @@ class KeyNumbers(BaseModel):
         pickup_locations: Distinct locations in puloc (after ignoring pickups of non-movement
             events); None if no pickup locations are configured.
         transformation_events: |T|; None if no transformation events are configured.
+        transformation_activities: Events of T per activity, largest first (ties alphabetical);
+            empty if there are none.
         filtered: The values under the page filter; None if no filter is active.
     """
 
@@ -74,6 +83,7 @@ class KeyNumbers(BaseModel):
     target_locations: int
     pickup_locations: int | None
     transformation_events: int | None
+    transformation_activities: list[ActivityCount]
     filtered: FilteredNumbers | None = None
 
 
@@ -130,6 +140,12 @@ def key_numbers(derivation: Derivation, page_filter: PageFilter | None = None) -
     agreed = derivation.event_locations[derivation.level]["eloc"].is_not_null().sum()
     targets = _distinct(events[c.ULOC])
     pickups = _distinct(events[c.PULOC])
+    per_activity = (
+        events.filter(c.IS_TRANSFORMATION)
+        .group_by(c.ACTIVITY)
+        .agg(pl.len().alias("count"))
+        .sort(["count", c.ACTIVITY], descending=[True, False])
+    )
     config = derivation.config
     return KeyNumbers(
         handling_units=hus.height,
@@ -144,5 +160,6 @@ def key_numbers(derivation: Derivation, page_filter: PageFilter | None = None) -
         target_locations=len(targets),
         pickup_locations=None if config.pickup_locations is None else len(pickups),
         transformation_events=None if config.transformation_events is None else int(events[c.IS_TRANSFORMATION].sum()),
+        transformation_activities=[ActivityCount(activity=a, count=n) for a, n in per_activity.rows()],
         filtered=filtered_numbers(derivation, page_filter) if page_filter and page_filter.active else None,
     )

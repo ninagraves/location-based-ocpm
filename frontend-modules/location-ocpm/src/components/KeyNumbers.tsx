@@ -77,7 +77,13 @@ export const KeyNumbers = ({ ocelId }: { ocelId: string }) => {
         label="Transformation events"
         value={num(data.transformation_events)}
         filtered={f && data.transformation_events !== null && data.transformation_events !== undefined ? num(f.transformation_events) : undefined}
-        sub={data.transformation_events === null || data.transformation_events === undefined ? "no transformation events configured" : undefined}
+        sub={
+          data.transformation_events === null || data.transformation_events === undefined ? (
+            "no transformation events configured"
+          ) : data.transformation_activities.length > 0 ? (
+            <ShortList items={data.transformation_activities.map((a) => `${a.activity} ${num(a.count)}`)} limit={3} />
+          ) : undefined
+        }
       />
     </SimpleGrid>
   );

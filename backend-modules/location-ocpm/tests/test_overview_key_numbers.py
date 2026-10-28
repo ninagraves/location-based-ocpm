@@ -18,11 +18,13 @@ def test_key_numbers_level_3(derivation):
     assert numbers.target_locations == 4
     assert numbers.pickup_locations == 2
     assert numbers.transformation_events == 3
+    assert [(a.activity, a.count) for a in numbers.transformation_activities] == [("cast slab", 1), ("cut", 1), ("roll", 1)]
 
 
 def test_key_numbers_without_optional_inputs(ocel):
     numbers = key_numbers(derive(ocel, example_config(transformation_events=None, pickup_locations=None, level=0)))
     assert numbers.transformation_events is None
+    assert numbers.transformation_activities == []
     assert numbers.pickup_locations is None
     assert numbers.level == 0
     assert numbers.located_relations < 26
