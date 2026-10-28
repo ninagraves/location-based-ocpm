@@ -68,6 +68,7 @@ class KeyNumbers(BaseModel):
         transformation_events: |T|; None if no transformation events are configured.
         transformation_activities: Events of T per activity, largest first (ties alphabetical);
             empty if there are none.
+        movement_activities: Events of M per activity, largest first (ties alphabetical).
         filtered: The values under the page filter; None if no filter is active.
     """
 
@@ -84,12 +85,32 @@ class KeyNumbers(BaseModel):
     pickup_locations: int | None
     transformation_events: int | None
     transformation_activities: list[ActivityCount]
+    movement_activities: list[ActivityCount]
     filtered: FilteredNumbers | None = None
 
 
 def _distinct(column: pl.Series) -> set[str]:
     """Distinct provided values of a column (null is ⊥ and not counted)."""
     return set(column.drop_nulls().to_list())
+
+
+def _per_activity(events: pl.DataFrame, flag: str) -> list[ActivityCount]:
+    """Events with `flag` set, counted per activity, largest first (ties alphabetical).
+
+    Args:
+        events: The derivation's events frame.
+        flag: Boolean column selecting the events, e.g. is_movement.
+
+    Returns:
+        list[ActivityCount]: One entry per activity; empty if no event has the flag.
+    """
+    counted = (
+        events.filter(pl.col(flag))
+        .group_by(c.ACTIVITY)
+        .agg(pl.len().alias("count"))
+        .sort(["count", c.ACTIVITY], descending=[True, False])
+    )
+    return [ActivityCount(activity=a, count=n) for a, n in counted.rows()]
 
 
 def filtered_numbers(derivation: Derivation, page_filter: PageFilter) -> FilteredNumbers:
@@ -140,12 +161,6 @@ def key_numbers(derivation: Derivation, page_filter: PageFilter | None = None) -
     agreed = derivation.event_locations[derivation.level]["eloc"].is_not_null().sum()
     targets = _distinct(events[c.ULOC])
     pickups = _distinct(events[c.PULOC])
-    per_activity = (
-        events.filter(c.IS_TRANSFORMATION)
-        .group_by(c.ACTIVITY)
-        .agg(pl.len().alias("count"))
-        .sort(["count", c.ACTIVITY], descending=[True, False])
-    )
     config = derivation.config
     return KeyNumbers(
         handling_units=hus.height,
@@ -160,6 +175,7 @@ def key_numbers(derivation: Derivation, page_filter: PageFilter | None = None) -
         target_locations=len(targets),
         pickup_locations=None if config.pickup_locations is None else len(pickups),
         transformation_events=None if config.transformation_events is None else int(events[c.IS_TRANSFORMATION].sum()),
-        transformation_activities=[ActivityCount(activity=a, count=n) for a, n in per_activity.rows()],
+        transformation_activities=_per_activity(events, c.IS_TRANSFORMATION),
+        movement_activities=_per_activity(events, c.IS_MOVEMENT),
         filtered=filtered_numbers(derivation, page_filter) if page_filter and page_filter.active else None,
     )

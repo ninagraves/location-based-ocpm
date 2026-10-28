@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from ocelescope_module_location_based_ocpm.configuration_routes import CurrentDerivation
+from ocelescope_module_location_based_ocpm.overview.data_charts import DataCharts, data_charts
 from ocelescope_module_location_based_ocpm.overview.filters import (
     FilterOptions,
     LocationRole,
@@ -57,3 +58,9 @@ def get_key_numbers(derivation: CurrentDerivation, page_filter: Filter) -> KeyNu
 def get_flag_counts(derivation: CurrentDerivation) -> list[FlagCount]:
     """Flag counts of the whole log at the selected level (never filtered)."""
     return flag_counts(derivation)
+
+
+@router.get("/{ocel_id}/overview/data-charts", operation_id="getDataCharts")
+def get_data_charts(derivation: CurrentDerivation, page_filter: Filter) -> DataCharts:
+    """Events sunburst, E2HU chart and HU chart, counted over the kept part of the log."""
+    return data_charts(derivation, page_filter)

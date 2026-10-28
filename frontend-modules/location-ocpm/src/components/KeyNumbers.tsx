@@ -66,7 +66,12 @@ export const KeyNumbers = ({ ocelId }: { ocelId: string }) => {
         filtered={f && `${num(f.located_relations)} of ${num(f.relations)}`}
         sub={`${pct(data.located_relations / data.relations)} · loc at Level ${data.level}`}
       />
-      <Tile label="Movement events" value={num(data.movement_events)} filtered={f && num(f.movement_events)} sub="provided" />
+      <Tile
+        label="Movement events"
+        value={num(data.movement_events)}
+        filtered={f && num(f.movement_events)}
+        sub={<ShortList items={data.movement_activities.map((a) => `${a.activity} ${num(a.count)}`)} limit={3} />}
+      />
       <Tile
         label="Locations"
         value={num(data.locations)}

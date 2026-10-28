@@ -1,8 +1,8 @@
 # Overview page
 
 Concept: `overview/Deriving Locations.md`, section "overview" (outside this repo).
-Content elements are added one at a time; built so far: page filter bar, key numbers (with filtered values), configuration notices, flag badges.
-Still to come: data overview charts, activity profile, overview charts, flag explore sections.
+Content elements are added one at a time; built so far: page filter bar, key numbers (with filtered values), configuration notices, flag badges, data overview charts.
+Still to come: activity profile, overview charts, flag explore sections.
 
 ## Code
 - Page: `frontend-modules/location-ocpm/src/routes/Overview.tsx`
@@ -11,16 +11,16 @@ Still to come: data overview charts, activity profile, overview charts, flag exp
 - Number formatting: `frontend-modules/location-ocpm/src/lib/format.ts` (`num`, `pct`).
 
 ## 0. Page filter bar
-**What it shows:** a bar that sticks to the top while scrolling, with Activity, Exclude activity, Location, Exclude location, the switch "Location filters match: either / before (pickup) / after (target)", Object type, Exclude object type, and "Clear filters" (only while a filter is set). Each option shows its count over the whole log in brackets.
+**What it shows:** a bar that sticks to the top while scrolling, with three columns: Activity, Location and Object type. Each column has an "include" picker and below it an "exclude" picker. Next to the Location heading, the switch "either / pre / post" decides whether a location filter matches ploc (pre, the pickup or previous location), loc (post, the target or current location) or either. "Clear filters" appears next to the Object type heading while a filter is set. Each option shows its count over the whole log in brackets.
 - Activity lists: "[movement events]", "[transformation events]", "[fully / partially / unlocated events]", "[agreeing / disagreeing events]", then the activities; counts are events.
 - Location lists: "[unknown]" (⊥), then the locations; counts are relations whose loc or ploc is that location ("[unknown]": loc or ploc is ⊥).
 - Object type lists: "[fully / partially / unlocated HUs]", then the object types; counts are handling units.
 
-**How it is calculated** (`overview/filters.py`): every filter is evaluated on hu-event relations at the selected level (`relation_properties`, `passes`). A relation passes if it passes every active filter (AND across filters, OR within one filter's values; an exclude filter removes matching relations). Location filters match loc ("after"), ploc ("before") or either. Special values match properties of the whole event or the whole trace (locatedness, agreement), never of the passing relations only. Events and handling units are kept if at least one of their relations passes. Filters never change loc or ploc.
-**Example** (running example, Level 3, "Location B1, after (target)"): 8 passing relations (c1, e7), (c3, e10), (c2, e12), (c3, e12), (c3, e14), (c2, e15), (c4, e15), (c4, e16); kept events e7, e10, e12, e14, e15, e16; kept handling units c1-c4.
+**How it is calculated** (`overview/filters.py`): every filter is evaluated on hu-event relations at the selected level (`relation_properties`, `passes`). A relation passes if it passes every active filter (AND across filters, OR within one filter's values; an exclude filter removes matching relations). Location filters match loc ("post", `after` in the API), ploc ("pre", `before`) or either. Special values match properties of the whole event or the whole trace (locatedness, agreement), never of the passing relations only. Events and handling units are kept if at least one of their relations passes. Filters never change loc or ploc.
+**Example** (running example, Level 3, "Location B1, post"): 8 passing relations (c1, e7), (c3, e10), (c2, e12), (c3, e12), (c3, e14), (c2, e15), (c4, e15), (c4, e16); kept events e7, e10, e12, e14, e15, e16; kept handling units c1-c4.
 **State:** kept per log across page switches and browser reloads (`lib/filters.ts`, `usePageFilter`, on top of `lib/pageState.ts`); sent to every filtered route as query parameters (lists as repeated parameters, `filterRequest`).
 **Code:** backend `PageFilter`, `passing_relations`, `filter_options` (route `GET /{ocel_id}/overview/filter-options`, `getFilterOptions`; filter parameters parsed by `overview_routes.get_page_filter`); frontend `components/FilterBar.tsx`.
-**How to change:** a new special value needs a constant and a branch in `_activity_match` / `_location_match` / `_object_type_match`, an entry in `filter_options`, and a test in `tests/test_overview_filters.py`. A new filter needs a field in `PageFilter` (backend and `lib/filters.ts`), a parameter in `get_page_filter`, a branch in `passes`, and a `Pick` in `FilterBar`.
+**How to change:** a new special value needs a constant and a branch in `_activity_match` / `_location_match` / `_object_type_match`, an entry in `filter_options`, and a test in `tests/test_overview_filters.py`. A new filter needs a field in `PageFilter` (backend and `lib/filters.ts`), a parameter in `get_page_filter`, a branch in `passes`, and a `Column` (or a picker in one) in `FilterBar`.
 **Alternatives:** filtering events (instead of relations) would make location filters ambiguous for events whose handling units are at different locations; the concept chose relations.
 
 ## 1. Key numbers
@@ -31,7 +31,7 @@ Still to come: data overview charts, activity profile, overview charts, flag exp
 | Handling units | \|HU\|, including handling units without events | count per object type, largest first, e.g. "coil 5 · slab 1"; beyond five types the first five and "(+n)" for the n further types, hovering it lists all |
 | Agreed located events | events with eloc(e) ≠ ⊥ at the selected level, "x of \|E\|" | share of all events |
 | Relations with a known location | relations with loc ≠ ⊥ at the selected level, "x of \|E2HU\|" | share · "loc at Level k" |
-| Movement events | \|M\| | "provided" |
+| Movement events | \|M\| | events per movement activity, largest first, e.g. "crane move 4 · load truck 2 · unload truck 2"; beyond three activities "(+n)", hovering it lists all |
 | Locations | \|L\| = distinct locations in uloc ∪ puloc | "target n · pickup m" (pickup "–" if no pickup locations are configured) |
 | Transformation events | \|T\|; "–" if none are configured | events per transformation activity, largest first, e.g. "cast slab 1 · cut 1 · roll 1"; beyond three activities "(+n)", hovering it lists all; "no transformation events configured" if none are configured |
 
@@ -40,8 +40,8 @@ With an active filter, each tile shows the filtered value in brackets next to th
 **How it is calculated:** `overview/key_numbers.py`, `key_numbers(derivation) -> KeyNumbers`.
 eloc and loc come from the derivation at the selected level (`derivation.event_locations[level]["eloc"]`, `derivation.relations[derivation.loc]`); see `docs/resources/location-derivation.md`.
 Pickup locations are counted after ignoring pickups of non-movement events (as resolved).
-**Example** (running example, Level 3): 6 (coil 5 · slab 1); 15 of 17, 88 % (e14 not agreeing, e17 unlocated); 26 of 28, 93 % · loc at Level 3; 8; 4 (target 4 · pickup 2); 3 (cast slab 1 · cut 1 · roll 1).
-**Filtering:** big numbers never; filtered values as above (`filtered_numbers`). Example "Location B1, after (target)": 6 (4); 15 of 17 (5); 26 of 28 (8 of 8); 8 (2); 4 (1); 3 (1). The small grey lines are never filtered.
+**Example** (running example, Level 3): 6 (coil 5 · slab 1); 15 of 17, 88 % (e14 not agreeing, e17 unlocated); 26 of 28, 93 % · loc at Level 3; 8 (crane move 4 · load truck 2 · unload truck 2); 4 (target 4 · pickup 2); 3 (cast slab 1 · cut 1 · roll 1).
+**Filtering:** big numbers never; filtered values as above (`filtered_numbers`). Example "Location B1, post": 6 (4); 15 of 17 (5); 26 of 28 (8 of 8); 8 (2); 4 (1); 3 (1). The small grey lines are never filtered.
 Implementation choice: the concept's filter line names "kept events with a location from the input" for the second tile, but the tile itself counts agreed located events; the filtered value follows the tile (kept events with eloc ≠ ⊥: 5 in the example; with "location from the input" it would be 3).
 **Settings:** the selected level (configuration).
 **Code:** backend `key_numbers(derivation, page_filter)` and `filtered_numbers` (route `GET /{ocel_id}/overview/key-numbers`, `getKeyNumbers`); frontend `components/KeyNumbers.tsx` (`KeyNumbers`, `Tile`; the shortened type list is `components/ShortList.tsx`, limit `SHORT_LIST_LIMIT`; accent colour from `lib/palette.ts`, `UI`).
@@ -60,3 +60,34 @@ Implementation choice: the concept's filter line names "kept events with a locat
 **Filtering:** never filtered (whole log).
 **Code:** route `GET /{ocel_id}/overview/flags` (`getFlagCounts`); frontend `components/FlagBadges.tsx`.
 **How to change:** wording in `FLAGS`; colours in `FlagBadges` (`color` of the `Badge`).
+
+## 4. Data overview charts
+**What it shows:** three small charts in one row, each with its legend beneath; hovering a segment shows its count, its share and what a click does.
+- **Events** (sunburst): inner ring locatedness (fully / partially / unlocated), middle ring type (movement, transformation, movement and transformation, other), outer ring agreement (agreeing, not agreeing, not tested). Counts events.
+- **Relations: first level with a location** (donut): for every hu-event relation the lowest level k with loc_k ≠ ⊥, or ⊥ if there is none. Always all levels, independent of the selected one (helps to choose a level). Counts relations.
+- **Handling units** (donut): locatedness of each handling unit's trace at the selected level. Counts handling units with at least one event.
+
+**How it is calculated:** `overview/data_charts.py`, `data_charts(derivation, page_filter) -> DataCharts`.
+- Type: movement if e ∈ M \ T, transformation if e ∈ T \ M, "movement and transformation" if e ∈ M ∩ T, other otherwise (`event_categories`).
+- Agreement: "not tested" if fewer than two handling units of the event are located (agreeing by definition, but nothing is compared); otherwise agreeing or not agreeing at the selected level (`derivation.event_locations[level]`).
+- First level: `first_levels` over loc_0 … loc_3.
+- Locatedness of events and handling units: as in the filter bar (`derivation/agreement.py`).
+
+**Example** (running example, Level 3, no filter): events fully 15 (movement: 4 agreeing, 4 not tested; transformation: 2 agreeing, 1 not tested; other: 1 agreeing, 1 not agreeing (e14), 2 not tested), partially 1 (e16, other, not tested), unlocated 1 (e17, other, not tested); relations Level 0: 15, Level 1: 4, Level 2: 3, Level 3: 4, ⊥: 2; handling units fully 5, unlocated 1 (c5).
+**Filtering:** the sunburst counts kept events, the relations chart passing relations, the handling-unit chart kept handling units; properties come from the whole event or trace. Example "Location B1, post": 6 events (e14 still fully located and not agreeing); relations Level 0: 4, Level 1: 2, Level 3: 2; handling units 4 fully located.
+**Clicking** a segment adds its filter value to the filter bar (once):
+
+| Segment | Filter value |
+|---|---|
+| fully / partially / unlocated (events) | Activity "[fully / partially / unlocated events]" |
+| movement, transformation | Activity "[movement events]", "[transformation events]" |
+| agreeing, not agreeing | Activity "[agreeing events]", "[disagreeing events]" |
+| fully / partially / unlocated (handling units) | Object type "[fully / partially / unlocated HUs]" |
+| movement and transformation, other, not tested, every segment of the relations chart | nothing (no filter value matches them) |
+
+Values within the Activity filter are combined with OR, so clicking an inner and then an outer segment widens the filter instead of narrowing it.
+A sunburst click never zooms into the segment.
+**Settings:** the selected level (events and handling units; the relations chart shows all levels).
+**Code:** route `GET /{ocel_id}/overview/data-charts` (`getDataCharts`); `Segment` carries id, label, parent, count and the click's `filter`; frontend `components/DataCharts.tsx` (`Sunburst`, `Donut`, `Legend`, `useAddFilter`). Colours: `STATUS` in `lib/palette.ts`. Click handling: `ThemedPlot` in `components/plots.tsx` (see `docs/hosting/dependencies.md`).
+**How to change:** a new ring value needs a branch in `event_categories`, an entry in `EVENT_TYPES` / `AGREEMENT` (backend) and `RINGS` (frontend), a colour in `STATUS`, and, if clicking should filter, an entry in `EVENT_FILTERS`. Height: `HEIGHT` in `DataCharts.tsx`. Tests: `tests/test_overview_data_charts.py`.
+**Alternatives:** bar charts instead of donuts (easier to compare small segments); a click that sets the whole path of a sunburst segment would need an AND between activity values, which the filter bar does not have.

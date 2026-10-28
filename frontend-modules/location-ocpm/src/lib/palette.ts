@@ -57,6 +57,28 @@ export const UI: Record<Scheme, { primary: string; accent: string; error: string
   dark: { primary: "#42a3a8", accent: "#e266a9", error: "#ff6b6b" },
 };
 
+/**
+ * Fixed colours of the data overview charts (status values, not identities): locatedness from
+ * petrol (fully) to grey (unlocated), agreement green / pink / light grey, derivation levels
+ * from dark (Level 0, provided) to light (Level 3), ⊥ grey. Event types use categorical slots.
+ */
+export const STATUS: Record<Scheme, Record<string, string>> = {
+  light: {
+    "fully located": "#006165", "partially located": "#4fbec1", unlocated: OTHER.light,
+    movement: CATEGORICAL.light[0], transformation: CATEGORICAL.light[1],
+    "movement and transformation": CATEGORICAL.light[3], other: "#ced4da",
+    agreeing: "#007e56", "not agreeing": "#CE108A", "not tested": "#dee2e6",
+    "0": "#034648", "1": "#067b7e", "2": "#4fbec1", "3": "#a1dfd7", "⊥": OTHER.light,
+  },
+  dark: {
+    "fully located": "#42a3a8", "partially located": "#188489", unlocated: OTHER.dark,
+    movement: CATEGORICAL.dark[0], transformation: CATEGORICAL.dark[1],
+    "movement and transformation": CATEGORICAL.dark[3], other: "#495057",
+    agreeing: "#61bb79", "not agreeing": "#e266a9", "not tested": "#373a40",
+    "0": "#a1dfd7", "1": "#6cbec2", "2": "#188489", "3": "#005256", "⊥": OTHER.dark,
+  },
+};
+
 // --- OKLCH helpers (only used to derive colours beyond the listed slots) ---
 
 const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);

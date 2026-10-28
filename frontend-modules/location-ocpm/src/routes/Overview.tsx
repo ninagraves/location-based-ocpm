@@ -2,6 +2,7 @@
 import { Stack } from "@mantine/core";
 import { useGetConfig } from "../api/locationBasedOcpm";
 import { Notices } from "../components/ConfigForm";
+import { DataCharts } from "../components/DataCharts";
 import { FilterBar } from "../components/FilterBar";
 import { FlagBadges } from "../components/FlagBadges";
 import { KeyNumbers } from "../components/KeyNumbers";
@@ -22,6 +23,7 @@ export default function Overview() {
           <KeyNumbers ocelId={ocelId} />
           <ConfigNotices ocelId={ocelId} />
           <FlagBadges ocelId={ocelId} />
+          <DataCharts ocelId={ocelId} />
         </Stack>
       )}
     </ModulePage>
