@@ -4,9 +4,9 @@ Shown on top of every page. Concept: `overview/Deriving Locations.md`, sections 
 How the inputs are resolved and checked: `docs/resources/location-derivation.md`, section 1 and 2. Storage and caching: `docs/hosting/state-and-caching.md`.
 
 ## 1. Configuration summary
-**What it shows:** one line, e.g. `Configuration: handling units slab, coil; locations from "to_loc"; Level 3.`, then the notices of the applied configuration as grey lines, and the button "Edit configuration".
+**What it shows:** one line, e.g. `Configuration: handling units slab, coil; locations from "to_loc"; Level 3.`, and the button "Edit configuration". The notices of the applied configuration appear on the page below the key numbers (`overview.md`, section 2).
 Locations read `from qualifier "to"` for the e2o-qualifier option and `from table "target_locations.csv"` for a table.
-**Example:** running example configuration (see `data/running_example/README.md`) gives the line above and no notices.
+**Example:** running example configuration (see `data/running_example/README.md`) gives the line above.
 **Filtering:** not affected by filters.
 **Code:** `ModulePage.tsx`, `summaryLine(config)` (the text) and `locationSource(locations)` (the locations part); the card is built in `ModulePage`.
 **How to change:** add a part (e.g. movement activities) in `summaryLine`; keep it one line.
@@ -39,7 +39,7 @@ One section per input, each with an option switch, the matching pickers and an �
 - `toConfig(draft)` → `DerivationConfig` sent to the backend; `fromConfig(config)` the reverse (applied or loaded configuration).
 - Sections: `EventSetFields` (movement and transformation events), `LocationFields` (target and pickup locations), `TableColumns` (table, columns, upload, preview), `CountPicker`, `AttributeValuePicker`.
 - Texts: `INFO` (ⓘ texts) and `LEVELS` (level labels).
-- Errors and notices: `MessageLine`, `Notices` (also used by the summary).
+- Errors and notices: `MessageLine`, `Notices` (also used for the configuration notices on the overview page).
 - Backend: `configuration_routes.py` (`get_options`, `get_attribute_values`, `apply_config`, `upload_table`), resolution in `derivation/inputs.py`.
 
 **How to change:**

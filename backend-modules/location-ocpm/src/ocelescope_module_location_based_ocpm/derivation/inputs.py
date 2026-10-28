@@ -56,12 +56,17 @@ class ResolvedInputs:
             is_movement, is_transformation, uloc, puloc.
         notices: Non-blocking reports (dropped rows, ignored pickups, ...).
         errors: Blocking errors; if not empty, the configuration cannot be applied.
+        handling_units: All handling units HU with columns hu, object_type, including those
+            without any event.
     """
 
     relations: pl.DataFrame
     events: pl.DataFrame
     notices: list[Notice] = field(default_factory=list)
     errors: list[BlockingError] = field(default_factory=list)
+    handling_units: pl.DataFrame = field(
+        default_factory=lambda: pl.DataFrame(schema={c.HU: pl.String, c.OBJECT_TYPE: pl.String})
+    )
 
 
 def provided(column: str) -> pl.Expr:
@@ -411,4 +416,10 @@ def resolve_inputs(ocel: OCEL, config: DerivationConfig, tables: dict[str, pl.Da
         .join(hus, on=c.HU, how="inner")
     )
     relations = e2hu.join(events, on=c.EVENT, how="inner").sort(c.HU, c.TIME, c.EVENT)
-    return ResolvedInputs(relations=relations, events=events.sort(c.TIME, c.EVENT), notices=notices, errors=errors)
+    return ResolvedInputs(
+        relations=relations,
+        events=events.sort(c.TIME, c.EVENT),
+        notices=notices,
+        errors=errors,
+        handling_units=hus.sort(c.HU),
+    )
