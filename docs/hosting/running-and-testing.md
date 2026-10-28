@@ -19,4 +19,7 @@ pnpm run dev           # backend http://localhost:8002 (auto-reload), app http:/
 The running example log is `data/running_example/running_example.sqlite` (upload it in the app); see `data/running_example/README.md`.
 
 ## Tests
-Not set up yet. Iteration 2 adds pytest tests that reproduce every running example table.
+```bash
+uv run pytest
+```
+Tests live in `backend-modules/location-ocpm/tests/` and compare the derivation with the running example's expected results (`data/running_example/expected/`). Configured in the root `pyproject.toml` (`[tool.pytest.ini_options]`; pytest is in the `dev` dependency group, installed by `uv sync`).

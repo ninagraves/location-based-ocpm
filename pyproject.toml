@@ -17,3 +17,10 @@ members = ["backend-modules/*"]
 
 [tool.uv.sources]
 ocelescope-module-location-based-ocpm = { workspace = true }
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend-modules/location-ocpm/tests"]
+pythonpath = ["backend-modules/location-ocpm/tests"]
