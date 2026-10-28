@@ -1,0 +1,53 @@
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim@sha256:531f855bda2c73cd6ef67d56b733b357cea384185b3022bd09f05e002cd144ca AS builder
+
+ENV UV_COMPILE_BYTECODE=1 \
+  UV_LINK_MODE=copy \
+  UV_NO_DEV=1 \
+  UV_PYTHON_DOWNLOADS=0
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  build-essential \
+  git \
+  && rm -rf /var/lib/apt/lists/*
+
+# Install the published dependencies (ocelescope-backend, etc.) without the
+# local workspace members so this layer stays cached across module changes.
+RUN --mount=type=cache,target=/root/.cache/uv \
+  --mount=type=bind,source=uv.lock,target=uv.lock \
+  --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+  uv sync --frozen --no-install-workspace --no-dev
+
+COPY pyproject.toml uv.lock /app/
+COPY backend-modules /app/backend-modules
+
+# Install the local backend modules on top of the cached dependency layer.
+RUN --mount=type=cache,target=/root/.cache/uv \
+  uv sync --frozen --no-dev --all-packages
+
+FROM python:3.13-slim-bookworm@sha256:fcbd8dfc2605ba7c2eca646846c5e892b2931e41f6227985154a596f26ab8ed7 AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  graphviz \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --system --gid 999 nonroot \
+  && useradd --system --uid 999 --gid 999 --create-home nonroot
+
+WORKDIR /app
+
+COPY --from=builder --chown=nonroot:nonroot /app /app
+RUN mkdir -p /data
+COPY --from=data / /data/
+
+ENV PATH="/app/.venv/bin:$PATH"
+ENV DATA_DIR="/data"
+ENV PLUGIN_DIR="/plugins"
+
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+USER root
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["ocelescope-backend", "serve", "--host", "0.0.0.0", "--port", "8000"]

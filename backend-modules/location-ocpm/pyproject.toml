@@ -1,0 +1,20 @@
+[project]
+name = "ocelescope-module-location-based-ocpm"
+version = "0.1.0"
+readme = "README.md"
+description = "Location-based object-centric process mining for production and logistics"
+authors = [{ name = "Nina Graves" }]
+requires-python = ">=3.11"
+dependencies = [
+  "ocelescope-backend>=0.10.2",
+]
+
+[project.entry-points."ocelescope_backend.modules"]
+locationBasedOcpm = "ocelescope_module_location_based_ocpm.module:LocationBasedOcpm"
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+package = true

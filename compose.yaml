@@ -1,0 +1,37 @@
+name: ocelescope-instance
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      additional_contexts:
+        - data=./data
+    ports:
+      - "8002:8000"
+    environment:
+      DATA_DIR: /data
+      PLUGIN_DIR: /plugins
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - backend-data:/data
+      - backend-plugins:/plugins
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        NEXT_PUBLIC_APP_VERSION: latest
+    ports:
+      - "3002:3000"
+    environment:
+      EXTERNAL_API_BASE_URL: http://backend:8000
+    depends_on:
+      - backend
+
+volumes:
+  backend-data:
+  backend-plugins:

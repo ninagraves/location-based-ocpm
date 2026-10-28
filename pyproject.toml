@@ -1,0 +1,17 @@
+[project]
+name = "ocelescope-instance"
+version = "0.1.0"
+description = "An Ocelescope instance: the published backend host plus local modules"
+requires-python = ">=3.11"
+# `pnpm run add:backend` adds local backend modules here.
+dependencies = [
+  "ocelescope-backend>=0.10.2",
+  "ocelescope-module-location-based-ocpm",
+  "ocelescope-module-ocel>=0.10.2",
+]
+
+[tool.uv.workspace]
+members = ["backend-modules/*"]
+
+[tool.uv.sources]
+ocelescope-module-location-based-ocpm = { workspace = true }

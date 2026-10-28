@@ -1,0 +1,17 @@
+# Installed and built in the images; never copy local ones in.
+**/node_modules
+**/.venv
+**/__pycache__
+**/dist
+app/.next
+app/next-env.d.ts
+
+# Generated API clients (regenerated during the frontend image build)
+frontend-modules/*/openapi.json
+frontend-modules/*/src/api
+
+# Local config and repo metadata
+.env
+**/.env.local
+.git
+.github
