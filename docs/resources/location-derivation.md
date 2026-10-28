@@ -55,8 +55,8 @@ How to change:
 - New option for an input: add a model to `config.py`, add it to the input's union type, handle it in the matching `resolve_…` function, add a test with the running example.
 - What counts as empty: `EMPTY_STRINGS` and `provided` in `inputs.py`.
 
-Implementation choices (not in the concept, open for review):
-- Handling-unit tables: rows with unknown object ids are dropped and reported, like event tables.
+Implementation choices (not in the concept):
+- Handling-unit tables: rows with unknown object ids are dropped and reported, like event tables (approved by Nina, 2026-10-28).
 - A missing event attribute or table column raises an error (a configuration mistake, not a data problem).
 
 Alternatives considered: keeping M, T, uloc, puloc as separate frames instead of columns of one relations frame; rejected because every later step needs them per relation and one frame avoids repeated joins.
@@ -87,7 +87,7 @@ Example: `data/running_example/expected/levels.csv` (the concept's table "Overvi
 
 How to change: each level is one function; a new level k needs a function `add_loc_k`, an entry in `columns.LEVELS`, a call in `pipeline.derive_levels`, the `level` literal in `DerivationConfig`, and expected values in `levels.csv`.
 
-Implementation choice: if several transformation events qualify for t_1(hu) at the same earliest time, the one with the smallest event id is used (the concept says "an earliest").
+Choice of t_1(hu) when several transformation events qualify (decided by Nina, 2026-10-28): 1. earliest time, 2. with an agreed location (eloc_{loc_2} ≠ ⊥; applied as a filter, as in the concept), 3. smallest event id.
 
 Alternatives considered: a row-by-row loop per handling unit (closer to the formulas, but far too slow on 2 GB logs); DuckDB SQL window functions (similar speed, harder to read and test step by step).
 
