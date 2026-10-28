@@ -34,7 +34,8 @@ FLAGS = {
     "F2": (
         "Never located",
         "handling units",
-        "Handling units without any event with a provided location (a higher level may still locate them).",
+        "Handling units without any event with a provided location. Derived levels may still locate them, "
+        "e.g. Level 3 via transformations.",
     ),
     "F3": (
         "Mixed pickup",

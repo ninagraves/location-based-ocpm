@@ -6,7 +6,7 @@
   - `configs`: the applied `DerivationConfig` per log id.
   - `cache`: the latest derivation per log id (`CachedDerivation(key, derivation)`).
 - Lifetime: survives page switches and browser reloads; lost with "Reset session" in Ocelescope or a backend restart.
-  The frontend keeps nothing of its own besides React Query's request cache.
+  The frontend keeps the page filter per log (`lib/pageState.ts`, `usePageState`: in memory, shared by all components with the same key, and in the tab's sessionStorage, so it survives page switches and reloads), plus React Query's request cache.
 - Configuration files: "Download configuration" writes the form as JSON (the `DerivationConfig` schema, tables by file name, not their contents); "Load configuration" fills the form from such a file. Only the form changes; "Apply" is still needed.
 
 ## Cache
