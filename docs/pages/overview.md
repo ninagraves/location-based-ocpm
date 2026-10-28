@@ -1,14 +1,27 @@
 # Overview page
 
 Concept: `overview/Deriving Locations.md`, section "overview" (outside this repo).
-Content elements are added one at a time; built so far: key numbers, configuration notices, flag badges.
-Still to come: page filter bar (and the filtered values in the key numbers), data overview charts, activity profile, overview charts, flag explore sections.
+Content elements are added one at a time; built so far: page filter bar, key numbers (with filtered values), configuration notices, flag badges.
+Still to come: data overview charts, activity profile, overview charts, flag explore sections.
 
 ## Code
 - Page: `frontend-modules/location-ocpm/src/routes/Overview.tsx`
 - Frame and shared header: `frontend-modules/location-ocpm/src/components/ModulePage.tsx`; the shared header (configuration summary and form) is documented in `configuration.md`.
 - Backend: one module per section in `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/overview/`, routes in `overview_routes.py`. Every route reads the cached derivation (`configuration_routes.current_derivation`, see `docs/hosting/state-and-caching.md`).
 - Number formatting: `frontend-modules/location-ocpm/src/lib/format.ts` (`num`, `pct`).
+
+## 0. Page filter bar
+**What it shows:** a bar that sticks to the top while scrolling, with Activity, Exclude activity, Location, Exclude location, the switch "Location filters match: either / before (pickup) / after (target)", Object type, Exclude object type, and "Clear filters" (only while a filter is set). Each option shows its count over the whole log in brackets.
+- Activity lists: "[movement events]", "[transformation events]", "[fully / partially / unlocated events]", "[agreeing / disagreeing events]", then the activities; counts are events.
+- Location lists: "[unknown]" (⊥), then the locations; counts are relations whose loc or ploc is that location ("[unknown]": loc or ploc is ⊥).
+- Object type lists: "[fully / partially / unlocated HUs]", then the object types; counts are handling units.
+
+**How it is calculated** (`overview/filters.py`): every filter is evaluated on hu-event relations at the selected level (`relation_properties`, `passes`). A relation passes if it passes every active filter (AND across filters, OR within one filter's values; an exclude filter removes matching relations). Location filters match loc ("after"), ploc ("before") or either. Special values match properties of the whole event or the whole trace (locatedness, agreement), never of the passing relations only. Events and handling units are kept if at least one of their relations passes. Filters never change loc or ploc.
+**Example** (running example, Level 3, "Location B1, after (target)"): 8 passing relations (c1, e7), (c3, e10), (c2, e12), (c3, e12), (c3, e14), (c2, e15), (c4, e15), (c4, e16); kept events e7, e10, e12, e14, e15, e16; kept handling units c1-c4.
+**State:** kept per log across page switches and browser reloads (`lib/filters.ts`, `usePageFilter`, on top of `lib/pageState.ts`); sent to every filtered route as query parameters (lists as repeated parameters, `filterRequest`).
+**Code:** backend `PageFilter`, `passing_relations`, `filter_options` (route `GET /{ocel_id}/overview/filter-options`, `getFilterOptions`; filter parameters parsed by `overview_routes.get_page_filter`); frontend `components/FilterBar.tsx`.
+**How to change:** a new special value needs a constant and a branch in `_activity_match` / `_location_match` / `_object_type_match`, an entry in `filter_options`, and a test in `tests/test_overview_filters.py`. A new filter needs a field in `PageFilter` (backend and `lib/filters.ts`), a parameter in `get_page_filter`, a branch in `passes`, and a `Pick` in `FilterBar`.
+**Alternatives:** filtering events (instead of relations) would make location filters ambiguous for events whose handling units are at different locations; the concept chose relations.
 
 ## 1. Key numbers
 **What it shows:** six tiles, each with a big number and a small grey line.
@@ -22,13 +35,16 @@ Still to come: page filter bar (and the filtered values in the key numbers), dat
 | Locations | \|L\| = distinct locations in uloc ∪ puloc | "target n · pickup m" (pickup "–" if no pickup locations are configured) |
 | Transformation events | \|T\|; "–" if none are configured | "no transformation events configured" if none are configured |
 
+With an active filter, each tile shows the filtered value in brackets next to the big number, smaller and in the accent colour: kept handling units; kept events with eloc ≠ ⊥; passing relations with loc ≠ ⊥ "of" passing relations; kept movement events; distinct locations of the passing relations (loc for "after", ploc for "before", both for "either"); kept transformation events.
+
 **How it is calculated:** `overview/key_numbers.py`, `key_numbers(derivation) -> KeyNumbers`.
 eloc and loc come from the derivation at the selected level (`derivation.event_locations[level]["eloc"]`, `derivation.relations[derivation.loc]`); see `docs/resources/location-derivation.md`.
 Pickup locations are counted after ignoring pickups of non-movement events (as resolved).
 **Example** (running example, Level 3): 6 (coil 5 · slab 1); 15 of 17, 88 % (e14 not agreeing, e17 unlocated); 26 of 28, 93 % · loc at Level 3; 8; 4 (target 4 · pickup 2); 3.
-**Filtering:** none yet; with the filter bar, each tile gets the filtered value next to the big number (concept section "Filter Effect").
+**Filtering:** big numbers never; filtered values as above (`filtered_numbers`). Example "Location B1, after (target)": 6 (4); 15 of 17 (5); 26 of 28 (8 of 8); 8 (2); 4 (1); 3 (1).
+Implementation choice: the concept's filter line names "kept events with a location from the input" for the second tile, but the tile itself counts agreed located events; the filtered value follows the tile (kept events with eloc ≠ ⊥: 5 in the example; with "location from the input" it would be 3).
 **Settings:** the selected level (configuration).
-**Code:** backend `key_numbers` (route `GET /{ocel_id}/overview/key-numbers`, `getKeyNumbers`); frontend `components/KeyNumbers.tsx` (`KeyNumbers`, `Tile`).
+**Code:** backend `key_numbers(derivation, page_filter)` and `filtered_numbers` (route `GET /{ocel_id}/overview/key-numbers`, `getKeyNumbers`); frontend `components/KeyNumbers.tsx` (`KeyNumbers`, `Tile`; accent colour from `lib/palette.ts`, `UI`).
 **How to change:** a new tile needs a field in `KeyNumbers`, its computation in `key_numbers`, `pnpm run build:modules`, a `Tile` in `KeyNumbers.tsx`, and an assertion in `tests/test_overview_key_numbers.py`.
 **Alternatives:** counting located events by locatedness (fully located) instead of eloc ≠ ⊥; the concept chose agreed located events.
 
