@@ -5,4 +5,4 @@ Content elements are added one at a time (key numbers and flags, filter bar, dat
 
 ## Code
 - Page: `frontend-modules/location-ocpm/src/routes/Overview.tsx`
-- Frame and shared header: `frontend-modules/location-ocpm/src/components/ModulePage.tsx`
+- Frame and shared header: `frontend-modules/location-ocpm/src/components/ModulePage.tsx`; the shared header (configuration summary and form) is documented in `configuration.md`.

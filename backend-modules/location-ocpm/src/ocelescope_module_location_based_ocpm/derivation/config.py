@@ -62,6 +62,20 @@ class LocationAttribute(BaseModel):
     attribute: str
 
 
+class LocationQualifiers(BaseModel):
+    """Locations from e2o relations: the object related to an event via one of the qualifiers.
+
+    Attributes:
+        qualifiers: The e2o qualifiers (e.g. "to" for targets, "from" for pickups).
+        name_attribute: Static object attribute used as the location name; None means the
+            object id. Objects with an empty value fall back to their id.
+    """
+
+    option: Literal["qualifiers"] = "qualifiers"
+    qualifiers: list[str]
+    name_attribute: str | None = None
+
+
 class LocationTable(BaseModel):
     """Locations from a table with an event column and a location column."""
 
@@ -76,7 +90,9 @@ MovementEventsInput = Annotated[Activities | AttributeValues | EventTable, Field
 TransformationEventsInput = Annotated[
     Activities | AttributeValues | Qualifiers | EventTable, Field(discriminator="option")
 ]
-LocationsInput = Annotated[LocationAttribute | LocationTable, Field(discriminator="option")]
+LocationsInput = Annotated[
+    LocationAttribute | LocationQualifiers | LocationTable, Field(discriminator="option")
+]
 
 
 class DerivationConfig(BaseModel):

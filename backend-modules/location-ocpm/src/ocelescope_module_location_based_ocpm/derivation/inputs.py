@@ -9,6 +9,8 @@ Rules implemented here (from the concept):
 - Table rows whose event id is not in the log are dropped and reported.
 - An event with several different locations in a location table is a blocking error.
 - Pickup locations of events that are not movement events are ignored and reported.
+- e2o-qualifier locations: an event related to more than one distinct object via the selected
+  qualifiers is a blocking error, and so is a location object that is also a handling unit.
 """
 
 from dataclasses import dataclass, field
@@ -23,6 +25,7 @@ from .config import (
     DerivationConfig,
     EventTable,
     LocationAttribute,
+    LocationQualifiers,
     LocationsInput,
     ObjectTable,
     ObjectTypes,
@@ -200,22 +203,116 @@ def resolve_event_set(
     return ids.unique(maintain_order=True), notices
 
 
+def location_names(ocel: OCEL, objects: pl.Series, name_attribute: str | None) -> pl.DataFrame:
+    """Name of each location object: its id, or the value of a static object attribute.
+
+    Args:
+        ocel: The log.
+        objects: Ids of the location objects.
+        name_attribute: Object attribute holding the name; None means the object id. Objects
+            without a provided value keep their id. If the attribute changes over time, the
+            last provided value is used (the configuration form only offers static attributes).
+
+    Returns:
+        pl.DataFrame: Columns object (id) and location (name), one row per object.
+    """
+    names = pl.DataFrame({"object": objects.unique()}, schema={"object": pl.String})
+    if name_attribute is None:
+        return names.with_columns(pl.col("object").alias(c.LOCATION))
+    if name_attribute not in ocel.objects.attribute_names:
+        raise KeyError(f"The log has no object attribute '{name_attribute}'.")
+    states = (
+        ocel.objects.attribute_states(None, [name_attribute])
+        .pl()
+        .filter(provided(name_attribute))
+        .sort(OCEL_TIMESTAMP)
+        .group_by(OCEL_OID)
+        .agg(pl.col(name_attribute).last().cast(pl.String).alias(c.LOCATION))
+        .rename({OCEL_OID: "object"})
+    )
+    return names.join(states, on="object", how="left").with_columns(
+        pl.col(c.LOCATION).fill_null(pl.col("object"))
+    )
+
+
+def _qualifier_locations(
+    ocel: OCEL, option: LocationQualifiers, input_name: str, handling_units: pl.Series | None
+) -> tuple[pl.DataFrame, list[BlockingError]]:
+    """Locations from e2o relations with the selected qualifiers.
+
+    Args:
+        ocel: The log.
+        option: Qualifiers and the optional name attribute.
+        input_name: Name of the input, for messages.
+        handling_units: Ids of the handling units, to check that no location object is one.
+
+    Returns:
+        tuple[pl.DataFrame, list[BlockingError]]: Frame with columns event, location (one row per
+        event with exactly one related object); blocking errors (events with more than one
+        object, location objects that are handling units).
+    """
+    related = (
+        ocel.e2o.pl.filter(pl.col(OCEL_QUALIFIER).is_in(option.qualifiers))
+        .select(pl.col(OCEL_EID).alias(c.EVENT), pl.col(OCEL_OID).alias("object"))
+        .unique()
+        .collect()
+    )
+    errors = []
+    objects_per_event = related.group_by(c.EVENT).agg(pl.col("object").sort())
+    several = objects_per_event.filter(pl.col("object").list.len() > 1).sort(c.EVENT)
+    if several.height:
+        event, objects = several.row(0)
+        errors.append(
+            BlockingError(
+                code="several_location_objects",
+                message=f"{input_name}: {several.height} events are related to more than one object via the "
+                f"selected qualifiers, e.g. {event}: more than one location ({', '.join(objects)}).",
+                ids=several[c.EVENT].to_list(),
+            )
+        )
+        related = related.filter(~pl.col(c.EVENT).is_in(several[c.EVENT].implode()))
+    if handling_units is not None:
+        both = related["object"].unique().filter(related["object"].unique().is_in(handling_units.implode())).sort()
+        if both.len():
+            errors.append(
+                BlockingError(
+                    code="location_object_is_handling_unit",
+                    message=f"{input_name}: {both.len()} location objects are also handling units.",
+                    ids=both.to_list(),
+                )
+            )
+    names = location_names(ocel, related["object"], option.name_attribute)
+    return related.join(names, on="object", how="left").select(c.EVENT, c.LOCATION), errors
+
+
 def resolve_locations(
-    events: pl.DataFrame, option: LocationsInput, tables: dict[str, pl.DataFrame], input_name: str
+    events: pl.DataFrame,
+    option: LocationsInput,
+    tables: dict[str, pl.DataFrame],
+    input_name: str,
+    ocel: OCEL | None = None,
+    handling_units: pl.Series | None = None,
 ) -> tuple[pl.DataFrame, list[Notice], list[BlockingError]]:
     """Resolve a partial location function (uloc or puloc) as a table event → location.
 
     Args:
         events: Events of the log, as returned by `_log_events`.
-        option: Event attribute, or a table with event and location columns.
+        option: Event attribute, e2o qualifiers, or a table with event and location columns.
         tables: User tables by name.
         input_name: Name of the input, for messages ("Target locations", ...).
+        ocel: The log; only needed for the e2o-qualifier option.
+        handling_units: Ids of the handling units; only used by the e2o-qualifier option.
 
     Returns:
         tuple[pl.DataFrame, list[Notice], list[BlockingError]]: Frame with columns event, location
         (only events with a provided location, one row each); notices; blocking errors
-        (an event with different locations in the table).
+        (an event with different locations in the table, or with several location objects).
     """
+    if isinstance(option, LocationQualifiers):
+        if ocel is None:
+            raise ValueError("The e2o-qualifier option needs the log.")
+        located, errors = _qualifier_locations(ocel, option, input_name, handling_units)
+        return located, [], errors
     if isinstance(option, LocationAttribute):
         if option.attribute not in events.columns:
             raise KeyError(f"{input_name}: the log has no event attribute '{option.attribute}'.")
@@ -274,13 +371,17 @@ def resolve_inputs(ocel: OCEL, config: DerivationConfig, tables: dict[str, pl.Da
             ocel, events, config.transformation_events, tables, "Transformation events"
         )
         notices += found
-    uloc, found, blocking = resolve_locations(events, config.target_locations, tables, "Target locations")
+    uloc, found, blocking = resolve_locations(
+        events, config.target_locations, tables, "Target locations", ocel, hus[c.HU]
+    )
     notices += found
     errors += blocking
     if config.pickup_locations is None:
         puloc = pl.DataFrame(schema={c.EVENT: pl.String, c.LOCATION: pl.String})
     else:
-        puloc, found, blocking = resolve_locations(events, config.pickup_locations, tables, "Pickup locations")
+        puloc, found, blocking = resolve_locations(
+            events, config.pickup_locations, tables, "Pickup locations", ocel, hus[c.HU]
+        )
         notices += found
         errors += blocking
         ignored = puloc.filter(~pl.col(c.EVENT).is_in(movements.implode()))

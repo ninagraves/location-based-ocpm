@@ -5,7 +5,7 @@ Concept: `overview/Deriving Locations.md` (outside this repo); section names bel
 Code: package `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/derivation/` (paths below are relative to it).
 Tests: `backend-modules/location-ocpm/tests/` against `data/running_example/` (run `uv run pytest`).
 
-Status: backend only (iteration 2). There is no route or page yet; the configuration form follows in iteration 3.
+Status: used by the configuration (iteration 3, `docs/pages/configuration.md`); no page shows its results yet.
 
 ## Overview of the data flow
 
@@ -36,20 +36,25 @@ What it does: turns the user's choice per input into the sets HU, M, T and the p
 | Handling units (required) | `ObjectTypes`, `ObjectTable` | `resolve_handling_units` |
 | Movement events M (required) | `Activities`, `AttributeValues`, `EventTable` | `resolve_event_set` |
 | Transformation events T (optional) | `Activities`, `AttributeValues`, `Qualifiers`, `EventTable` | `resolve_event_set` |
-| Target locations uloc (required) | `LocationAttribute`, `LocationTable` | `resolve_locations` |
-| Pickup locations puloc (optional) | `LocationAttribute`, `LocationTable` | `resolve_locations`, then restricted to M |
+| Target locations uloc (required) | `LocationAttribute`, `LocationQualifiers`, `LocationTable` | `resolve_locations` |
+| Pickup locations puloc (optional) | `LocationAttribute`, `LocationQualifiers`, `LocationTable` | `resolve_locations`, then restricted to M |
 
 Calculation and rules:
 - Empty values (null, NaN, `""`, `"NA"`) are never locations: `inputs.provided`. NaN is recognised as a float NaN or the text "nan"/"NaN".
 - Table rows with event ids that are not in the log are dropped and reported (`Notice` "unknown_ids_dropped"): `_known_ids`.
 - An event with different locations in a location table is a blocking error ("conflicting_locations"); identical duplicate rows are fine.
 - Pickup locations of non-movement events are ignored and reported ("pickups_of_non_movements_ignored").
-- Tables are passed to `resolve_inputs` as a dict name → polars frame; the configuration names the table and its columns. Where the tables come from (Ocelescope's table resource or a CSV upload) is decided by the caller (iteration 3).
+- E2o-qualifier locations (`LocationQualifiers`, `_qualifier_locations`): the object related to an event via one of the selected qualifiers is its location.
+  An event related to more than one distinct object is a blocking error ("several_location_objects"; the message names the first such event and its objects, e.g. "e5: more than one location (A2, B1)").
+  A location object that is also a handling unit is a blocking error ("location_object_is_handling_unit"), reported per input.
+  The location name is the object id, or the value of `name_attribute` (`location_names`); objects without a value keep their id.
+  If the attribute changes over time, the last provided value is used; the form only offers static object attributes, so this case only arises from a hand-written configuration.
+- Tables are passed to `resolve_inputs` as a dict name → polars frame; the configuration names the table and its columns. In the app they are CSV uploads keyed by file name (`state.py`); Ocelescope's table resource can be added later.
 - E2O relations are made unique per (event, object) before building the relations, so an object related to an event via two qualifiers counts once.
 
 Output `ResolvedInputs.relations`: columns `event, hu, object_type, time, activity, is_movement, is_transformation, uloc, puloc`, sorted by hu, time, event. `ResolvedInputs.events` has the event columns for all events, including events without handling units.
 
-Example (running example, `data/running_example/README.md`): object types slab, coil; movement activities crane move, load truck, unload truck; transformation activities cast slab, roll, cut; attributes `to_loc`, `from_loc` → 28 relations, no notices. The same result via the CSV tables, via `event_group = transport`, or via the qualifiers `produced`/`consumed` for T (tests in `test_inputs.py`).
+Example (running example, `data/running_example/README.md`): object types slab, coil; movement activities crane move, load truck, unload truck; transformation activities cast slab, roll, cut; attributes `to_loc`, `from_loc` → 28 relations, no notices. The same result via the CSV tables, via `event_group = transport`, via the qualifiers `produced`/`consumed` for T (tests in `test_inputs.py`), or via location objects A1, A2, B1, T related with the qualifiers `to`/`from` (`test_qualifier_locations.py`, which builds that log variant in the test).
 
 How to change:
 - New option for an input: add a model to `config.py`, add it to the input's union type, handle it in the matching `resolve_…` function, add a test with the running example.
