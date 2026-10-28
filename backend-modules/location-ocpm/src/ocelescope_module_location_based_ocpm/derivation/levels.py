@@ -148,8 +148,9 @@ def add_loc_3(relations: pl.DataFrame, eloc_2: pl.DataFrame) -> pl.DataFrame:
     """Level 3 (transformation locations): loc_2 where known, else the agreed Level 2 location of the
     handling unit's earliest transformation event t_1(hu) before its first movement with eloc_{loc_2} ≠ ⊥.
 
-    If several transformation events qualify at the same earliest time, the one with the smallest
-    event id is taken (the concept says "an earliest"; ties are not specified).
+    Choice of t_1(hu) (Nina, 2026-10-28): 1. earliest time, 2. among those, only events with an agreed
+    location (eloc ≠ ⊥; this is a filter, so a disagreeing transformation never blocks a later one),
+    3. smallest event id.
 
     Args:
         relations: Relations frame with columns hu, time, event, is_transformation, is_movement,

@@ -34,3 +34,31 @@ def test_level_at_which_a_relation_is_first_located(derivation):
         .alias("first")
     )["first"].value_counts()
     assert dict(first.iter_rows()) == {"0": 15, "1": 4, "2": 3, "3": 4, "never": 2}
+
+
+def test_t1_tie_rule():
+    """t_1(hu) at equal times: only transformations with eloc ≠ ⊥ qualify, then the smaller event id.
+
+    h has no movement and no provided location. At time 1, t2 disagrees (x at A, y at B) and
+    t3 is at C; at time 1 also t1 is at D. t1 and t3 qualify, t2 does not; t1 has the smaller id.
+    """
+    from ocelescope_module_location_based_ocpm.derivation.agreement import event_locations
+    from ocelescope_module_location_based_ocpm.derivation.levels import add_loc_3
+
+    relations = pl.DataFrame(
+        {
+            "event": ["t1", "t2", "t3", "t1", "t2", "t2", "t3"],
+            "hu": ["h", "h", "h", "a", "x", "y", "c"],
+            "time": [1] * 7,
+            "is_transformation": [True] * 7,
+            "is_movement": [False] * 7,
+            "uloc": [None] * 7,
+            "puloc": [None] * 7,
+            "loc_2": [None, None, None, "D", "A", "B", "C"],
+        },
+        schema_overrides={"uloc": pl.String, "puloc": pl.String, "loc_2": pl.String},
+    )
+    events = relations.select("event").unique()
+    eloc_2 = event_locations(relations, events, "loc_2").select("event", "eloc")
+    loc_3 = add_loc_3(relations, eloc_2).filter(pl.col("hu") == "h")["loc_3"].unique().to_list()
+    assert loc_3 == ["D"]
