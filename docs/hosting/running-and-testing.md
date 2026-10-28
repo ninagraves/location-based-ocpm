@@ -15,5 +15,8 @@ pnpm run dev           # backend http://localhost:8002 (auto-reload), app http:/
 - "Address already in use": an old backend can survive Ctrl+C. Run `lsof -ti :8002 | xargs kill`, check `lsof -nP -i :8002 -i :3002` is empty, start again.
 - After changing backend routes or models: `pnpm run build:modules` (regenerates the typed API client; stale TypeScript errors usually mean it was not rerun).
 
+## Test data
+The running example log is `data/running_example/running_example.sqlite` (upload it in the app); see `data/running_example/README.md`.
+
 ## Tests
 Not set up yet. Iteration 2 adds pytest tests that reproduce every running example table.

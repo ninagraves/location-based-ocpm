@@ -8,6 +8,8 @@ dependencies = [
   "ocelescope-backend>=0.10.2",
   "ocelescope-module-location-based-ocpm",
   "ocelescope-module-ocel>=0.10.2",
+  # ocelescope 0.10.2 uses the lambda syntax that DuckDB 2 rejects; remove once ocelescope supports DuckDB 2.
+  "duckdb>=1.5.4,<2",
 ]
 
 [tool.uv.workspace]
