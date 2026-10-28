@@ -7,7 +7,7 @@ export default function Overview() {
     <ModulePage title="Overview">
       {() => (
         <Text size="sm" c="dimmed">
-          The overview page's content follows in the next iterations.
+          The overview page's sections follow in the next iterations.
         </Text>
       )}
     </ModulePage>

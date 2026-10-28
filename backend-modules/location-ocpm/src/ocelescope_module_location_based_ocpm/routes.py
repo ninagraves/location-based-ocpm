@@ -5,7 +5,10 @@ from importlib.metadata import version
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from ocelescope_module_location_based_ocpm.configuration_routes import router as configuration_router
+
 router = APIRouter()
+router.include_router(configuration_router)
 
 
 class StatusResponse(BaseModel):

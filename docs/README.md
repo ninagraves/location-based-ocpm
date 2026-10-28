@@ -1,7 +1,7 @@
 # Documentation
 
 ## Map
-- `pages/`: one note per page of the module (e.g. `overview.md`); one section per content element.
+- `pages/`: one note per page of the module (e.g. `overview.md`), plus `configuration.md` for the shared header; one section per content element.
 - `resources/`: one note per special resource used by several pages (e.g. `location-derivation.md`, later HU timelines).
 - `hosting/`: general tool functionality (architecture, caching, storage, running, testing, dependencies).
 

@@ -20,3 +20,4 @@ The concept (definitions, levels, flags, page contents) is defined by Nina Grave
 - `docs/hosting/architecture.md`: how backend, frontend and Ocelescope fit together.
 - `docs/hosting/running-and-testing.md`: install, run, test, ports.
 - `docs/hosting/dependencies.md`: versions and why.
+- `docs/hosting/state-and-caching.md`: session state, configuration storage, cache, configuration API.
