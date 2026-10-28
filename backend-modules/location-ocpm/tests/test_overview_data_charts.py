@@ -12,25 +12,27 @@ def counts(segments, depth=None):
 def test_events_sunburst(derivation):
     outer = counts(data_charts(derivation).events, depth=3)
     assert outer == {
-        "fully located/movement/agreeing": 4,
-        "fully located/movement/not tested": 4,
-        "fully located/transformation/agreeing": 2,
-        "fully located/transformation/not tested": 1,
-        "fully located/other/agreeing": 1,
-        "fully located/other/not agreeing": 1,
-        "fully located/other/not tested": 2,
-        "partially located/other/not tested": 1,
-        "unlocated/other/not tested": 1,
+        "movement/fully located/agreeing": 4,
+        "movement/fully located/not tested": 4,
+        "transformation/fully located/agreeing": 2,
+        "transformation/fully located/not tested": 1,
+        "other/fully located/agreeing": 1,
+        "other/fully located/not agreeing": 1,
+        "other/fully located/not tested": 2,
+        "other/partially located/not tested": 1,
+        "other/unlocated/not tested": 1,
     }
     inner = counts(data_charts(derivation).events, depth=1)
-    assert inner == {"fully located": 15, "partially located": 1, "unlocated": 1}
+    assert inner == {"movement": 8, "transformation": 3, "other": 6}
+    middle = counts(data_charts(derivation).events, depth=2)
+    assert middle["other/fully located"] == 4
 
 
 def test_click_filters(derivation):
     segments = {s.id: s for s in data_charts(derivation).events}
-    assert segments["partially located"].filter.value == "[partially located events]"
-    assert segments["fully located/other"].filter is None
-    assert segments["fully located/other/not tested"].filter is None
+    assert segments["other/partially located"].filter.value == "[partially located events]"
+    assert segments["other"].filter is None
+    assert segments["other/fully located/not tested"].filter is None
     assert data_charts(derivation).handling_units[0].filter.filter == "object_types"
 
 
@@ -45,6 +47,6 @@ def test_filter_b1_after(derivation):
     charts = data_charts(derivation, PageFilter(locations=["B1"], location_role="after"))
     assert charts.filtered
     assert sum(counts(charts.events, depth=1).values()) == 6
-    assert counts(charts.events, depth=3)["fully located/other/not agreeing"] == 1  # e14
+    assert counts(charts.events, depth=3)["other/fully located/not agreeing"] == 1  # e14
     assert counts(charts.relations) == {"0": 4, "1": 2, "2": 0, "3": 2, "⊥": 0}
     assert counts(charts.handling_units) == {"fully located": 4, "partially located": 0, "unlocated": 0}

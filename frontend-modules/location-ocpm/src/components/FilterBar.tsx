@@ -4,7 +4,7 @@ import { FilterXIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { type FilterOption, useGetFilterOptions } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
-import { emptyFilter, isActive, type PageFilter, usePageFilter } from "../lib/filters";
+import { emptyFilter, type FilterKey, isActive, type PageFilter, usePageFilter, withValues } from "../lib/filters";
 import { num } from "../lib/format";
 
 const withCounts = (options: FilterOption[] | undefined) =>
@@ -79,7 +79,7 @@ const Column = ({
 export const FilterBar = ({ ocelId }: { ocelId: string }) => {
   const [filter, setFilter] = usePageFilter(ocelId);
   const { data: options, error } = useGetFilterOptions(ocelId);
-  const set = <K extends keyof PageFilter>(key: K) => (value: PageFilter[K]) => setFilter((f) => ({ ...f, [key]: value }));
+  const set = (key: FilterKey) => (values: string[]) => setFilter((f) => withValues(f, key, values));
   if (error) return <Alert color="red">{errorText(error)}</Alert>;
   const role = (
     <SegmentedControl
@@ -91,7 +91,7 @@ export const FilterBar = ({ ocelId }: { ocelId: string }) => {
         { value: "after", label: "post" },
       ]}
       value={filter.location_role}
-      onChange={(v) => set("location_role")(v as PageFilter["location_role"])}
+      onChange={(v) => setFilter((f) => ({ ...f, location_role: v as PageFilter["location_role"] }))}
     />
   );
   const clear = isActive(filter) && (

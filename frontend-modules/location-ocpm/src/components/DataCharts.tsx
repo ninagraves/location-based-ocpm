@@ -1,11 +1,11 @@
-// Data overview charts: events sunburst, E2HU chart, HU chart. Clicking a segment adds the
-// matching page filter value. Documented in docs/pages/overview.md, section "Data overview charts".
+// Data overview charts: events sunburst, E2HU chart, HU chart. Clicking a segment sets the
+// matching page filter value (replacing other values of its category). Documented in docs/pages/overview.md, section "Data overview charts".
 import type { ReactNode } from "react";
 import { Alert, Box, Card, ColorSwatch, Group, Loader, SimpleGrid, Stack, Text } from "@mantine/core";
 import type { Segment } from "../api/locationBasedOcpm";
 import { useGetDataCharts } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
-import { filterParams, filterRequest, type PageFilter, usePageFilter } from "../lib/filters";
+import { type FilterKey, filterParams, filterRequest, usePageFilter, withValue } from "../lib/filters";
 import { num, pct } from "../lib/format";
 import { OTHER, STATUS } from "../lib/palette";
 import { plotConfig, ThemedPlot, useScheme } from "./plots";
@@ -21,56 +21,46 @@ const NOTES: Record<string, string> = {
 
 type Add = (segment: Segment) => void;
 
-/** Adds the segment's filter value to the page filter (once). */
+/** Adds the segment's filter value to the page filter, replacing other values of its category. */
 const useAddFilter = (ocelId: string): Add => {
   const [, setFilter] = usePageFilter(ocelId);
   return (segment) => {
     const target = segment.filter;
-    if (!target) return;
-    const key = target.filter as keyof PageFilter;
-    setFilter((f) => {
-      const values = f[key] as string[];
-      return values.includes(target.value) ? f : { ...f, [key]: [...values, target.value] };
-    });
+    if (target) setFilter((f) => withValue(f, target.filter as FilterKey, target.value));
   };
 };
 
-/** Hover text of a segment: label, count and share, note, and what a click does. */
+/** Hover text of a segment: label, count and share, and a note where needed. */
 const hover = (s: Segment, total: number, unit: string) =>
-  [
-    `<b>${s.label}</b>`,
-    `${num(s.count)} ${unit} (${pct(s.count / total)})`,
-    NOTES[s.label],
-    s.filter ? `click: add filter "${s.filter.value}"` : undefined,
-  ]
-    .filter(Boolean)
-    .join("<br>");
+  [`<b>${s.label}</b>`, `${num(s.count)} ${unit} (${pct(s.count / total)})`, NOTES[s.label]].filter(Boolean).join("<br>");
 
 /** Values of the sunburst's rings in display order (as in `overview/data_charts.py`). */
 const RINGS: [string, string[]][] = [
-  ["located", ["fully located", "partially located", "unlocated"]],
   ["type", ["movement", "transformation", "movement and transformation", "other"]],
+  ["located", ["fully located", "partially located", "unlocated"]],
   ["agreement", ["agreeing", "not agreeing", "not tested"]],
 ];
 
-/** Legend beneath a chart: one swatch per value, in display order, optionally with a title. */
+/** Legend beside a chart: one swatch per value, one per line, optionally with a title. */
 const Legend = ({ items, title }: { items: { label: string; colour: string }[]; title?: string }) => (
-  <Group gap={8} justify="center">
+  <Stack gap={2}>
     {title && (
       <Text size="xs" c="dimmed">
-        {title}:
+        {title}
       </Text>
     )}
     {items.map((item) => (
       <Group key={item.label} gap={4} wrap="nowrap">
-        <ColorSwatch color={item.colour} size={10} />
-        <Text size="xs">{item.label}</Text>
+        <ColorSwatch color={item.colour} size={10} style={{ flexShrink: 0 }} />
+        <Text size="xs" style={{ whiteSpace: "nowrap" }}>
+          {item.label}
+        </Text>
       </Group>
     ))}
-  </Group>
+  </Stack>
 );
 
-/** A small card with title, chart and legend beneath. */
+/** A small card with title, and the chart with its legend to the right. */
 const ChartCard = ({ title, sub, children, legend }: { title: string; sub: string; children: ReactNode; legend: ReactNode }) => (
   <Card withBorder padding="xs">
     <Stack gap={4}>
@@ -80,8 +70,12 @@ const ChartCard = ({ title, sub, children, legend }: { title: string; sub: strin
       <Text size="xs" c="dimmed">
         {sub}
       </Text>
-      <Box h={HEIGHT}>{children}</Box>
-      {legend}
+      <Group gap="xs" wrap="nowrap" align="center">
+        <Box h={HEIGHT} style={{ flex: 1, minWidth: 0 }}>
+          {children}
+        </Box>
+        {legend}
+      </Group>
     </Stack>
   </Card>
 );
@@ -122,7 +116,7 @@ const Donut = ({ name, segments, unit, onAdd }: { name: string; segments: Segmen
   );
 };
 
-/** Events sunburst: inner ring locatedness, middle ring type, outer ring agreement. */
+/** Events sunburst: inner ring type, middle ring locatedness, outer ring agreement. */
 const Sunburst = ({ segments, onAdd }: { segments: Segment[]; onAdd: Add }) => {
   const scheme = useScheme();
   const total = segments.filter((s) => s.parent === "").reduce((sum, s) => sum + s.count, 0);
@@ -175,9 +169,9 @@ export const DataCharts = ({ ocelId }: { ocelId: string }) => {
     <SimpleGrid cols={{ base: 1, md: 3 }} spacing="sm">
       <ChartCard
         title="Events"
-        sub={`${kept("events")} · inner: located · middle: type · outer: agreement (Level ${data.level})`}
+        sub={`${kept("events")} · inner: type · middle: located · outer: agreement (Level ${data.level})`}
         legend={
-          <Stack gap={2}>
+          <Stack gap={6}>
             {RINGS.map(([ring, values]) => (
               <Legend key={ring} title={ring} items={legendOf(values.filter((v) => present.has(v)), scheme)} />
             ))}

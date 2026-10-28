@@ -1,13 +1,15 @@
 // Activity profile: one row per activity, sortable, with a search box and expandable rows.
 // Documented in docs/pages/overview.md, section "Activity profile".
-import { ActionIcon, Alert, Card, Group, Loader, Stack, Table, Text, TextInput, Tooltip, UnstyledButton } from "@mantine/core";
+import { ActionIcon, Alert, Box, Card, Group, Loader, Progress, Stack, Table, Text, TextInput, Tooltip, UnstyledButton } from "@mantine/core";
 import { ChevronDownIcon, ChevronRightIcon, ChevronsUpDownIcon, ChevronUpIcon, SearchIcon } from "lucide-react";
 import { Fragment, type ReactNode, useState } from "react";
-import { type ActivityRow, type Typical, useGetActivityProfile } from "../api/locationBasedOcpm";
+import { type ActivityRow, type Typical, useGetActivityProfile, type ValueShare } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
 import { filterParams, filterRequest, usePageFilter } from "../lib/filters";
 import { num, pct } from "../lib/format";
 import { usePageState } from "../lib/pageState";
+import { UI } from "../lib/palette";
+import { useScheme } from "./plots";
 
 /** Hover texts of the column headings (concept section "Activity Profile"). */
 const INFO = {
@@ -20,8 +22,6 @@ const INFO = {
   located: "Fully located events (partially located, unlocated) and the share of fully located events. Sorted by the share.",
   agreed:
     "Agreeing events: no two handling units of the event have different known locations; this includes events with fewer than two located handling units. In brackets: only events with at least two located handling units, where agreement is actually tested.",
-  route:
-    "Most frequent 'ploc → loc' over the handling units that actually moved at this activity's movement events, with its share and the number of distinct routes. Ties: alphabetically first, with the number of tied routes.",
 };
 
 type SortKey = "activity" | "events" | "share" | "role" | "hus" | "located" | "agreed";
@@ -47,11 +47,9 @@ const sorted = (rows: ActivityRow[], sort: Sort) =>
     return b.events - a.events || a.activity.localeCompare(b.activity);
   });
 
-/** "A2 (4/6 = 67 %; 2 tied)", optionally with the number of distinct values. */
-const typicalText = (t: Typical, withDistinct: boolean) => {
-  const extras = [withDistinct ? `${num(t.distinct)} distinct` : undefined, t.tied > 1 ? `${num(t.tied)} tied` : undefined].filter(Boolean);
-  return `${t.value} (${num(t.count)}/${num(t.total)} = ${pct(t.count / t.total)}${extras.map((e) => `; ${e}`).join("")})`;
-};
+/** "A2 (4/6 = 67 %; 2 tied)". */
+const typicalText = (t: Typical) =>
+  `${t.value} (${num(t.count)}/${num(t.total)} = ${pct(t.count / t.total)}${t.tied > 1 ? `; ${num(t.tied)} tied` : ""})`;
 
 /** A median as "1.5" or "2". */
 const median = (value: number) => (Number.isInteger(value) ? num(value) : value.toLocaleString("en-GB", { maximumFractionDigits: 1 }));
@@ -95,16 +93,47 @@ const Heading = ({
   );
 };
 
+/**
+ * Top values of an expanded row, each with a frequency bar (share of `total`), share and count,
+ * like in the playground's activity profile.
+ */
+const ShareList = ({ title, items, total, distinct, empty }: { title: string; items: ValueShare[]; total: number; distinct: number; empty: string }) => {
+  const scheme = useScheme();
+  return (
+    <Stack gap={2}>
+      <Text size="xs" fw={600}>
+        {title}{" "}
+        <Text span size="xs" c="dimmed" fw={400}>
+          {distinct > items.length ? `${num(distinct)} distinct, top ${items.length} shown` : `${num(distinct)} distinct`}
+        </Text>
+      </Text>
+      {items.length ? (
+        items.map((v) => (
+          <Group key={v.value} gap={6} wrap="nowrap">
+            <Progress value={(v.count / total) * 100} w={60} size="sm" color={UI[scheme].primary} />
+            <Text size="xs">
+              {v.value} · {pct(v.count / total)} ({num(v.count)})
+            </Text>
+          </Group>
+        ))
+      ) : (
+        <Text size="xs" c="dimmed">
+          {empty}
+        </Text>
+      )}
+    </Stack>
+  );
+};
+
 /** One activity row and, if expanded, its top locations below. */
 const Row = ({ row, withShare, kept, columns }: { row: ActivityRow; withShare: boolean; kept: number; columns: number }) => {
   const [open, setOpen] = useState(false);
-  // Short cells stay on one line; typical location and route may wrap.
+  // Short cells stay on one line; the typical location may wrap.
   const cell = (content: ReactNode, wrap = false) => (
     <Table.Td style={wrap ? undefined : { whiteSpace: "nowrap" }}>
       <Text size="xs">{content}</Text>
     </Table.Td>
   );
-  const located = row.top_locations.reduce((sum, v) => sum + v.count, 0);
   return (
     <Fragment>
       <Table.Tr>
@@ -129,24 +158,24 @@ const Row = ({ row, withShare, kept, columns }: { row: ActivityRow; withShare: b
           </Tooltip>
         </Table.Td>
         {cell(
-          `${row.typical_location ? typicalText(row.typical_location, false) : "unknown"}; provided ${num(row.provided)}/${num(row.events)}`,
+          `${row.typical_location ? typicalText(row.typical_location) : "unknown"}; provided ${num(row.provided)}/${num(row.events)}`,
           true,
         )}
         {cell(`${num(row.fully_located)} (${num(row.partially_located)}, ${num(row.unlocated)}) · ${pct(row.fully_located / row.events)}`)}
         {cell(`${num(row.agreed)}/${num(row.events)} (${num(row.tested_agreed)}/${num(row.tested)})`)}
-        {cell(row.typical_route ? typicalText(row.typical_route, true) : "–", true)}
       </Table.Tr>
       {open && (
         <Table.Tr>
           <Table.Td colSpan={columns}>
-            <Text size="xs" c="dimmed" pl={28}>
-              Top locations:{" "}
-              {row.top_locations.length === 0
-                ? "none (no located relations)"
-                : `${row.top_locations
-                    .map((v) => `${v.value} ${num(v.count)} (${pct(v.count / (row.typical_location?.total ?? located))})`)
-                    .join(", ")}; ${num(row.typical_location?.distinct ?? row.top_locations.length)} distinct`}
-            </Text>
+            <Box pl={28} py={4} maw={360}>
+              <ShareList
+                title="Locations"
+                items={row.top_locations}
+                total={row.typical_location?.total ?? 0}
+                distinct={row.typical_location?.distinct ?? 0}
+                empty="none (no located relations)"
+              />
+            </Box>
           </Table.Td>
         </Table.Tr>
       )}
@@ -177,7 +206,7 @@ export const ActivityProfile = ({ ocelId }: { ocelId: string }) => {
           <Text size="sm" fw={600}>
             Activity profile{" "}
             <Text span size="xs" c="dimmed" fw={400}>
-              Level {data.level} · {num(data.rows.length)} activities
+              {num(data.rows.length)} activities
             </Text>
           </Text>
           <TextInput
@@ -201,12 +230,11 @@ export const ActivityProfile = ({ ocelId }: { ocelId: string }) => {
                 {head("typical location", INFO.location)}
                 {head("located", INFO.located, "located")}
                 {head("agreed (tested)", INFO.agreed, "agreed")}
-                {head("typical route", INFO.route)}
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               {rows.map((row) => (
-                <Row key={row.activity} row={row} withShare={withShare} kept={data.kept_events} columns={withShare ? 9 : 8} />
+                <Row key={row.activity} row={row} withShare={withShare} kept={data.kept_events} columns={withShare ? 8 : 7} />
               ))}
             </Table.Tbody>
           </Table>

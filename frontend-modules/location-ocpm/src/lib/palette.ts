@@ -66,14 +66,14 @@ export const STATUS: Record<Scheme, Record<string, string>> = {
   light: {
     "fully located": "#006165", "partially located": "#4fbec1", unlocated: OTHER.light,
     movement: CATEGORICAL.light[0], transformation: CATEGORICAL.light[1],
-    "movement and transformation": CATEGORICAL.light[3], other: "#ced4da",
+    "movement and transformation": CATEGORICAL.light[3], other: CATEGORICAL.light[4],
     agreeing: "#007e56", "not agreeing": "#CE108A", "not tested": "#dee2e6",
     "0": "#034648", "1": "#067b7e", "2": "#4fbec1", "3": "#a1dfd7", "⊥": OTHER.light,
   },
   dark: {
     "fully located": "#42a3a8", "partially located": "#188489", unlocated: OTHER.dark,
     movement: CATEGORICAL.dark[0], transformation: CATEGORICAL.dark[1],
-    "movement and transformation": CATEGORICAL.dark[3], other: "#495057",
+    "movement and transformation": CATEGORICAL.dark[3], other: CATEGORICAL.dark[4],
     agreeing: "#61bb79", "not agreeing": "#e266a9", "not tested": "#373a40",
     "0": "#a1dfd7", "1": "#6cbec2", "2": "#188489", "3": "#005256", "⊥": OTHER.dark,
   },

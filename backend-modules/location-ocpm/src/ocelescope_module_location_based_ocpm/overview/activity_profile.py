@@ -1,8 +1,7 @@
 """Activity profile (concept section "Activity Profile").
 
 One row per activity with kept events. Events, role, handling units per event, located and agreed
-describe the kept events as a whole; typical location and typical route count passing relations
-only; share at location appears only with a location filter (concept section "Filter Effect").
+describe the kept events as a whole; typical location counts passing relations only; share at location appears only with a location filter (concept section "Filter Effect").
 """
 
 import polars as pl
@@ -14,8 +13,6 @@ from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation
 from ocelescope_module_location_based_ocpm.overview.filters import PageFilter, passing_relations
 from ocelescope_module_location_based_ocpm.overview.key_numbers import TypeCount
 
-#: Label of ⊥ in routes.
-UNKNOWN = "⊥"
 #: Number of locations in an expanded row.
 TOP = 5
 
@@ -68,9 +65,6 @@ class ActivityRow(BaseModel):
         agreed: Agreeing events by the definition (incl. events with < 2 located handling units).
         tested: Events with at least two located handling units.
         tested_agreed: Agreeing events among the tested ones.
-        typical_route: Most frequent "ploc → loc" over the passing relations of movement events
-            whose location changed (⊥ counts as a location); None for activities without such
-            relations.
     """
 
     activity: str
@@ -90,7 +84,6 @@ class ActivityRow(BaseModel):
     agreed: int
     tested: int
     tested_agreed: int
-    typical_route: Typical | None
 
 
 class ActivityProfile(BaseModel):
@@ -146,19 +139,12 @@ def _typicals(counted: pl.DataFrame) -> dict[str, Typical]:
     }
 
 
-def moved_routes(passing: pl.DataFrame) -> pl.DataFrame:
-    """Routes "ploc → loc" of the passing relations of movement events whose location changed.
-
-    Args:
-        passing: Output of `passing_relations`.
-
-    Returns:
-        pl.DataFrame: Columns activity, route; ⊥ is written as "⊥" and differs from every location.
-    """
-    return passing.filter(pl.col(c.IS_MOVEMENT) & pl.col("ploc").ne_missing(pl.col("loc"))).select(
-        c.ACTIVITY,
-        pl.concat_str(pl.col("ploc").fill_null(UNKNOWN), pl.lit(" → "), pl.col("loc").fill_null(UNKNOWN)).alias("route"),
-    )
+def _tops(counted: pl.DataFrame) -> dict[str, list[ValueShare]]:
+    """The `TOP` most frequent values per activity from the output of `ranked`."""
+    tops: dict[str, list[ValueShare]] = {}
+    for row in counted.filter(pl.col("rank") < TOP).iter_rows(named=True):
+        tops.setdefault(row[c.ACTIVITY], []).append(ValueShare(value=str(row["value"]), count=row["count"]))
+    return tops
 
 
 def activity_profile(derivation: Derivation, page_filter: PageFilter | None = None) -> ActivityProfile:
@@ -207,11 +193,7 @@ def activity_profile(derivation: Derivation, page_filter: PageFilter | None = No
     for activity, object_type, count in types.rows():
         object_types.setdefault(activity, []).append(TypeCount(object_type=object_type, count=count))
     locations = ranked(passing, "loc")
-    typical_locations = _typicals(locations)
-    top_locations: dict[str, list[ValueShare]] = {}
-    for row in locations.filter(pl.col("rank") < TOP).iter_rows(named=True):
-        top_locations.setdefault(row[c.ACTIVITY], []).append(ValueShare(value=str(row["value"]), count=row["count"]))
-    typical_routes = _typicals(ranked(moved_routes(passing), "route"))
+    typical_locations, top_locations = _typicals(locations), _tops(locations)
 
     location_filter = bool(page_filter.locations or page_filter.exclude_locations)
     with_t = derivation.config.transformation_events is not None
@@ -234,7 +216,6 @@ def activity_profile(derivation: Derivation, page_filter: PageFilter | None = No
             agreed=row["agreed"],
             tested=row["tested"],
             tested_agreed=row["tested_agreed"],
-            typical_route=typical_routes.get(row[c.ACTIVITY]),
         )
         for row in per_activity.iter_rows(named=True)
     ]
