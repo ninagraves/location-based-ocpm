@@ -16,3 +16,7 @@ allowBuilds:
   sharp: true
 configDependencies:
   '@ocelescope/pnpm-plugin-catalog': latest
+# Next.js 16.4.0 from the Ocelescope catalog has a known security vulnerability;
+# pin the patched release until the catalog moves past it.
+overrides:
+  next: 16.4.3
