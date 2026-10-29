@@ -1,0 +1,52 @@
+# Trace figure (draft)
+
+Status: draft for the visit conceptualisation (`overview/Single Level Visit Mappings.md`).
+Not used by any page yet; it will be discussed with Nina and changed before it goes into the tool.
+
+## What it shows
+The object traces of several handling units, one block per handling unit (top to bottom in the given order):
+- **Low-level row**: one marker per hu-event relation, coloured by its current location $loc$ at the selected level.
+  Circles for ordinary locations, open circles for vehicles ($V$), diamonds for storage units ($W$), a grey × for ⊥.
+  A thin line joins the relations of the trace; the event id is written above each marker.
+- **High-level row** just below: one square per relation, coloured by $\widehat{hl}$ (grey × for ⊥).
+- **Visits** (optional): below the high-level row, one block of lanes per visit group (e.g. "maximal", "resolved").
+  One bar per visit from its first to its last relation, outlined (filled for the groups in `filled_groups`), coloured by its high-level location.
+  Visits sharing relations are put in different lanes, so contained and overlapping visits are visible.
+- Dashed vertical lines join the relations of an event shared by several shown handling units (not for the "trace position" axis).
+- Hover on a relation: event, activity, movement/transformation, handling unit, trace position, time, both locations; on a visit bar: location, group, first and last event and positions.
+
+Low-level and high-level locations share one colour map (ranked by frequency in the figure), so a location mapped to itself has one colour on both rows.
+
+## How it is calculated
+$\widehat{hl}((e,hu)) = agg(loc((e,hu)))$, ⊥ if $loc((e,hu)) = \bot$; $agg$ may be partial and is completed by the identity.
+The trace position is the index in $otrace(hu)$ (time, then event id).
+
+## Settings
+- `axis`: "event order" (default; rank of the event among all shown events, so shared events line up), "trace position" (index in $otrace(hu)$, as in the visit definition), or "time".
+- `agg`, `vehicles` ($V$), `storage_units` ($W$): until they are inputs of the tool, passed as arguments.
+- `visits`: a table with columns hu, high_level, first_event, last_event, group. Visits are not computed yet; `notebooks/trace_figure.py` passes a hand-written table (maximal visits at κ = 2 from Claude's review 1 of the visit note), for illustration only.
+
+## Example
+`uv run python notebooks/trace_figure.py` writes the figures of the running example (Level 3, $agg$: A1, A2 → A; B1 → B; T unmapped; $V$ = {T}, $W$ = {B1}) for all three axes, with and without the illustrative visits, into `notebooks/output/`.
+
+## Filtering
+None (draft outside the tool).
+
+## Where it lives in the code
+`backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/visits/trace_figure.py`, one function per step:
+1. `add_high_level_locations(relations, location, agg)`: column high_level.
+2. `add_location_kinds(relations, location, vehicles, storage_units)`: column location_kind (vehicle wins if a location is in both).
+3. `add_x_positions(relations, axis)`: columns position and x.
+4. `location_colours(names)`: location → colour (module palette, light scheme).
+5. `visit_lanes(visits)`: column lane (greedy interval packing per handling unit and group; containing visits above contained ones).
+6. `trace_figure(relations, visits, filled_groups, show_event_labels, link_shared_events, title)`: the plotly figure.
+`relations_for_figure(derivation, handling_units, agg, vehicles, storage_units, axis)` runs steps 1 to 3 on a derivation.
+Tests: `tests/test_trace_figure.py`.
+
+## How to change it
+- Marker shapes: `LOW_SYMBOL`, `HIGH_SYMBOL`, `BOTTOM_SYMBOL`; vertical spacing: `HIGH_OFFSET`, `LANE`, `BAR`, `GAP`, `LABEL_OFFSET`.
+- Colours: `CATEGORICAL` is a copy of the light slots of `frontend-modules/location-ocpm/src/lib/palette.ts`.
+- In the tool, the figure will be drawn in the frontend (Plotly.js, like the other charts); the Python steps 1 to 5 then become the backend's data preparation.
+
+## Alternatives
+- Playground figure (`VisitFigure.tsx` of material_flow_analysis): same idea (dots for locations, squares for high-level locations, visit bars in lanes, guides), x axis per-HU position or time only. Added here: event-order axis with shared-event lines, vehicle/storage symbols, ⊥ markers, visit groups as parameters.
