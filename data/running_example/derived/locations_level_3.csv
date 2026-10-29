@@ -1,0 +1,29 @@
+event,hu,object_type,time,activity,is_movement,is_transformation,loc,ploc
+e3,c1,coil,2026-01-01T03:00:00.000000,roll,false,true,A1,
+e4,c1,coil,2026-01-01T04:00:00.000000,label,false,false,A1,A1
+e5,c1,coil,2026-01-01T05:00:00.000000,crane move,true,false,A2,A1
+e7,c1,coil,2026-01-01T07:00:00.000000,quality check,false,false,B1,A2
+e8,c1,coil,2026-01-01T08:00:00.000000,load truck,true,false,T,B1
+e9,c1,coil,2026-01-01T09:00:00.000000,unload truck,true,false,A2,T
+e11,c1,coil,2026-01-01T11:00:00.000000,crane move,true,false,A2,A2
+e13,c1,coil,2026-01-01T13:00:00.000000,load truck,true,false,T,A1
+e14,c1,coil,2026-01-01T14:00:00.000000,quality check,false,false,T,T
+e3,c2,coil,2026-01-01T03:00:00.000000,roll,false,true,A1,
+e4,c2,coil,2026-01-01T04:00:00.000000,label,false,false,A1,A1
+e6,c2,coil,2026-01-01T06:00:00.000000,crane move,true,false,A2,A1
+e8,c2,coil,2026-01-01T08:00:00.000000,load truck,true,false,T,A2
+e9,c2,coil,2026-01-01T09:00:00.000000,unload truck,true,false,A2,T
+e11,c2,coil,2026-01-01T11:00:00.000000,crane move,true,false,A2,A2
+e12,c2,coil,2026-01-01T12:00:00.000000,crane move,true,false,B1,A2
+e15,c2,coil,2026-01-01T15:00:00.000000,cut,false,true,B1,B1
+e8,c3,coil,2026-01-01T08:00:00.000000,load truck,true,false,T,
+e10,c3,coil,2026-01-01T10:00:00.000000,unload truck,true,false,B1,T
+e12,c3,coil,2026-01-01T12:00:00.000000,crane move,true,false,B1,B1
+e14,c3,coil,2026-01-01T14:00:00.000000,quality check,false,false,B1,B1
+e15,c4,coil,2026-01-01T15:00:00.000000,cut,false,true,B1,
+e16,c4,coil,2026-01-01T16:00:00.000000,quality check,false,false,B1,B1
+e16,c5,coil,2026-01-01T16:00:00.000000,quality check,false,false,,
+e17,c5,coil,2026-01-01T17:00:00.000000,quality check,false,false,,
+e1,s1,slab,2026-01-01T01:00:00.000000,cast slab,false,true,A1,
+e2,s1,slab,2026-01-01T02:00:00.000000,inspect slab,false,false,A1,A1
+e3,s1,slab,2026-01-01T03:00:00.000000,roll,false,true,A1,A1

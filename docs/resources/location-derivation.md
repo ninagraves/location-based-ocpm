@@ -122,3 +122,12 @@ All at the selected level; the whole log.
 
 "Already at the target" (F1, F3, F5 b) is ploc_k = uloc(e); ⊥ counts as a change (`flags._unchanged`).
 Explore sections are not built yet.
+
+## 7. Saved level mappings and the demo notebook
+
+`notebooks/location_derivation.ipynb` walks through steps 1 to 5 on the running example, showing every input and output frame, and explains each function and its parameters.
+It ends by saving the mapping of every level with `level_files.save_level_mappings` to `data/running_example/derived/locations_level_{k}.csv` (k = 0..3).
+
+File format: one row per hu-event relation, sorted by hu, time, event; columns event, hu, object_type, time, activity, is_movement, is_transformation, `loc` (= loc_k), `ploc` (= ploc_k); time in ISO format, ⊥ as an empty cell.
+Other notebooks read a level with `level_files.load_level_mapping(folder, k)`, which restores the column types.
+`test_level_files.py` checks that the committed files match the current derivation: after a change to the derivation or the running example, rerun the notebook and commit the files.
