@@ -13,7 +13,7 @@ import polars as pl
 from pydantic import BaseModel
 
 from ocelescope_module_location_based_ocpm.derivation import columns as c
-from ocelescope_module_location_based_ocpm.derivation.agreement import FULLY, PARTIALLY, UNLOCATED, hu_locatedness
+from ocelescope_module_location_based_ocpm.derivation.locatedness import FULLY, PARTIALLY, UNLOCATED, hu_locatedness
 from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation
 
 #: Special values of the activity filters, matched by event properties instead of act(e).

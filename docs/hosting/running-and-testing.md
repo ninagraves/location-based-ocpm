@@ -23,3 +23,8 @@ The running example log is `data/running_example/running_example.sqlite` (upload
 uv run pytest
 ```
 Tests live in `backend-modules/location-ocpm/tests/` and compare the derivation with the running example's expected results (`data/running_example/expected/`). Configured in the root `pyproject.toml` (`[tool.pytest.ini_options]`; pytest is in the `dev` dependency group, installed by `uv sync`).
+
+## Notebooks
+Demo notebooks live in `notebooks/` and import the package from the workspace `.venv`; `ipykernel` is in the `dev` group, so `uv sync` makes `.venv` usable as a Jupyter kernel.
+- PyCharm: set `.venv/bin/python` as the project interpreter (Settings → Project → Python Interpreter → Add Interpreter → Local → existing environment), open the notebook and run it with that interpreter.
+- Browser: `uv run --with jupyter jupyter lab notebooks/<name>.ipynb` from the repository root.

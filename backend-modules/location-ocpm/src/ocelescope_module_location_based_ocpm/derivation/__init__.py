@@ -9,7 +9,7 @@ Data flow:
    with reports and blocking errors.
 3. `requirements` checks RQ1-RQ3 (blocking).
 4. `levels` adds loc_0 to loc_3, before and ploc.
-5. `agreement` gives eloc, agreement and locatedness; `flags` the flags F1-F5.
+5. `locatedness` gives the locatedness of relations, events and handling units; `agreement` agreement and eloc; `flags` the flags F1-F5.
 6. `pipeline.derive` runs all steps.
 7. `level_files` saves and loads the mapping of each level (used by the notebooks).
 """
