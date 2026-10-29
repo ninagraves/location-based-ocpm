@@ -1,6 +1,6 @@
 # Location derivation
 
-Derives, for every hu-event relation, where the handling unit is (current location) and where it was before (previous location), plus agreement, locatedness, routes and flags.
+Derives, for every hu-event relation, where the handling unit is (current location) and where it was before (previous location), plus agreement, locatedness and flags.
 Concept: `overview/Deriving Locations.md` (outside this repo); section names below refer to it.
 Code: package `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/derivation/` (paths below are relative to it).
 Tests: `backend-modules/location-ocpm/tests/` against `data/running_example/` (run `uv run pytest`).
@@ -16,8 +16,7 @@ Status: used by the configuration (iteration 3, `docs/pages/configuration.md`); 
 | 3. Requirements | `requirements.py`, `check_requirements` | blocking errors RQ1-RQ3 |
 | 4. Levels | `levels.py`, `add_loc_0` … `add_loc_3`, `add_before`, `add_ploc` | columns `loc_k`, `before_k`, `ploc_k` for k = 0..3 |
 | 5. Agreement | `agreement.py`, `event_locations`, `hu_locatedness` | per event: agreeing, eloc, located; per HU: located |
-| 6. Routes | `routes.py`, `event_routes`, `activity_routes` | move(e), route(a) |
-| 7. Flags | `flags.py`, `f1_…` to `f5_…` | flagged events / HUs |
+| 6. Flags | `flags.py`, `f1_…` to `f5_…` | flagged events / HUs |
 | All | `pipeline.py`, `derive` | `Derivation` |
 
 Conventions in all frames: column names are in `columns.py`; a null value is ⊥.
@@ -109,13 +108,7 @@ Example: `data/running_example/expected/ploc_1.csv`; e.g. (c1, e13): before_1 = 
 - `Derivation.event_locations[k]` holds the result for every level.
 Example: `data/running_example/expected/agreement.csv`; e.g. e14 at Level 1: c1 T, c3 B1 → fully located, disagreeing, eloc ⊥.
 
-## 6. Movement routes (concept box "Movement Route")
-
-- `event_routes(relations, k)`: for every movement event the pairs (ploc_k, loc_k) of handling units whose location changed (⊥ previous counts as a change), with counts.
-- `activity_routes(routes)`: multiset sum per activity.
-Example: `data/running_example/expected/routes.csv` (Level 3); e5 is (A1, A2) at Level 3 and (⊥, A2) at Levels 0-2.
-
-## 7. Flags (concept section "Flags (whole log)")
+## 6. Flags (concept section "Flags (whole log)")
 
 All at the selected level; the whole log.
 

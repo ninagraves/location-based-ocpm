@@ -1,6 +1,6 @@
 """Data overview charts (concept section "Data Overview Charts").
 
-Three small charts: the events sunburst (locatedness, type, agreement), the E2HU chart (first
+Three small charts: the events sunburst (type, locatedness, agreement), the E2HU chart (first
 derivation level at which a relation gets a location) and the HU chart (locatedness of the
 handling units). Under a page filter they count kept events, passing relations and kept
 handling units; properties always come from the whole event or trace.
@@ -50,7 +50,7 @@ class Segment(BaseModel):
     """One segment of a chart.
 
     Attributes:
-        id: Unique path, e.g. "fully/movement/agreeing".
+        id: Unique path, e.g. "movement/fully located/agreeing".
         label: Shown text, e.g. "agreeing".
         parent: Id of the parent segment ("" for the inner ring and for flat charts).
         count: Events, relations or handling units in the segment.
@@ -123,7 +123,7 @@ def event_categories(derivation: Derivation) -> pl.DataFrame:
 
 
 def event_segments(events: pl.DataFrame) -> list[Segment]:
-    """Sunburst segments: inner ring locatedness, middle ring type, outer ring agreement.
+    """Sunburst segments: inner ring type, middle ring locatedness, outer ring agreement.
 
     Args:
         events: Rows of `event_categories` to count.
@@ -131,7 +131,7 @@ def event_segments(events: pl.DataFrame) -> list[Segment]:
     Returns:
         list[Segment]: Non-empty segments, inner ring first, each ring in display order.
     """
-    rings = [("located", LOCATEDNESS), ("type", EVENT_TYPES), ("agreement", AGREEMENT)]
+    rings = [("type", EVENT_TYPES), ("located", LOCATEDNESS), ("agreement", AGREEMENT)]
     segments = []
     for depth in range(1, 4):
         keys = [name for name, _ in rings[:depth]]

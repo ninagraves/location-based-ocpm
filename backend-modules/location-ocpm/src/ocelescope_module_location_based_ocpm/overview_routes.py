@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from ocelescope_module_location_based_ocpm.configuration_routes import CurrentDerivation
+from ocelescope_module_location_based_ocpm.overview.activity_profile import ActivityProfile, activity_profile
 from ocelescope_module_location_based_ocpm.overview.data_charts import DataCharts, data_charts
 from ocelescope_module_location_based_ocpm.overview.filters import (
     FilterOptions,
@@ -64,3 +65,9 @@ def get_flag_counts(derivation: CurrentDerivation) -> list[FlagCount]:
 def get_data_charts(derivation: CurrentDerivation, page_filter: Filter) -> DataCharts:
     """Events sunburst, E2HU chart and HU chart, counted over the kept part of the log."""
     return data_charts(derivation, page_filter)
+
+
+@router.get("/{ocel_id}/overview/activity-profile", operation_id="getActivityProfile")
+def get_activity_profile(derivation: CurrentDerivation, page_filter: Filter) -> ActivityProfile:
+    """One row per activity with kept events, at the selected level."""
+    return activity_profile(derivation, page_filter)

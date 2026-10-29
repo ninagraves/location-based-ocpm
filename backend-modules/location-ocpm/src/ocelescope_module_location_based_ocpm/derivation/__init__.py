@@ -1,4 +1,4 @@
-"""Location derivation: from the user's inputs to current and previous locations, agreement, routes and flags.
+"""Location derivation: from the user's inputs to current and previous locations, agreement and flags.
 
 The concept is defined in `overview/Deriving Locations.md` (outside this repo); the
 documentation of this package is `docs/resources/location-derivation.md`.
@@ -9,7 +9,6 @@ Data flow:
    with reports and blocking errors.
 3. `requirements` checks RQ1-RQ3 (blocking).
 4. `levels` adds loc_0 to loc_3, before and ploc.
-5. `agreement` gives eloc, agreement and locatedness; `routes` the movement routes;
-   `flags` the flags F1-F5.
+5. `agreement` gives eloc, agreement and locatedness; `flags` the flags F1-F5.
 6. `pipeline.derive` runs all steps.
 """

@@ -1,12 +1,10 @@
-"""Agreement, locatedness, routes and flags against the concept's running example."""
+"""Agreement, locatedness and flags against the concept's running example."""
 
 import polars as pl
-from polars.testing import assert_frame_equal
 
 from conftest import example_config, expected
 from ocelescope_module_location_based_ocpm.derivation.agreement import hu_locatedness
 from ocelescope_module_location_based_ocpm.derivation.pipeline import derive
-from ocelescope_module_location_based_ocpm.derivation.routes import activity_routes, event_routes
 
 
 def test_agreement_examples(derivation):
@@ -27,24 +25,6 @@ def test_hu_locatedness_level_3(derivation):
         "s1": "fully located", "c1": "fully located", "c2": "fully located",
         "c3": "fully located", "c4": "fully located", "c5": "unlocated",
     }
-
-
-def test_routes_level_3(derivation):
-    actual = event_routes(derivation.relations, 3).select("event", "activity", "previous", "current", "count")
-    want = expected("routes").with_columns(pl.col("count").cast(pl.UInt32))
-    assert_frame_equal(actual.sort("event", "previous", nulls_last=True), want.sort("event", "previous", nulls_last=True))
-
-
-def test_route_of_e5_below_level_3(derivation):
-    for level in (0, 1, 2):
-        e5 = event_routes(derivation.relations, level).filter(pl.col("event") == "e5")
-        assert e5.select("previous", "current").rows() == [(None, "A2")]
-
-
-def test_activity_routes_level_3(derivation):
-    routes = activity_routes(event_routes(derivation.relations, 3))
-    crane = routes.filter(pl.col("activity") == "crane move").select("previous", "current", "count").rows()
-    assert sorted(crane) == [("A1", "A2", 2), ("A2", "B1", 1)]
 
 
 def test_flags_level_3(derivation):

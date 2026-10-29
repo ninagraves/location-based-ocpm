@@ -1,8 +1,8 @@
 # Overview page
 
 Concept: `overview/Deriving Locations.md`, section "overview" (outside this repo).
-Content elements are added one at a time; built so far: page filter bar, key numbers (with filtered values), configuration notices, flag badges, data overview charts.
-Still to come: activity profile, overview charts, flag explore sections.
+Content elements are added one at a time; built so far: page filter bar, key numbers (with filtered values), configuration notices, flag badges, data overview charts, activity profile.
+Still to come: overview charts, flag explore sections.
 
 ## Code
 - Page: `frontend-modules/location-ocpm/src/routes/Overview.tsx`
@@ -12,6 +12,7 @@ Still to come: activity profile, overview charts, flag explore sections.
 
 ## 0. Page filter bar
 **What it shows:** a bar that sticks to the top while scrolling, with three columns: Activity, Location and Object type. Each column has an "include" picker and below it an "exclude" picker. Next to the Location heading, the switch "either / pre / post" decides whether a location filter matches ploc (pre, the pickup or previous location), loc (post, the target or current location) or either. "Clear filters" appears next to the Object type heading while a filter is set. Each option shows its count over the whole log in brackets.
+A value is never included and excluded at the same time: choosing it in one picker removes it from the other (`lib/filters.ts`, `withValues`).
 - Activity lists: "[movement events]", "[transformation events]", "[fully / partially / unlocated events]", "[agreeing / disagreeing events]", then the activities; counts are events.
 - Location lists: "[unknown]" (⊥), then the locations; counts are relations whose loc or ploc is that location ("[unknown]": loc or ploc is ⊥).
 - Object type lists: "[fully / partially / unlocated HUs]", then the object types; counts are handling units.
@@ -62,8 +63,8 @@ Implementation choice: the concept's filter line names "kept events with a locat
 **How to change:** wording in `FLAGS`; colours in `FlagBadges` (`color` of the `Badge`).
 
 ## 4. Data overview charts
-**What it shows:** three small charts in one row, each with its legend beneath; hovering a segment shows its count, its share and what a click does.
-- **Events** (sunburst): inner ring locatedness (fully / partially / unlocated), middle ring type (movement, transformation, movement and transformation, other), outer ring agreement (agreeing, not agreeing, not tested). Counts events.
+**What it shows:** three small charts in one row, each with its legend to the right (the sunburst's legend grouped by ring); hovering a segment shows its count and share.
+- **Events** (sunburst): inner ring type (movement, transformation, movement and transformation, other), middle ring locatedness (fully / partially / unlocated), outer ring agreement (agreeing, not agreeing, not tested). Counts events.
 - **Relations: first level with a location** (donut): for every hu-event relation the lowest level k with loc_k ≠ ⊥, or ⊥ if there is none. Always all levels, independent of the selected one (helps to choose a level). Counts relations.
 - **Handling units** (donut): locatedness of each handling unit's trace at the selected level. Counts handling units with at least one event.
 
@@ -73,9 +74,9 @@ Implementation choice: the concept's filter line names "kept events with a locat
 - First level: `first_levels` over loc_0 … loc_3.
 - Locatedness of events and handling units: as in the filter bar (`derivation/agreement.py`).
 
-**Example** (running example, Level 3, no filter): events fully 15 (movement: 4 agreeing, 4 not tested; transformation: 2 agreeing, 1 not tested; other: 1 agreeing, 1 not agreeing (e14), 2 not tested), partially 1 (e16, other, not tested), unlocated 1 (e17, other, not tested); relations Level 0: 15, Level 1: 4, Level 2: 3, Level 3: 4, ⊥: 2; handling units fully 5, unlocated 1 (c5).
+**Example** (running example, Level 3, no filter): events movement 8 (fully located: 4 agreeing, 4 not tested), transformation 3 (fully located: 2 agreeing, 1 not tested), other 6 (fully located 4: 1 agreeing, 1 not agreeing (e14), 2 not tested; partially located 1 (e16, not tested); unlocated 1 (e17, not tested)); relations Level 0: 15, Level 1: 4, Level 2: 3, Level 3: 4, ⊥: 2; handling units fully 5, unlocated 1 (c5).
 **Filtering:** the sunburst counts kept events, the relations chart passing relations, the handling-unit chart kept handling units; properties come from the whole event or trace. Example "Location B1, post": 6 events (e14 still fully located and not agreeing); relations Level 0: 4, Level 1: 2, Level 3: 2; handling units 4 fully located.
-**Clicking** a segment adds its filter value to the filter bar (once):
+**Clicking** a segment adds its filter value to the filter bar, replacing any other value of the same category (e.g. "[transformation events]" replaces "[movement events]") and removing it from the matching exclude filter (`lib/filters.ts`, `withValue`, categories in `CATEGORIES`):
 
 | Segment | Filter value |
 |---|---|
@@ -85,9 +86,31 @@ Implementation choice: the concept's filter line names "kept events with a locat
 | fully / partially / unlocated (handling units) | Object type "[fully / partially / unlocated HUs]" |
 | movement and transformation, other, not tested, every segment of the relations chart | nothing (no filter value matches them) |
 
-Values within the Activity filter are combined with OR, so clicking an inner and then an outer segment widens the filter instead of narrowing it.
+Values of different categories within the Activity filter are combined with OR, so clicking a type and then a locatedness segment widens the filter instead of narrowing it.
 A sunburst click never zooms into the segment.
 **Settings:** the selected level (events and handling units; the relations chart shows all levels).
 **Code:** route `GET /{ocel_id}/overview/data-charts` (`getDataCharts`); `Segment` carries id, label, parent, count and the click's `filter`; frontend `components/DataCharts.tsx` (`Sunburst`, `Donut`, `Legend`, `useAddFilter`). Colours: `STATUS` in `lib/palette.ts`. Click handling: `ThemedPlot` in `components/plots.tsx` (see `docs/hosting/dependencies.md`).
-**How to change:** a new ring value needs a branch in `event_categories`, an entry in `EVENT_TYPES` / `AGREEMENT` (backend) and `RINGS` (frontend), a colour in `STATUS`, and, if clicking should filter, an entry in `EVENT_FILTERS`. Height: `HEIGHT` in `DataCharts.tsx`. Tests: `tests/test_overview_data_charts.py`.
+**How to change:** ring order: `rings` in `event_segments` (backend) and `RINGS` (frontend). A new ring value needs a branch in `event_categories`, an entry in `EVENT_TYPES` / `AGREEMENT` (backend) and `RINGS` (frontend), a colour in `STATUS`, and, if clicking should filter, an entry in `EVENT_FILTERS` and in a category of `CATEGORIES`. Height: `HEIGHT` in `DataCharts.tsx`. Tests: `tests/test_overview_data_charts.py`.
 **Alternatives:** bar charts instead of donuts (easier to compare small segments); a click that sets the whole path of a sunburst segment would need an AND between activity values, which the filter bar does not have.
+
+## 5. Activity profile
+**What it shows:** a table with one row per activity with kept events, a search box ("Search activity", only hides rows) and sortable columns (click a heading; activity, events, share at location, role, HUs per event by max, located by the share of fully located events, agreed). Default: most events first. Every heading has a hover text. The arrow in front of an activity expands the row and shows its top 5 locations, each with a frequency bar, share and count, plus the number of distinct locations.
+
+| Column | Content | Example (crane move, Level 3) |
+|---|---|---|
+| events | kept events of the activity | 4 |
+| share at location | only with a location filter: events / all kept events | (B1, post: quality check 3/6 = 50 %) |
+| role | share of movement events (M) and transformation events (T; "–" if none are configured) | M 100 %, T 0 % |
+| HUs per event | median (max) handling units per event; hover: object types counted as hu-event relations | 1.5 (2), hover "coil 6" |
+| typical location | most frequent loc over the located relations (count/total = share; "n tied" if tied, alphabetically first shown); "unknown" if none; "provided x/y" = events in dom(uloc) | A2 (4/6 = 67 %); provided 4/4 |
+| located | fully (partially, unlocated) located events · share fully located | 4 (0, 0) · 100 % |
+| agreed (tested) | agreeing events by the definition / events (in brackets: agreeing among events with ≥ 2 located handling units / such events) | 4/4 (2/2) |
+
+**How it is calculated:** `overview/activity_profile.py`, `activity_profile(derivation, page_filter) -> ActivityProfile`. Event properties come from `derivation.event_locations[level]` (n_relations, n_located, located, agreeing) and `derivation.events` (is_movement, is_transformation, uloc); typical values from `ranked` (count per activity and value, ties alphabetical), top values from `_tops`.
+**Example** (running example, Level 3, no filter): as in the concept's table "Step 2"; e.g. quality check: 4 events, B1 (3/4 = 75 %); provided 1/4, 2 (1, 1) · 50 %, 3/4 (0/1). Expanded crane move: A2 67 % (4), B1 33 % (2); 2 distinct.
+**Filtering:** one row per activity with kept events; events, role, HUs per event, located and agreed describe the kept events as a whole; typical location and top locations count passing relations only; share at location appears only with a location (or exclude location) filter. Example "Location B1, post": crane move 1, quality check 3 (50 %, B1 3/3, 2/3 (0/1): e14 still disagreeing), unload truck 1, cut 1.
+Events without handling units have no relation and therefore never appear.
+**Settings:** the selected level; sort order kept across pages and reloads (`profile.sort`, `lib/pageState.ts`); the search box is not kept.
+**Code:** route `GET /{ocel_id}/overview/activity-profile` (`getActivityProfile`); frontend `components/ActivityProfile.tsx` (`ActivityProfile`, `Row`, `Heading`; hover texts in `INFO`, sort keys in `sortValue`). Tests: `tests/test_overview_activity_profile.py`.
+**How to change:** a new column needs a field in `ActivityRow` and its aggregation in `activity_profile` (backend), `pnpm run build:modules`, a heading and a cell in `ActivityProfile.tsx` (and a `sortValue` entry if sortable). Number of expanded locations: `TOP` in `activity_profile.py`.
+**Alternatives:** the typical recipe is struck in the concept until defined. Routes (ploc → loc of moved handling units) were removed on 2026-10-28 as not useful in their current form.
