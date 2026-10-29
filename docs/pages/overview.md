@@ -1,8 +1,8 @@
 # Overview page
 
 Concept: `overview/Deriving Locations.md`, section "overview" (outside this repo).
-Content elements are added one at a time; built so far: page filter bar, key numbers (with filtered values), configuration notices, flag badges, data overview charts, activity profile.
-Still to come: overview charts, flag explore sections.
+Content elements are added one at a time; built so far: page filter bar, key numbers (with filtered values), configuration notices, flag badges, data overview charts, activity profile, overview charts.
+Still to come: flag explore sections.
 
 ## Code
 - Page: `frontend-modules/location-ocpm/src/routes/Overview.tsx`
@@ -114,3 +114,29 @@ Events without handling units have no relation and therefore never appear.
 **Code:** route `GET /{ocel_id}/overview/activity-profile` (`getActivityProfile`); frontend `components/ActivityProfile.tsx` (`ActivityProfile`, `Row`, `Heading`; hover texts in `INFO`, sort keys in `sortValue`). Tests: `tests/test_overview_activity_profile.py`.
 **How to change:** a new column needs a field in `ActivityRow` and its aggregation in `activity_profile` (backend), `pnpm run build:modules`, a heading and a cell in `ActivityProfile.tsx` (and a `sortValue` entry if sortable). Number of expanded locations: `TOP` in `activity_profile.py`.
 **Alternatives:** the typical recipe is struck in the concept until defined. Routes (ploc → loc of moved handling units) were removed on 2026-10-28 as not useful in their current form.
+
+## 6. Overview charts
+**What it shows:** a **top 10 / bottom 10** switch, three bar charts in one row (Activities, Locations, Movement activities) and below them the location × activity heatmap (concept section "Overview charts"). Bars are horizontal, largest on top.
+
+| Chart | One bar per | Bar counts | Controls (default first) | "by" options (default) |
+|---|---|---|---|---|
+| Activities | activity | relations or events | relations / events; most frequent / most locations | none, location (default), object type |
+| Locations | location at the selected level ("–" = ⊥) | relations or events | relations / events | none, activity (default), object type |
+| Movement activities | activity of movement events, ranked by moved relations | relations | – | none, movement status (default), location, object type |
+
+- **relations:** every passing hu-event relation counts once, under its own values (its loc for locations).
+- **events:** only agreeing kept events, each once, under the common value of its handling units: eloc for locations ("–" if no handling unit is located), the object type ("[several types]" if they differ). Not agreeing events are left out; the subtitle gives their number, the hover of an Activities bar the number for that activity.
+- **most locations** (Activities): bar = distinct locations ≠ ⊥ of the activity's passing relations (in both measures); the hover lists them; "by object type" is not offered.
+- **Movement status:** moved, origin known (ploc ≠ ⊥, ploc ≠ loc) / moved, origin unknown (⊥) (ploc = ⊥) / not moved (ploc = loc). A bar's rank is its number of moved relations; its height all its relations.
+- **top 10:** the 10 largest bars, the rest summed into a grey "other" bar (hover: how many bars). **bottom 10:** the 10 smallest, the rest left out. Ties: alphabetical. The switch also sets both heatmap axes.
+- **Colours:** each chart ranks its own segment values. Every shown bar gets enough of its largest values that at most 5 % of it stays grey "other"; the chosen values are ordered by their total over the shown bars (first palette colour = largest), at most 50 per chart. "–" segments and the "–" bar are grey or hatched and never get a colour. The legend sits beside the chart (at most ¼ of the card width, long names cut, full name on hover); bar labels are cut to ¼ of the chart width.
+- **Heatmap:** rows locations ("–" row grey, last), columns activities, cells counts (relations or events, as above); 10 values per axis by their totals following the top/bottom switch, no "other"; **all / movements / transformations** keeps the relations (events) of all, of movement or of transformation events.
+- **Clicks:** a bar or segment adds the bar's value and the segment's value to the include filters (a heatmap cell: its location and activity). "–" adds the location "[unknown]"; "other", "[several types]" and movement status add nothing. Chart locations are loc (post), so adding a location switches the location role "pre" to "post" ("either" stays).
+
+**How it is calculated:** `overview/overview_charts.py`. Step 1: `relation_units` (passing relations with activity, object type, location, movement status, moved) and `event_units` (kept agreeing events with activity, object type, location = eloc; plus the not agreeing ones). Step 2: `bar_chart(units, bar, by, end, count, rank)` is generic for every bar chart (`chosen` picks the top/bottom bars, `colour_values` the coloured segment values); `overview_bar_chart` picks the units and the bar dimension per chart; `heatmap` counts units per (location, activity).
+**Example** (running example, Level 3, no filter): as in the concept's "Deriving Overview Charts". Activities, relations, by location: crane move 6 (A2 4, B1 2), quality check 6 (B1 3, T 1, – 2); events: quality check 3 (B1 2, – 1), 1 not agreeing event left out (e14). Most locations: quality check 2 (B1, T). Locations, events: B1 5, A1 4, A2 4, T 2, – 1. Movement activities: load truck 4 (moved, origin known 3, origin unknown 1), crane move 6 (ranked 3: moved 3, not moved 3), unload truck 3. Heatmap, relations: A2 × crane move 4, – × quality check 2.
+**Filtering:** all charts count the kept part: passing relations, kept events (with whole-event agreement and eloc). Example "Location B1, post", Locations chart: only the bar B1.
+**Settings:** the selected level; per chart measure, mode and "by" (`charts.activities`, `charts.locations`, `charts.movements`), the heatmap switches (`charts.heatmap`) and the top/bottom switch (`charts.end`) are kept across pages and reloads (`lib/pageState.ts`).
+**Code:** routes `GET /{ocel_id}/overview/bar-chart` (`getBarChart`, parameters chart, measure, by, mode, end) and `GET /{ocel_id}/overview/heatmap` (`getHeatmap`, parameters measure, end, events); frontend `components/OverviewCharts.tsx` (`OverviewCharts`, `BarChartCard`, `HeatmapCard`, `traces`; chart definitions in `CHARTS`, "by" options in `BY_OPTIONS`, click mapping in `FILTER_OF` and `useAddValues`, hover texts in `INFO`). Tests: `tests/test_overview_charts.py`.
+**How to change:** number of bars `SHOWN`, grey share `MAX_OTHER_SHARE`, colour cap `MAX_COLOURS` (all in `overview_charts.py`); a new "by" dimension needs a column in `relation_units`/`event_units`, an entry in `BY_COLUMN` and the `By` literal (backend), `pnpm run build:modules`, then an entry in `BY_OPTIONS` (and `FILTER_OF` if clicks should filter by it). A new chart: a branch in `overview_bar_chart` and an entry in `CHARTS`.
+**Alternatives:** the transformation activities chart and the high-level location "by" are struck in the concept. Events mode by object type could instead count an event under each of its object types (then an event counts more than once).
