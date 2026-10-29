@@ -9,8 +9,17 @@ import polars as pl
 from . import columns as c
 
 
-def _unchanged(level: int) -> pl.Expr:
-    """True where the handling unit was already at the target: ploc((e, hu)) = uloc(e) (⊥ counts as a change)."""
+def at_target(level: int) -> pl.Expr:
+    """True where the handling unit was already at the target: ploc_k((e, hu)) = uloc(e).
+
+    ⊥ counts as a change: if ploc_k or uloc is ⊥, the expression is False.
+
+    Args:
+        level: Selected level k.
+
+    Returns:
+        pl.Expr: Boolean expression on a relations frame with columns uloc and ploc_k.
+    """
     return (pl.col(c.ploc(level)) == pl.col(c.ULOC)).fill_null(False)
 
 
@@ -27,7 +36,7 @@ def f1_partial_movement(relations: pl.DataFrame, level: int) -> pl.Series:
     return (
         relations.filter(pl.col(c.IS_MOVEMENT))
         .group_by(c.EVENT)
-        .agg(_unchanged(level).any().alias("flag"))
+        .agg(at_target(level).any().alias("flag"))
         .filter("flag")[c.EVENT]
         .sort()
     )
@@ -62,7 +71,7 @@ def f3_mixed_pickup(relations: pl.DataFrame, level: int) -> pl.Series:
     Returns:
         pl.Series: Flagged event ids, sorted.
     """
-    moved = relations.filter(pl.col(c.IS_MOVEMENT) & pl.col(c.PULOC).is_null() & ~_unchanged(level))
+    moved = relations.filter(pl.col(c.IS_MOVEMENT) & pl.col(c.PULOC).is_null() & ~at_target(level))
     return (
         moved.group_by(c.EVENT)
         .agg(pl.col(c.ploc(level)).n_unique().alias("n_previous"))
@@ -128,7 +137,7 @@ def f5_movement_disagreement(relations: pl.DataFrame, level: int) -> pl.DataFram
     kind_b = (
         relations.filter(pl.col(c.IS_MOVEMENT))
         .group_by(c.EVENT)
-        .agg(_unchanged(level).all().alias("flag"))
+        .agg(at_target(level).all().alias("flag"))
         .filter("flag")
         .select(c.EVENT, pl.lit("b").alias("kind"))
     )
