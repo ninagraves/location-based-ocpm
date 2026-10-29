@@ -5,7 +5,7 @@ import { Alert, Box, Card, ColorSwatch, Group, Loader, SimpleGrid, Stack, Text }
 import type { Segment } from "../api/locationBasedOcpm";
 import { useGetDataCharts } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
-import { type FilterKey, filterParams, filterRequest, usePageFilter, withValue } from "../lib/filters";
+import { type FilterKey, usePageFilter, withValue } from "../lib/filters";
 import { num, pct } from "../lib/format";
 import { OTHER, STATUS } from "../lib/palette";
 import { plotConfig, ThemedPlot, useScheme } from "./plots";
@@ -170,21 +170,22 @@ const Sunburst = ({ segments, onAdd }: { segments: Segment[]; onAdd: Add }) => {
 const legendOf = (labels: string[], scheme: "light" | "dark") =>
   labels.map((label) => ({ label, colour: STATUS[scheme][label] ?? OTHER[scheme] }));
 
-/** The three data overview charts in one row. */
+/**
+ * The three data overview charts in one row. They sit in the configuration section, above the
+ * filter bar, so they always show the whole log; a click still sets a page filter.
+ */
 export const DataCharts = ({ ocelId }: { ocelId: string }) => {
-  const [filter] = usePageFilter(ocelId);
   const scheme = useScheme();
   const onAdd = useAddFilter(ocelId);
-  const { data, error } = useGetDataCharts(ocelId, filterParams(filter), { request: filterRequest });
+  const { data, error } = useGetDataCharts(ocelId);
   if (error) return <Alert color="red">{errorText(error)}</Alert>;
   if (!data) return <Loader size="sm" />;
-  const kept = (what: string) => (data.filtered ? `kept ${what}` : what);
   const present = new Set(data.events.map((s) => s.label));
   return (
     <SimpleGrid cols={{ base: 1, md: 3 }} spacing="sm">
       <ChartCard
         title="Events"
-        sub={`inner-outer: type, located, agreement (lvl ${data.level})`}
+        sub={`events · inner-outer: type, located, agreement (lvl ${data.level})`}
         legend={
           <Stack gap={6}>
             {RINGS.map(([ring, values]) => (
@@ -197,14 +198,14 @@ export const DataCharts = ({ ocelId }: { ocelId: string }) => {
       </ChartCard>
       <ChartCard
         title="Relations: first level with a location"
-        sub={`${kept("hu-event relations")} · all levels`}
+        sub="hu-event relations · all levels"
         legend={<Legend items={data.relations.map((s) => ({ label: levelName(s.label), colour: STATUS[scheme][s.label] }))} />}
       >
         <Donut name="Relations first level" segments={data.relations} unit="relations" onAdd={onAdd} labelOf={levelName} />
       </ChartCard>
       <ChartCard
         title="Handling units"
-        sub={`${kept("handling units")} · located at Level ${data.level}`}
+        sub={`handling units · located at Level ${data.level}`}
         legend={<Legend items={legendOf(data.handling_units.map((s) => s.label), scheme)} />}
       >
         <Donut name="Handling units located" segments={data.handling_units} unit="handling units" onAdd={onAdd} />
