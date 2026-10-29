@@ -94,6 +94,13 @@ SHADE = 0.34
 #: Colour and width of the trace line.
 TRACE = "#adb5bd"
 TRACE_WIDTH = 2
+#: Default figure width in pixels; also used to decide whether a run label fits its ribbon or box.
+WIDTH = 1200
+#: Horizontal space taken by the y labels, margins and legend, in pixels (estimate).
+NON_PLOT_WIDTH = 110 + 20 + 160
+#: Estimated width of one character of a run label (bold, size 10) and the padding around it, in pixels.
+CHAR_PX = 7
+LABEL_PADDING_PX = 6
 #: Pixels per y unit.
 PX_PER_UNIT = 70
 
@@ -370,6 +377,18 @@ def high_level_runs(relations: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def _x_units(span) -> float:
+    """A span on the x axis as a number: itself, or hours for a time span.
+
+    Args:
+        span: A number or a timedelta.
+
+    Returns:
+        float: The span in x units (hours on a time axis).
+    """
+    return span.total_seconds() / 3600 if isinstance(span, timedelta) else float(span)
+
+
 def _tint(colour: str, alpha: float) -> str:
     """A hex colour as rgba with the given opacity.
 
@@ -396,6 +415,7 @@ def trace_figure(
     show_event_labels: bool = True,
     link_shared_events: bool = True,
     title: str | None = None,
+    width: int = WIDTH,
 ) -> go.Figure:
     """Draw the object traces of several handling units with their locations, and optionally visits.
 
@@ -423,6 +443,8 @@ def trace_figure(
         link_shared_events: Draw the lines joining shared events (not for the "trace position" axis,
             where a shared event has different x values).
         title: Figure title.
+        width: Figure width in pixels. A run label ("ribbon", "shading") is only shown if it fits
+            into its ribbon or box at this width; otherwise the legend and the hover name the location.
 
     Returns:
         go.Figure: The figure.
@@ -450,6 +472,15 @@ def trace_figure(
         pad = step * 0.4 if step else timedelta(hours=1)
     else:
         pad = 0.4
+    x_min, x_max = relations[X].min() - 2 * pad, relations[X].max() + 2 * pad
+    px_per_x = (width - NON_PLOT_WIDTH) / _x_units(x_max - x_min)
+
+    def fits(text: str, x0, x1) -> bool:
+        """Whether `text` fits into a ribbon or box from x0 - pad to x1 + pad."""
+        return (
+            len(text) * CHAR_PX + LABEL_PADDING_PX
+            <= _x_units(x1 - x0 + 2 * pad) * px_per_x
+        )
 
     fig = go.Figure()
     shapes: list[dict] = []
@@ -484,16 +515,17 @@ def trace_figure(
                         "layer": "below",
                     }
                 )
-                annotations.append(
-                    {
-                        "x": r["x0"] - pad,
-                        "y": high_y,
-                        "xanchor": "left",
-                        "text": f"<b>{r[HIGH_LEVEL]}</b>",
-                        "showarrow": False,
-                        "font": {"size": 10, "color": "white"},
-                    }
-                )
+                if fits(r[HIGH_LEVEL], r["x0"], r["x1"]):
+                    annotations.append(
+                        {
+                            "x": r["x0"] - pad,
+                            "y": high_y,
+                            "xanchor": "left",
+                            "text": f"<b>{r[HIGH_LEVEL]}</b>",
+                            "showarrow": False,
+                            "font": {"size": 10, "color": "white"},
+                        }
+                    )
             elif high_level_style == "shading":
                 shapes.append(
                     {
@@ -507,17 +539,18 @@ def trace_figure(
                         "layer": "below",
                     }
                 )
-                annotations.append(
-                    {
-                        "x": r["x0"] - pad,
-                        "y": y - SHADE / 2,
-                        "xanchor": "left",
-                        "yanchor": "bottom",
-                        "text": f"<b>{r[HIGH_LEVEL]}</b>",
-                        "showarrow": False,
-                        "font": {"size": 10, "color": colour},
-                    }
-                )
+                if fits(r[HIGH_LEVEL], r["x0"], r["x1"]):
+                    annotations.append(
+                        {
+                            "x": r["x0"] - pad,
+                            "y": y - SHADE / 2,
+                            "xanchor": "left",
+                            "yanchor": "bottom",
+                            "text": f"<b>{r[HIGH_LEVEL]}</b>",
+                            "showarrow": False,
+                            "font": {"size": 10, "color": colour},
+                        }
+                    )
 
         # Visit bars, one block of lanes per group.
         if visits is not None:
@@ -750,6 +783,7 @@ def trace_figure(
     span = -y
     fig.update_layout(
         title=title,
+        width=width,
         shapes=shapes,
         annotations=annotations,
         height=int(160 + span * PX_PER_UNIT),
@@ -769,6 +803,10 @@ def trace_figure(
         "time" if is_time else "trace position" if is_trace_position else "event order"
     )
     fig.update_xaxes(
-        title=x_title, showgrid=False, zeroline=False, dtick=None if is_time else 1
+        title=x_title,
+        showgrid=False,
+        zeroline=False,
+        dtick=None if is_time else 1,
+        range=[x_min, x_max],
     )
     return fig

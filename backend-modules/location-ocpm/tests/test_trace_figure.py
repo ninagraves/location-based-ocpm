@@ -106,3 +106,14 @@ def test_all_high_level_styles_build(derivation):
     rel = relations_for_figure(derivation, None, AGG, {"T"}, {"B1"})
     for style in ("squares", "ribbon", "shading", "outline"):
         assert trace_figure(rel, high_level_style=style).layout.annotations
+
+
+def test_ribbon_labels_only_where_they_fit(derivation):
+    """A long name is shown on c2's four-event run of B (e12 to e15) but not on c1's one-event run (e7)."""
+    rel = relations_for_figure(
+        derivation, ["c1", "c2"], {**AGG, "B1": "Storage hall north"}
+    )
+    fig = trace_figure(rel, high_level_style="ribbon", show_event_labels=False)
+    labels = [a.text for a in fig.layout.annotations]
+    assert labels.count("<b>Storage hall north</b>") == 1
+    assert labels.count("<b>T</b>") == 3

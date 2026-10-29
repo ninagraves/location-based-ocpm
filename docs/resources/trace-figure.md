@@ -10,9 +10,12 @@ The object traces of several handling units, one block per handling unit (top to
   A line joins the relations of the trace; the event id is written at an angle above each marker.
 - **High-level locations** $\widehat{hl}$, in one of four styles (`high_level_style`; under discussion):
   - "squares": a row of squares below the low-level row, one per relation (grey × for ⊥);
-  - "ribbon" (default): a row below with one thick bar per run of consecutive relations with the same high-level location, labelled with its name;
+  - "ribbon" (default; Nina's choice, 2026-10-29): a row below with one thick bar per run of consecutive relations with the same high-level location, labelled with its name;
   - "shading": a tinted, outlined box behind the low-level row per run, labelled with its name (no extra row);
   - "outline": the low-level markers get a thick ring in the high-level colour (no extra row).
+  - Run labels ("ribbon", "shading") are only shown where they fit (Nina, 2026-10-29); otherwise the legend and the hover name the location.
+    Whether a label fits is estimated from `width` (figure width, default 1200 px), `NON_PLOT_WIDTH`, `CHAR_PX` and `LABEL_PADDING_PX`, since plotly in Python does not know the rendered text width; the x range is fixed accordingly.
+    In the tool (Plotly.js), the rendered width can be measured instead.
 - **Visits** (optional): below the high-level row, one block of lanes per visit group (e.g. "maximal", "resolved").
   The group name is written left of its lanes (κ belongs in the title, not in the group name).
   One bar per visit from its first to its last relation, outlined (filled for the groups in `filled_groups`), coloured by its high-level location.
