@@ -1,7 +1,6 @@
 """Tests of the trace figure helpers on the running example (draft for the visit concept)."""
 
 import polars as pl
-
 from ocelescope_module_location_based_ocpm.visits.trace_figure import (
     add_high_level_locations,
     location_colours,
@@ -22,11 +21,30 @@ def test_high_level_locations_complete_agg_by_identity_and_keep_bottom():
 
 def test_relations_for_figure_c1(derivation):
     """c1's trace at Level 3: positions, high-level locations and kinds (review-1-visits.md, section 3)."""
-    rel = relations_for_figure(derivation, ["c1"], AGG, {"T"}, {"B1"}, axis="trace position")
-    assert rel["event"].to_list() == ["e3", "e4", "e5", "e7", "e8", "e9", "e11", "e13", "e14"]
+    rel = relations_for_figure(
+        derivation, ["c1"], AGG, {"T"}, {"B1"}, axis="trace position"
+    )
+    assert rel["event"].to_list() == [
+        "e3",
+        "e4",
+        "e5",
+        "e7",
+        "e8",
+        "e9",
+        "e11",
+        "e13",
+        "e14",
+    ]
     assert rel["position"].to_list() == list(range(1, 10))
     assert rel["high_level"].to_list() == ["A", "A", "A", "B", "T", "A", "A", "T", "T"]
-    assert rel["location_kind"].to_list() == ["other"] * 3 + ["storage", "vehicle", "other", "other", "vehicle", "vehicle"]
+    assert rel["location_kind"].to_list() == ["other"] * 3 + [
+        "storage",
+        "vehicle",
+        "other",
+        "other",
+        "vehicle",
+        "vehicle",
+    ]
 
 
 def test_event_order_aligns_shared_events(derivation):
@@ -39,7 +57,12 @@ def test_event_order_aligns_shared_events(derivation):
 def test_visit_lanes_contained_visit_below_containing_one():
     """A contained visit gets a second lane; a disjoint later visit reuses the first."""
     visits = pl.DataFrame(
-        {"hu": ["c2"] * 3, "group": ["maximal"] * 3, "first_position": [1, 4, 7], "last_position": [6, 4, 8]}
+        {
+            "hu": ["c2"] * 3,
+            "group": ["maximal"] * 3,
+            "first_position": [1, 4, 7],
+            "last_position": [6, 4, 8],
+        }
     )
     assert visit_lanes(visits)["lane"].to_list() == [0, 1, 0]
 
@@ -54,7 +77,13 @@ def test_trace_figure_builds(derivation):
     """The figure builds with visits for all handling units."""
     rel = relations_for_figure(derivation, None, AGG, {"T"}, {"B1"})
     visits = pl.DataFrame(
-        {"hu": ["c2", "c2"], "high_level": ["A", "T"], "first_event": ["e3", "e8"], "last_event": ["e11", "e8"], "group": ["maximal"] * 2}
+        {
+            "hu": ["c2", "c2"],
+            "high_level": ["A", "T"],
+            "first_event": ["e3", "e8"],
+            "last_event": ["e11", "e8"],
+            "group": ["maximal"] * 2,
+        }
     )
     fig = trace_figure(rel, visits)
     assert len(fig.layout.shapes) > 0

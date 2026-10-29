@@ -13,7 +13,6 @@ from pathlib import Path
 
 import polars as pl
 from ocelescope import OCEL
-
 from ocelescope_module_location_based_ocpm.derivation.config import (
     Activities,
     DerivationConfig,
@@ -21,10 +20,17 @@ from ocelescope_module_location_based_ocpm.derivation.config import (
     ObjectTypes,
 )
 from ocelescope_module_location_based_ocpm.derivation.pipeline import derive
-from ocelescope_module_location_based_ocpm.visits.trace_figure import relations_for_figure, trace_figure
+from ocelescope_module_location_based_ocpm.visits.trace_figure import (
+    relations_for_figure,
+    trace_figure,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = Path(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else ROOT / "notebooks" / "output"
+OUT = (
+    Path(sys.argv[1])
+    if len(sys.argv) > 1 and not sys.argv[1].startswith("-")
+    else ROOT / "notebooks" / "output"
+)
 OUT.mkdir(parents=True, exist_ok=True)
 
 # %% Running example at Level 3 (the configuration of data/running_example/README.md)
@@ -64,12 +70,16 @@ VISITS_K2 = pl.DataFrame(
 
 # %% Figures
 for axis in ("event order", "trace position", "time"):
-    relations = relations_for_figure(derivation, HUS, AGG, VEHICLES, STORAGE_UNITS, axis=axis)
+    relations = relations_for_figure(
+        derivation, HUS, AGG, VEHICLES, STORAGE_UNITS, axis=axis
+    )
     name = axis.replace(" ", "-")
     trace_figure(relations, title=f"Running example, Level 3, x = {axis}").write_html(
         OUT / f"trace-figure-{name}.html", include_plotlyjs="cdn"
     )
-    trace_figure(relations, VISITS_K2, title=f"Running example, Level 3, maximal visits at κ = 2 (illustration), x = {axis}").write_html(
-        OUT / f"trace-figure-visits-{name}.html", include_plotlyjs="cdn"
-    )
+    trace_figure(
+        relations,
+        VISITS_K2,
+        title=f"Running example, Level 3, maximal visits at κ = 2 (illustration), x = {axis}",
+    ).write_html(OUT / f"trace-figure-visits-{name}.html", include_plotlyjs="cdn")
 print(f"Written to {OUT}")

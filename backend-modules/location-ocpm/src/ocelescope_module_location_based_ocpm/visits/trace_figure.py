@@ -41,10 +41,31 @@ X = "x"
 
 #: Categorical colours of the module palette (light scheme, `frontend-modules/.../lib/palette.ts`, CATEGORICAL).
 CATEGORICAL = (
-    "#0098A1", "#d98b09", "#CE108A", "#5291cc", "#88375e", "#00549F", "#007e56", "#cd00cd",
-    "#f897e5", "#7bd591", "#1e4729", "#73c9fb", "#b8758d", "#595dec", "#8602a8", "#fe579d",
-    "#2d11a7", "#ea5efe", "#deb58f", "#572069", "#9953ab", "#977d3c", "#55af6d", "#616c98",
-)  # fmt: skip
+    "#0098A1",
+    "#d98b09",
+    "#CE108A",
+    "#5291cc",
+    "#88375e",
+    "#00549F",
+    "#007e56",
+    "#cd00cd",
+    "#f897e5",
+    "#7bd591",
+    "#1e4729",
+    "#73c9fb",
+    "#b8758d",
+    "#595dec",
+    "#8602a8",
+    "#fe579d",
+    "#2d11a7",
+    "#ea5efe",
+    "#deb58f",
+    "#572069",
+    "#9953ab",
+    "#977d3c",
+    "#55af6d",
+    "#616c98",
+)
 #: Colour of ⊥ (palette OTHER).
 GREY = "#adb5bd"
 #: Colour of guide lines.
@@ -131,7 +152,9 @@ def add_location_kinds(
     )
 
 
-def add_x_positions(relations: pl.DataFrame, axis: Axis = "event order") -> pl.DataFrame:
+def add_x_positions(
+    relations: pl.DataFrame, axis: Axis = "event order"
+) -> pl.DataFrame:
     """Add the trace position of every relation and its x value for the chosen axis.
 
     The trace position is the index in otrace(hu), ordered by time and then event id (as `seq`).
@@ -187,16 +210,27 @@ def relations_for_figure(
             pl.col(c.HU).replace_strict(order, return_dtype=pl.Int64).alias(HU_ORDER)
         )
     else:
-        relations = relations.with_columns(pl.col(c.HU).rank("dense").cast(pl.Int64).alias(HU_ORDER))
+        relations = relations.with_columns(
+            pl.col(c.HU).rank("dense").cast(pl.Int64).alias(HU_ORDER)
+        )
     relations = relations.select(
-        c.HU, HU_ORDER, c.EVENT, c.TIME, c.ACTIVITY, c.IS_MOVEMENT, c.IS_TRANSFORMATION, pl.col(derivation.loc).alias("loc")
+        c.HU,
+        HU_ORDER,
+        c.EVENT,
+        c.TIME,
+        c.ACTIVITY,
+        c.IS_MOVEMENT,
+        c.IS_TRANSFORMATION,
+        pl.col(derivation.loc).alias("loc"),
     )
     relations = add_high_level_locations(relations, "loc", agg)
     relations = add_location_kinds(relations, "loc", vehicles, storage_units)
     return add_x_positions(relations, axis)
 
 
-def location_colours(names: list[str | None], palette: tuple[str, ...] = CATEGORICAL) -> dict[str, str]:
+def location_colours(
+    names: list[str | None], palette: tuple[str, ...] = CATEGORICAL
+) -> dict[str, str]:
     """One colour per location name, the most frequent name first (ties alphabetically).
 
     Low-level and high-level locations share one colour map, so a high-level location that is
@@ -209,7 +243,9 @@ def location_colours(names: list[str | None], palette: tuple[str, ...] = CATEGOR
     Returns:
         dict[str, str]: Location name -> colour.
     """
-    counts = pl.Series("name", [n for n in names if n is not None], dtype=pl.String).value_counts()
+    counts = pl.Series(
+        "name", [n for n in names if n is not None], dtype=pl.String
+    ).value_counts()
     ranked = counts.sort(["count", "name"], descending=[True, False])["name"].to_list()
     return {name: palette[i % len(palette)] for i, name in enumerate(ranked)}
 
@@ -227,13 +263,21 @@ def visit_lanes(visits: pl.DataFrame) -> pl.DataFrame:
         pl.DataFrame: `visits` with the column lane (0 = closest to the trace).
     """
     rows = visits.with_row_index("_row").sort(
-        "hu", "group", "first_position", "last_position", descending=[False, False, False, True]
+        "hu",
+        "group",
+        "first_position",
+        "last_position",
+        descending=[False, False, False, True],
     )
     lanes: list[int] = []
     ends: dict[tuple[str, str], list[int]] = {}
-    for hu, group, first, last in rows.select("hu", "group", "first_position", "last_position").iter_rows():
+    for hu, group, first, last in rows.select(
+        "hu", "group", "first_position", "last_position"
+    ).iter_rows():
         lane_ends = ends.setdefault((hu, group), [])
-        lane = next((i for i, end in enumerate(lane_ends) if end < first), len(lane_ends))
+        lane = next(
+            (i for i, end in enumerate(lane_ends) if end < first), len(lane_ends)
+        )
         if lane == len(lane_ends):
             lane_ends.append(last)
         else:
@@ -254,8 +298,12 @@ def _visit_positions(visits: pl.DataFrame, relations: pl.DataFrame) -> pl.DataFr
     """
     ends = relations.select(c.HU, c.EVENT, POSITION, X)
     return visits.join(
-        ends.rename({c.EVENT: "first_event", POSITION: "first_position", X: "x0"}), on=[c.HU, "first_event"]
-    ).join(ends.rename({c.EVENT: "last_event", POSITION: "last_position", X: "x1"}), on=[c.HU, "last_event"])
+        ends.rename({c.EVENT: "first_event", POSITION: "first_position", X: "x0"}),
+        on=[c.HU, "first_event"],
+    ).join(
+        ends.rename({c.EVENT: "last_event", POSITION: "last_position", X: "x1"}),
+        on=[c.HU, "last_event"],
+    )
 
 
 def _relation_hover(row: dict) -> str:
@@ -267,7 +315,14 @@ def _relation_hover(row: dict) -> str:
     Returns:
         str: HTML hover text.
     """
-    roles = [name for name, flag in (("movement", row[c.IS_MOVEMENT]), ("transformation", row[c.IS_TRANSFORMATION])) if flag]
+    roles = [
+        name
+        for name, flag in (
+            ("movement", row[c.IS_MOVEMENT]),
+            ("transformation", row[c.IS_TRANSFORMATION]),
+        )
+        if flag
+    ]
     kind = f" ({row[KIND]})" if row[KIND] in ("vehicle", "storage") else ""
     return (
         f"<b>{row[c.EVENT]}</b> · {row[c.ACTIVITY]}{' · ' + ', '.join(roles) if roles else ''}<br>"
@@ -340,7 +395,9 @@ def trace_figure(
         # Visit bars, one block of lanes per group.
         if visits is not None:
             lane_top = high_y - LANE
-            for group in visits[["group"]].unique(maintain_order=True)["group"].to_list():
+            for group in (
+                visits[["group"]].unique(maintain_order=True)["group"].to_list()
+            ):
                 own = visits.filter((pl.col(c.HU) == hu) & (pl.col("group") == group))
                 if own.is_empty():
                     continue
@@ -349,43 +406,77 @@ def trace_figure(
                     centre = lane_top - v["lane"] * LANE
                     colour = colours.get(v[HIGH_LEVEL], GREY)
                     shapes.append(
-                        dict(
-                            type="rect", x0=v["x0"] - pad, x1=v["x1"] + pad, y0=centre - BAR / 2, y1=centre + BAR / 2,
-                            line=dict(color=colour, width=2), fillcolor=colour if filled else "rgba(0,0,0,0)",
-                            opacity=0.8 if filled else 1, layer="below",
-                        )
-                    )  # fmt: skip
+                        {
+                            "type": "rect",
+                            "x0": v["x0"] - pad,
+                            "x1": v["x1"] + pad,
+                            "y0": centre - BAR / 2,
+                            "y1": centre + BAR / 2,
+                            "line": {"color": colour, "width": 2},
+                            "fillcolor": colour if filled else "rgba(0,0,0,0)",
+                            "opacity": 0.8 if filled else 1,
+                            "layer": "below",
+                        }
+                    )
                     fig.add_trace(
                         go.Scatter(
-                            x=[v["x0"], v["x1"]], y=[centre, centre], mode="markers",
-                            marker=dict(size=12, opacity=0), showlegend=False,
+                            x=[v["x0"], v["x1"]],
+                            y=[centre, centre],
+                            mode="markers",
+                            marker={"size": 12, "opacity": 0},
+                            showlegend=False,
                             hovertemplate=(
                                 f"<b>{hu}</b> at {v[HIGH_LEVEL]} ({group} visit)<br>"
                                 f"{v['first_event']} to {v['last_event']}, trace positions "
                                 f"{v['first_position']} to {v['last_position']}<extra></extra>"
                             ),
                         )
-                    )  # fmt: skip
+                    )
                 n_lanes = own["lane"].max() + 1
                 fig.add_annotation(
-                    x=0, xref="paper", xanchor="right", y=lane_top - (n_lanes - 1) * LANE / 2,
-                    text=f"<i>{group}</i>", showarrow=False, font=dict(size=10, color="#868e96"),
-                )  # fmt: skip
+                    x=0,
+                    xref="paper",
+                    xanchor="right",
+                    y=lane_top - (n_lanes - 1) * LANE / 2,
+                    text=f"<i>{group}</i>",
+                    showarrow=False,
+                    font={"size": 10, "color": "#868e96"},
+                )
                 bottom = lane_top - (n_lanes - 1) * LANE
                 lane_top = bottom - LANE
 
         # Guide lines from each relation down to the lowest lane.
         for x in rows[X].to_list():
-            shapes.append(dict(type="line", x0=x, x1=x, y0=y, y1=bottom, line=dict(color=GUIDE, width=1, dash="dot"), layer="below"))
+            shapes.append(
+                {
+                    "type": "line",
+                    "x0": x,
+                    "x1": x,
+                    "y0": y,
+                    "y1": bottom,
+                    "line": {"color": GUIDE, "width": 1, "dash": "dot"},
+                    "layer": "below",
+                }
+            )
 
         # The trace line.
         fig.add_trace(
-            go.Scatter(x=rows[X], y=[y] * rows.height, mode="lines", line=dict(color=GUIDE, width=1), showlegend=False, hoverinfo="skip")
+            go.Scatter(
+                x=rows[X],
+                y=[y] * rows.height,
+                mode="lines",
+                line={"color": GUIDE, "width": 1},
+                showlegend=False,
+                hoverinfo="skip",
+            )
         )
         # Markers: low-level row and high-level row, one trace per location, kind and level.
         hover = [_relation_hover(r) for r in rows.iter_rows(named=True)]
         rows = rows.with_columns(pl.Series("_hover", hover))
-        for level, column, row_level_y in (("location", "loc", y), ("high-level location", HIGH_LEVEL, high_y)):
+        for level, column, row_level_y in (
+            ("location", "loc", y),
+            ("high-level location", HIGH_LEVEL, high_y),
+        ):
             for (name, kind), part in rows.group_by(column, KIND, maintain_order=True):
                 if name is None:
                     symbol, colour, label = BOTTOM_SYMBOL, GREY, NOT_LOCATED
@@ -395,32 +486,66 @@ def trace_figure(
                 key = f"{level}|{label}"
                 fig.add_trace(
                     go.Scatter(
-                        x=part[X], y=[row_level_y] * part.height, mode="markers",
-                        marker=dict(symbol=symbol, size=13 if column == "loc" else 9, color=colour, line=dict(width=2, color=colour)),
-                        name=label, legendgroup=level, legendgrouptitle_text=level, showlegend=key not in shown_legend,
-                        customdata=part["_hover"], hovertemplate="%{customdata}<extra></extra>",
+                        x=part[X],
+                        y=[row_level_y] * part.height,
+                        mode="markers",
+                        marker={
+                            "symbol": symbol,
+                            "size": 13 if column == "loc" else 9,
+                            "color": colour,
+                            "line": {"width": 2, "color": colour},
+                        },
+                        name=label,
+                        legendgroup=level,
+                        legendgrouptitle_text=level,
+                        showlegend=key not in shown_legend,
+                        customdata=part["_hover"],
+                        hovertemplate="%{customdata}<extra></extra>",
                     )
-                )  # fmt: skip
+                )
                 shown_legend.add(key)
         if show_event_labels:
             fig.add_trace(
                 go.Scatter(
-                    x=rows[X], y=[y + LABEL_OFFSET] * rows.height, mode="text", text=rows[c.EVENT], textposition="middle center",
-                    textfont=dict(size=10, color="#495057"), showlegend=False, hoverinfo="skip",
+                    x=rows[X],
+                    y=[y + LABEL_OFFSET] * rows.height,
+                    mode="text",
+                    text=rows[c.EVENT],
+                    textposition="middle center",
+                    textfont={"size": 10, "color": "#495057"},
+                    showlegend=False,
+                    hoverinfo="skip",
                 )
-            )  # fmt: skip
+            )
         y = bottom - GAP
 
     # Shared events: dotted lines between the low-level rows of their handling units.
     if link_shared_events and not is_trace_position:
         shared = (
-            relations.with_columns(pl.col(c.HU).replace_strict(row_y, return_dtype=pl.Float64).alias("_y"))
+            relations.with_columns(
+                pl.col(c.HU).replace_strict(row_y, return_dtype=pl.Float64).alias("_y")
+            )
             .group_by(c.EVENT)
-            .agg(pl.col(X).first(), pl.col("_y").min().alias("y0"), pl.col("_y").max().alias("y1"), pl.len().alias("n"))
+            .agg(
+                pl.col(X).first(),
+                pl.col("_y").min().alias("y0"),
+                pl.col("_y").max().alias("y1"),
+                pl.len().alias("n"),
+            )
             .filter(pl.col("n") > 1)
         )
         for r in shared.iter_rows(named=True):
-            shapes.append(dict(type="line", x0=r[X], x1=r[X], y0=r["y0"], y1=r["y1"], line=dict(color="#868e96", width=1, dash="dash"), layer="below"))
+            shapes.append(
+                {
+                    "type": "line",
+                    "x0": r[X],
+                    "x1": r[X],
+                    "y0": r["y0"],
+                    "y1": r["y1"],
+                    "line": {"color": "#868e96", "width": 1, "dash": "dash"},
+                    "layer": "below",
+                }
+            )
 
     span = -y
     fig.update_layout(
@@ -428,11 +553,21 @@ def trace_figure(
         shapes=shapes,
         height=int(140 + span * PX_PER_UNIT),
         template="plotly_white",
-        legend=dict(groupclick="toggleitem", tracegroupgap=12),
-        margin=dict(l=110, r=20, t=60 if title else 30, b=40),
-        hoverlabel=dict(align="left"),
+        legend={"groupclick": "toggleitem", "tracegroupgap": 12},
+        margin={"l": 110, "r": 20, "t": 60 if title else 30, "b": 40},
+        hoverlabel={"align": "left"},
     )
-    fig.update_yaxes(tickvals=tickvals, ticktext=ticktext, showgrid=False, zeroline=False, range=[y + GAP / 2, 0.4])
-    x_title = "time" if is_time else "trace position" if is_trace_position else "event order"
-    fig.update_xaxes(title=x_title, showgrid=False, zeroline=False, dtick=None if is_time else 1)
+    fig.update_yaxes(
+        tickvals=tickvals,
+        ticktext=ticktext,
+        showgrid=False,
+        zeroline=False,
+        range=[y + GAP / 2, 0.4],
+    )
+    x_title = (
+        "time" if is_time else "trace position" if is_trace_position else "event order"
+    )
+    fig.update_xaxes(
+        title=x_title, showgrid=False, zeroline=False, dtick=None if is_time else 1
+    )
     return fig
