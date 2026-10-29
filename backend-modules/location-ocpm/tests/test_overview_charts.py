@@ -42,11 +42,17 @@ def test_locations_by_activity(derivation):
     assert relations[MISSING][0] == 2
 
 
-def test_movement_activities(derivation):
-    chart = overview_bar_chart(derivation, chart="movements", by="movement_status")
-    assert [(b.label, b.rank, b.count) for b in chart.bars] == [("load truck", 4, 4), ("crane move", 3, 6), ("unload truck", 3, 3)]
-    assert bars(chart)["load truck"][1] == {"moved, origin known": 3, "moved, origin unknown (⊥)": 1}
-    assert bars(chart)["crane move"][1] == {"moved, origin known": 3, "not moved": 3}
+def test_activities_by_event_properties(derivation):
+    """Locatedness and agreement are event properties: events mode counts all kept events."""
+    relations = bars(overview_bar_chart(derivation, chart="activities", by="locatedness"))
+    assert relations["quality check"] == (6, {"fully located": 3, "partially located": 2, "unlocated": 1})
+    agreement = bars(overview_bar_chart(derivation, chart="activities", by="agreement"))
+    assert agreement["quality check"] == (6, {"not tested": 4, "not agreeing": 2})
+    events = overview_bar_chart(derivation, chart="activities", measure="events", by="agreement")
+    assert bars(events)["quality check"] == (4, {"not tested": 3, "not agreeing": 1})  # e14 counts
+    assert events.left_out == 0
+    located = bars(overview_bar_chart(derivation, chart="activities", measure="events", by="locatedness"))
+    assert located["quality check"] == (4, {"fully located": 2, "partially located": 1, "unlocated": 1})
 
 
 def test_filtered(derivation):

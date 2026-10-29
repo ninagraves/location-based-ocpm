@@ -1,8 +1,8 @@
-"""Overview charts (concept section "Overview charts"): three bar charts and a heatmap.
+"""Overview charts (concept section "Overview charts"): bar charts and a heatmap.
 
 Every chart counts units: hu-event relations ("relations") or agreeing events ("events").
 Step 1 (`relation_units`, `event_units`) gives every unit its values (activity, object type,
-location, movement status); step 2 (`bar_chart`, `heatmap`) aggregates the units of one chart.
+location, the event's locatedness and agreement); step 2 (`bar_chart`, `heatmap`) aggregates the units of one chart.
 Under a page filter, relations are the passing ones and events the kept ones; event properties
 (agreement, eloc) always come from the whole event.
 """
@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from ocelescope_module_location_based_ocpm.derivation import columns as c
 from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation
+from ocelescope_module_location_based_ocpm.overview.data_charts import event_categories
 from ocelescope_module_location_based_ocpm.overview.filters import PageFilter, passing_relations
 
 #: Label of a missing value (e.g. loc = ⊥): a grey "–" bar, segment or row.
@@ -23,10 +24,6 @@ MISSING = "–"
 OTHER = "other"
 #: Object type of an event whose handling units have several object types (events mode).
 SEVERAL_TYPES = "[several types]"
-#: Movement status values, in display order.
-MOVED_KNOWN = "moved, origin known"
-MOVED_UNKNOWN = "moved, origin unknown (⊥)"
-NOT_MOVED = "not moved"
 
 #: Bars per chart and values per heatmap axis.
 SHOWN = 10
@@ -37,8 +34,8 @@ MAX_COLOURS = 50
 
 Measure = Literal["events", "relations"]
 End = Literal["top", "bottom"]
-ChartName = Literal["activities", "locations", "movements"]
-By = Literal["none", "activity", "object_type", "location", "movement_status"]
+ChartName = Literal["activities", "locations"]
+By = Literal["none", "activity", "object_type", "location", "locatedness", "agreement"]
 Mode = Literal["frequent", "locations"]
 EventSet = Literal["all", "movements", "transformations"]
 
@@ -52,29 +49,28 @@ def relation_units(derivation: Derivation, page_filter: PageFilter) -> pl.DataFr
 
     Returns:
         pl.DataFrame: Columns event, activity, object_type, location (loc at the selected
-        level, "–" if ⊥), movement_status (movement events only, else "–"), moved (bool),
-        is_movement, is_transformation.
+        level, "–" if ⊥), locatedness and agreement (of the relation's event, see
+        `event_categories`), is_movement, is_transformation.
     """
-    moved = pl.col("ploc").is_null() | (pl.col("ploc") != pl.col("loc"))
-    status = (
-        pl.when(~pl.col(c.IS_MOVEMENT) | pl.col("loc").is_null())
-        .then(pl.lit(MISSING))
-        .when(pl.col("ploc").is_null())
-        .then(pl.lit(MOVED_UNKNOWN))
-        .when(pl.col("ploc") != pl.col("loc"))
-        .then(pl.lit(MOVED_KNOWN))
-        .otherwise(pl.lit(NOT_MOVED))
+    return (
+        passing_relations(derivation, page_filter)
+        .join(_event_properties(derivation), on=c.EVENT, how="left")
+        .select(
+            c.EVENT,
+            c.ACTIVITY,
+            c.OBJECT_TYPE,
+            pl.col("loc").fill_null(MISSING).alias("location"),
+            "locatedness",
+            "agreement",
+            c.IS_MOVEMENT,
+            c.IS_TRANSFORMATION,
+        )
     )
-    return passing_relations(derivation, page_filter).select(
-        c.EVENT,
-        c.ACTIVITY,
-        c.OBJECT_TYPE,
-        pl.col("loc").fill_null(MISSING).alias("location"),
-        status.alias("movement_status"),
-        (pl.col(c.IS_MOVEMENT) & pl.col("loc").is_not_null() & moved).alias("moved"),
-        c.IS_MOVEMENT,
-        c.IS_TRANSFORMATION,
-    )
+
+
+def _event_properties(derivation: Derivation) -> pl.DataFrame:
+    """Locatedness and agreement ("agreeing", "not agreeing", "not tested") of every event."""
+    return event_categories(derivation).select(c.EVENT, pl.col("located").alias("locatedness"), "agreement")
 
 
 def event_units(derivation: Derivation, page_filter: PageFilter) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -90,8 +86,8 @@ def event_units(derivation: Derivation, page_filter: PageFilter) -> tuple[pl.Dat
 
     Returns:
         tuple[pl.DataFrame, pl.DataFrame]: The agreeing events (columns event, activity,
-        object_type, location, is_movement, is_transformation) and the not agreeing kept
-        events (same columns, location "–").
+        object_type, location, locatedness, agreement, is_movement, is_transformation) and
+        the not agreeing kept events (same columns, location "–").
     """
     kept = passing_relations(derivation, page_filter).select(c.EVENT).unique()
     types = derivation.relations.group_by(c.EVENT).agg(
@@ -105,11 +101,14 @@ def event_units(derivation: Derivation, page_filter: PageFilter) -> tuple[pl.Dat
         .join(kept, on=c.EVENT, how="semi")
         .join(derivation.events.select(c.EVENT, c.ACTIVITY, c.IS_MOVEMENT, c.IS_TRANSFORMATION), on=c.EVENT)
         .join(types, on=c.EVENT, how="left")
+        .join(_event_properties(derivation), on=c.EVENT, how="left")
         .select(
             c.EVENT,
             c.ACTIVITY,
             c.OBJECT_TYPE,
             pl.col("eloc").fill_null(MISSING).alias("location"),
+            "locatedness",
+            "agreement",
             c.IS_MOVEMENT,
             c.IS_TRANSFORMATION,
             "agreeing",
@@ -131,8 +130,7 @@ class Bar(BaseModel):
     Attributes:
         label: The bar's value (e.g. the activity); "–" for a missing value.
         count: Bar height (units, or distinct locations in "most locations" mode).
-        rank: The number the bar is ranked by (equals count except for movement activities,
-            ranked by moved relations).
+        rank: The number the bar is ranked by (equals count unless a chart ranks otherwise).
         segments: Segments by the "by" dimension: coloured values in colour order, then
             "other", then "–"; empty for by = none.
         left_out: Not agreeing events of the bar's activity (events mode, Activities chart).
@@ -296,8 +294,13 @@ BY_COLUMN: dict[str, str | None] = {
     "activity": c.ACTIVITY,
     "object_type": c.OBJECT_TYPE,
     "location": "location",
-    "movement_status": "movement_status",
+    "locatedness": "locatedness",
+    "agreement": "agreement",
 }
+
+#: "by" values that are properties of the whole event: in events mode, all kept events count
+#: (also the not agreeing ones), since no common value of the handling units is needed.
+EVENT_PROPERTIES = ("locatedness", "agreement")
 
 
 def overview_bar_chart(
@@ -309,14 +312,14 @@ def overview_bar_chart(
     mode: Mode = "frequent",
     end: End = "top",
 ) -> BarChart:
-    """One of the three overview bar charts.
+    """One of the overview bar charts.
 
     Args:
         derivation: The current derivation.
         page_filter: The filter bar's state; None counts the whole log.
-        chart: "activities", "locations" or "movements" (movement activities).
-        measure: Count hu-event relations or agreeing events (Activities and Locations only;
-            Movement activities always count relations).
+        chart: "activities" or "locations".
+        measure: Count hu-event relations or agreeing events (all kept events with by =
+            locatedness or agreement).
         by: Secondary dimension splitting each bar.
         mode: Activities only: "frequent" (bar = units) or "locations" (bar = distinct
             locations ≠ ⊥ of the activity, counted over the relations in both measures).
@@ -328,10 +331,7 @@ def overview_bar_chart(
     page_filter = page_filter or PageFilter()
     column = BY_COLUMN[by]
     left_out = pl.DataFrame()
-    if chart == "movements":
-        units = relation_units(derivation, page_filter).filter(pl.col(c.IS_MOVEMENT))
-        bars, other, colours = bar_chart(units, c.ACTIVITY, column, end, rank=pl.col("moved").sum())
-    elif chart == "activities" and mode == "locations":
+    if chart == "activities" and mode == "locations":
         units = relation_units(derivation, page_filter).filter(pl.col("location") != MISSING)
         bars, other, colours = bar_chart(units, c.ACTIVITY, column, end, count=pl.col("location").n_unique())
         located = units.group_by(c.ACTIVITY).agg(pl.col("location").unique().sort())
@@ -341,6 +341,8 @@ def overview_bar_chart(
     else:
         if measure == "events":
             units, left_out = event_units(derivation, page_filter)
+            if by in EVENT_PROPERTIES:
+                units, left_out = pl.concat([units, left_out]), pl.DataFrame()
         else:
             units = relation_units(derivation, page_filter)
         bar = c.ACTIVITY if chart == "activities" else "location"

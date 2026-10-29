@@ -1,4 +1,4 @@
-// Overview charts: Activities, Locations and Movement activities bar charts in one row, then the
+// Overview charts: Activities and Locations bar charts (2×2 grid, second row to come), then the
 // location × activity heatmap. Counting happens in the backend (`overview/overview_charts.py`);
 // this file draws, colours and turns clicks into filter values.
 // Documented in docs/pages/overview.md, section "Overview charts".
@@ -20,7 +20,7 @@ import { errorText } from "../lib/errors";
 import { type FilterKey, filterParams, filterRequest, type PageFilter, usePageFilter, withValue } from "../lib/filters";
 import { num, pct } from "../lib/format";
 import { usePageState } from "../lib/pageState";
-import { categoricalColour, OTHER, plotlyScale, type Scheme, SEQUENTIAL, UI } from "../lib/palette";
+import { categoricalColour, OTHER, plotlyScale, type Scheme, SEQUENTIAL, STATUS, UI } from "../lib/palette";
 import { plotConfig, ThemedPlot, useScheme } from "./plots";
 
 /** Labels the backend uses for missing values, the summed rest, and mixed object types. */
@@ -39,8 +39,8 @@ type Settings = { measure: GetBarChartMeasure; by: GetBarChartBy; mode: GetBarCh
 /** Hover texts of the controls (concept section "Overview charts"). */
 const INFO = {
   measure:
-    "relations: hu-event relations, each under its own value. events: only agreeing events, each once under the common value of its handling units ('–' if none has one); not agreeing events are left out.",
-  mode: "most frequent: bar = events or relations of the activity. most locations: bar = number of distinct locations (≠ ⊥) of the activity, counted over its relations.",
+    "relations: hu-event relations, each under its own value. events: only agreeing events, each once under the common value of its handling units ('–' if none has one); not agreeing events are left out. By locatedness or agreement (event properties), all events count.",
+  mode: "# events (# relations): bar = events or relations of the activity. # locations: bar = number of distinct locations (≠ ⊥) of the activity, counted over its relations.",
   end: "top 10: the 10 largest bars, the rest summed into a grey 'other' bar. bottom 10: the 10 smallest bars, the rest left out. Also applies to both axes of the heatmap.",
   events: "Keep all relations or events, only those of movement events, or only those of transformation events.",
 };
@@ -50,7 +50,21 @@ const FILTER_OF: Record<string, FilterKey | undefined> = {
   activity: "activities",
   location: "locations",
   object_type: "object_types",
+  locatedness: "activities",
+  agreement: "activities",
 };
+
+/** Filter values of event properties (locatedness, agreement); "not tested" has none. */
+const EVENT_VALUES: Record<string, string> = {
+  "fully located": "[fully located events]",
+  "partially located": "[partially located events]",
+  unlocated: "[unlocated events]",
+  agreeing: "[agreeing events]",
+  "not agreeing": "[disagreeing events]",
+};
+
+/** "by" values that are event properties: fixed status colours as in the data overview charts. */
+const EVENT_PROPERTIES: readonly string[] = ["locatedness", "agreement"];
 
 /** Options of the "by" dropdown, per chart. */
 const BY_OPTIONS: Record<GetBarChartChart, { value: GetBarChartBy; label: string }[]> = {
@@ -58,16 +72,12 @@ const BY_OPTIONS: Record<GetBarChartChart, { value: GetBarChartBy; label: string
     { value: "none", label: "none" },
     { value: "location", label: "location" },
     { value: "object_type", label: "object type" },
+    { value: "locatedness", label: "locatedness" },
+    { value: "agreement", label: "agreement" },
   ],
   locations: [
     { value: "none", label: "none" },
     { value: "activity", label: "activity" },
-    { value: "object_type", label: "object type" },
-  ],
-  movements: [
-    { value: "none", label: "none" },
-    { value: "movement_status", label: "movement status" },
-    { value: "location", label: "location" },
     { value: "object_type", label: "object type" },
   ],
 };
@@ -76,16 +86,12 @@ const BY_OPTIONS: Record<GetBarChartChart, { value: GetBarChartBy; label: string
 const CHARTS: Record<GetBarChartChart, { title: string; bar: string; defaults: Settings }> = {
   activities: { title: "Activities", bar: "activity", defaults: { measure: "relations", by: "location", mode: "frequent" } },
   locations: { title: "Locations", bar: "location", defaults: { measure: "relations", by: "activity", mode: "frequent" } },
-  movements: {
-    title: "Movement activities",
-    bar: "activity",
-    defaults: { measure: "relations", by: "movement_status", mode: "frequent" },
-  },
 };
 
 /**
  * Adds the clicked values to the page filter: each (dimension, value) pair goes to the
- * dimension's include list ("–" as "[unknown]"; "other" and "[several types]" add nothing).
+ * dimension's include list ("–" as "[unknown]"; locatedness and agreement as their special
+ * activity values; "other", "[several types]" and "not tested" add nothing).
  * Chart locations are loc (post), so a location switches the role "pre" to "post".
  */
 const useAddValues = (ocelId: string) => {
@@ -94,15 +100,24 @@ const useAddValues = (ocelId: string) => {
     setFilter((f) =>
       pairs.reduce<PageFilter>((acc, [dimension, value]) => {
         const key = FILTER_OF[dimension];
-        if (!key || value === OTHER_LABEL || value === SEVERAL_TYPES) return acc;
-        const next = withValue(acc, key, key === "locations" && value === MISSING ? "[unknown]" : value);
+        const filterValue = EVENT_PROPERTIES.includes(dimension)
+          ? EVENT_VALUES[value]
+          : key === "locations" && value === MISSING
+            ? "[unknown]"
+            : value;
+        if (!key || !filterValue || value === OTHER_LABEL || value === SEVERAL_TYPES) return acc;
+        const next = withValue(acc, key, filterValue);
         return key === "locations" && next.location_role === "before" ? { ...next, location_role: "after" } : next;
       }, f),
     );
 };
 
-/** Colour of a segment value: its rank in the chart, grey for "other" and "–". */
-const colourOf = (value: string, colours: string[], scheme: Scheme) => {
+/**
+ * Colour of a segment value: its rank in the chart, grey for "other" and "–"; locatedness and
+ * agreement keep their status colours (`STATUS`).
+ */
+const colourOf = (value: string, colours: string[], scheme: Scheme, by: string) => {
+  if (EVENT_PROPERTIES.includes(by) && value !== OTHER_LABEL && STATUS[scheme][value]) return STATUS[scheme][value];
   const index = colours.indexOf(value);
   return index < 0 ? OTHER[scheme] : categoricalColour(index, scheme);
 };
@@ -187,7 +202,7 @@ const traces = (data: BarChartData, by: GetBarChartBy, unit: string, byLabel: st
         x: shown.map(({ segment }) => segment.count),
         customdata: shown.map(({ bar }) => [bar.label, value]),
         marker: {
-          color: colourOf(value, data.colours, scheme),
+          color: colourOf(value, data.colours, scheme, by),
           // "–" values and the "–" bar are hatched.
           pattern: { shape: shown.map(({ bar }) => (value === MISSING || bar.label === MISSING ? "/" : "")) },
         },
@@ -221,21 +236,22 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
   const addValues = useAddValues(ocelId);
   const { ref, width } = useElementSize();
   const mostLocations = chart === "activities" && settings.mode === "locations";
-  const by = mostLocations && settings.by === "object_type" ? "none" : settings.by;
-  const measure = chart === "movements" ? "relations" : settings.measure;
+  // With "# locations", only "by" values whose segments add up to the bar are offered.
+  const locationsBy: readonly string[] = ["none", "location", "activity"];
+  const by = mostLocations && !locationsBy.includes(settings.by) ? "none" : settings.by;
+  const measure = settings.measure;
   const { data, error } = useGetBarChart(
     ocelId,
     { ...filterParams(filter), chart, measure, by, mode: settings.mode, end },
     { request: filterRequest },
   );
   const set = (change: Partial<Settings>) => setSettings((s) => ({ ...s, ...change }));
-  const byOptions = BY_OPTIONS[chart].filter((o) => !(mostLocations && o.value === "object_type"));
+  const byOptions = BY_OPTIONS[chart].filter((o) => !mostLocations || locationsBy.includes(o.value));
   const byLabel = byOptions.find((o) => o.value === by)?.label ?? "";
   const unit = mostLocations ? "locations" : measure;
   const labelChars = Math.max(6, Math.floor(width / 4 / CHAR_WIDTH));
   const sub = [
     mostLocations ? "distinct locations" : measure === "events" ? "agreeing events" : "hu-event relations",
-    chart === "movements" && "ranked by moved relations",
     data?.left_out ? `${num(data.left_out)} not agreeing events left out` : "",
   ]
     .filter(Boolean)
@@ -243,7 +259,7 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
   const legend =
     data && by !== "none"
       ? [
-          ...data.colours.map((v) => ({ label: v, colour: colourOf(v, data.colours, scheme) })),
+          ...data.colours.map((v) => ({ label: v, colour: colourOf(v, data.colours, scheme, by) })),
           ...(data.bars.some((b) => b.segments?.some((s) => s.value === OTHER_LABEL)) ? [{ label: OTHER_LABEL, colour: OTHER[scheme] }] : []),
           ...(data.bars.some((b) => b.segments?.some((s) => s.value === MISSING))
             ? [{ label: MISSING, colour: OTHER[scheme], hatched: true }]
@@ -253,11 +269,12 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
   return (
     <Card withBorder padding="xs">
       <Stack gap={4} ref={ref}>
-        <Text size="sm" fw={600}>
-          {title}
-        </Text>
-        <Group gap={6} wrap="wrap">
-          {chart !== "movements" && (
+        {/* Title and controls in one line (wrapping only on narrow screens). */}
+        <Group gap={6} wrap="wrap" justify="space-between">
+          <Text size="sm" fw={600}>
+            {title}
+          </Text>
+          <Group gap={6} wrap="wrap">
             <Control info={INFO.measure}>
               <SegmentedControl
                 size="xs"
@@ -267,31 +284,31 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
                 disabled={mostLocations}
               />
             </Control>
-          )}
-          {chart === "activities" && (
-            <Control info={INFO.mode}>
-              <SegmentedControl
-                size="xs"
-                data={[
-                  { value: "frequent", label: "most frequent" },
-                  { value: "locations", label: "most locations" },
-                ]}
-                value={settings.mode}
-                onChange={(v) => set({ mode: v as GetBarChartMode })}
-              />
-            </Control>
-          )}
-          <Select
-            size="xs"
-            w={150}
-            aria-label="by"
-            leftSection={<Text size="xs">by</Text>}
-            data={byOptions}
-            value={by}
-            onChange={(v) => v && set({ by: v as GetBarChartBy })}
-            allowDeselect={false}
-            comboboxProps={{ withinPortal: true }}
-          />
+            {chart === "activities" && (
+              <Control info={INFO.mode}>
+                <SegmentedControl
+                  size="xs"
+                  data={[
+                    { value: "frequent", label: `# ${measure}` },
+                    { value: "locations", label: "# locations" },
+                  ]}
+                  value={settings.mode}
+                  onChange={(v) => set({ mode: v as GetBarChartMode })}
+                />
+              </Control>
+            )}
+            <Select
+              size="xs"
+              w={150}
+              aria-label="by"
+              leftSection={<Text size="xs">by</Text>}
+              data={byOptions}
+              value={by}
+              onChange={(v) => v && set({ by: v as GetBarChartBy })}
+              allowDeselect={false}
+              comboboxProps={{ withinPortal: true }}
+            />
+          </Group>
         </Group>
         <Text size="xs" c="dimmed">
           {sub}
@@ -448,7 +465,7 @@ const HeatmapCard = ({ ocelId, end }: { ocelId: string; end: End }) => {
   );
 };
 
-/** The overview charts: top/bottom switch, three bar charts in one row, then the heatmap. */
+/** The overview charts: top/bottom switch, bar charts in a 2×2 grid, then the heatmap. */
 export const OverviewCharts = ({ ocelId }: { ocelId: string }) => {
   const [end, setEnd] = usePageState<End>("charts.end", "top");
   return (
@@ -469,10 +486,9 @@ export const OverviewCharts = ({ ocelId }: { ocelId: string }) => {
           />
         </Control>
       </Group>
-      <SimpleGrid cols={{ base: 1, md: 3 }} spacing="sm">
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="sm">
         <BarChartCard ocelId={ocelId} chart="activities" end={end} />
         <BarChartCard ocelId={ocelId} chart="locations" end={end} />
-        <BarChartCard ocelId={ocelId} chart="movements" end={end} />
       </SimpleGrid>
       <HeatmapCard ocelId={ocelId} end={end} />
     </Stack>
