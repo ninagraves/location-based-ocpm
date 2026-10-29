@@ -32,10 +32,10 @@ The trace position is the index in $otrace(hu)$ (time, then event id).
 ## Settings
 - `axis`: "event order" (default; rank of the event among all shown events, so shared events line up), "trace position" (index in $otrace(hu)$, as in the visit definition), or "time".
 - `agg`, `vehicles` ($V$), `storage_units` ($W$): until they are inputs of the tool, passed as arguments.
-- `visits`: a table with columns hu, high_level, first_event, last_event, group. Visits are not computed yet; `notebooks/trace_figure.py` passes a hand-written table (maximal visits at κ = 2 from Claude's review 1 of the visit note), for illustration only.
+- `visits`: a table with columns hu, high_level, first_event, last_event, group. Visits are not computed yet; `notebooks/trace_figure.ipynb` passes a hand-written table (maximal visits at κ = 2), for illustration only.
 
 ## Example
-`uv run python notebooks/trace_figure.py` writes the figures of the running example (Level 3, $agg$: A1, A2 → A; B1 → B; T unmapped; $V$ = {T}, $W$ = {B1}) for all three axes, with and without the illustrative visits, and the four high-level styles, into `notebooks/output/`.
+`notebooks/trace_figure.ipynb` (start with `uv run --with jupyter jupyter lab notebooks/trace_figure.ipynb`) demos every function and parameter on the running example (Level 3, $agg$: A1, A2 → A; B1 → B; T unmapped; $V$ = {T}, $W$ = {B1}): the preparation steps, the three axes, visits (outlined and filled), the four high-level styles, label fitting and `width`, and switching labels and links off.
 
 ## Filtering
 None (draft outside the tool).
