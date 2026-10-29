@@ -100,6 +100,8 @@ NON_PLOT_WIDTH = 110 + 20 + 160
 #: Estimated width of one character of a run label (bold, size 10) and the padding around it, in pixels.
 CHAR_PX = 7
 LABEL_PADDING_PX = 6
+#: Time axis: share of the smallest gap between timestamps over which events with the same timestamp are spread.
+TIE_SPREAD = 0.5
 #: Pixels per y unit.
 PX_PER_UNIT = 70
 
@@ -189,8 +191,46 @@ def add_x_positions(
     elif axis == "event order":
         x = pl.struct(c.TIME, c.EVENT).rank("dense")
     else:
-        x = pl.col(c.TIME)
+        return add_tie_offsets(out)
     return out.with_columns(x.alias(X))
+
+
+def add_tie_offsets(
+    relations: pl.DataFrame, spread: float = TIE_SPREAD
+) -> pl.DataFrame:
+    """Time axis: x = time, with events that share a timestamp spread slightly around it.
+
+    Without the spread, events at the same timestamp would be drawn on top of each other.
+    The tied events of a timestamp (all shown events, so a shared event keeps one x) are placed side
+    by side in event id order (as `seq`), centred on the timestamp, together spanning at most `spread`
+    times the smallest gap between two distinct timestamps.
+
+    Args:
+        relations: Relations frame with columns event and time.
+        spread: Share of the smallest gap between timestamps that the tied events of one timestamp span.
+
+    Returns:
+        pl.DataFrame: `relations` with column x (datetime).
+    """
+    times = relations[c.TIME].unique().sort()
+    gaps = times.diff().drop_nulls()
+    gap = gaps.min() if len(gaps) else timedelta(hours=1)
+    ties = (
+        relations.select(c.TIME, c.EVENT)
+        .unique()
+        .with_columns(
+            (pl.col(c.EVENT).rank("dense").over(c.TIME) - 1).alias("_i"),
+            pl.col(c.EVENT).n_unique().over(c.TIME).alias("_n"),
+        )
+    )
+    max_n = ties["_n"].max() if ties.height else 1
+    step = gap * spread / max(max_n - 1, 1)
+    ties = ties.with_columns(
+        (pl.col(c.TIME) + (pl.col("_i") - (pl.col("_n") - 1) / 2) * pl.lit(step)).alias(
+            X
+        )
+    ).select(c.TIME, c.EVENT, X)
+    return relations.join(ties, on=[c.TIME, c.EVENT], how="left", maintain_order="left")
 
 
 def relations_for_figure(

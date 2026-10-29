@@ -148,3 +148,28 @@ def test_location_context_from_running_example_table(input_tables):
     assert context.agg == AGG
     assert context.vehicles == {"T"}
     assert context.storage_units == {"B1"}
+
+
+def test_time_axis_spreads_tied_events(derivation):
+    """Events at the same timestamp get distinct x values around it; a shared event keeps one x."""
+    from datetime import timedelta
+
+    rel = derivation.relations
+    t5 = rel.filter(pl.col("event") == "e5")["time"][0]
+    rel = rel.with_columns(
+        pl.when(pl.col("event").is_in(["e6", "e7"]))
+        .then(pl.lit(t5))
+        .otherwise(pl.col("time"))
+        .alias("time")
+    )
+    out = relations_for_figure(rel, derivation.loc, ["c1", "c2"], AGG, axis="time")
+    xs = dict(
+        out.filter(pl.col("event").is_in(["e5", "e6", "e7"]))
+        .select("event", "x")
+        .unique()
+        .iter_rows()
+    )
+    assert xs["e5"] < xs["e6"] < xs["e7"]
+    assert xs["e6"] == t5
+    assert xs["e7"] - xs["e5"] <= timedelta(hours=1) * 0.5
+    assert out.filter(pl.col("event") == "e3")["x"].n_unique() == 1

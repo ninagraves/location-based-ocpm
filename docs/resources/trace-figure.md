@@ -30,7 +30,7 @@ $\widehat{hl}((e,hu)) = agg(loc((e,hu)))$, ⊥ if $loc((e,hu)) = \bot$; $agg$ ma
 The trace position is the index in $otrace(hu)$ (time, then event id).
 
 ## Settings
-- `axis`: "event order" (default; rank of the event among all shown events, so shared events line up), "trace position" (index in $otrace(hu)$, as in the visit definition), or "time".
+- `axis`: "event order" (default; rank of the event among all shown events, so shared events line up), "trace position" (index in $otrace(hu)$, as in the visit definition), or "time" (events with the same timestamp are spread side by side around it in event id order, over at most `TIE_SPREAD` = half the smallest gap between timestamps; `add_tie_offsets`).
 - `agg`, `vehicles` ($V$), `storage_units` ($W$): until they are inputs of the tool, passed as arguments (in the notebook read from `data/running_example/inputs/locations.csv` with `location_context`).
 - `visits`: a table with columns hu, high_level, first_event, last_event, group. Visits are not computed yet; `notebooks/trace_figure.ipynb` passes a hand-written table (maximal visits at κ = 2), for illustration only.
 
