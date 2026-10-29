@@ -87,3 +87,22 @@ def test_trace_figure_builds(derivation):
     )
     fig = trace_figure(rel, visits)
     assert len(fig.layout.shapes) > 0
+
+
+def test_high_level_runs_c1(derivation):
+    """c1's runs of equal high-level locations: A, B, T, A, T (event order axis)."""
+    from ocelescope_module_location_based_ocpm.visits.trace_figure import (
+        high_level_runs,
+    )
+
+    rel = relations_for_figure(derivation, ["c1"], AGG, axis="trace position")
+    runs = high_level_runs(rel)
+    assert runs["high_level"].to_list() == ["A", "B", "T", "A", "T"]
+    assert list(zip(runs["x0"], runs["x1"])) == [(1, 3), (4, 4), (5, 5), (6, 7), (8, 9)]
+
+
+def test_all_high_level_styles_build(derivation):
+    """Every high-level style builds."""
+    rel = relations_for_figure(derivation, None, AGG, {"T"}, {"B1"})
+    for style in ("squares", "ribbon", "shading", "outline"):
+        assert trace_figure(rel, high_level_style=style).layout.annotations

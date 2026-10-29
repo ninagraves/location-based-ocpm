@@ -66,9 +66,9 @@ VISITS_K2 = pl.DataFrame(
     ],
     schema=["hu", "high_level", "first_event", "last_event"],
     orient="row",
-).with_columns(pl.lit("maximal (κ = 2)").alias("group"))
+).with_columns(pl.lit("maximal").alias("group"))
 
-# %% Figures
+# %% Figures: all axes with the default high-level style, and all high-level styles on the event order axis
 for axis in ("event order", "trace position", "time"):
     relations = relations_for_figure(
         derivation, HUS, AGG, VEHICLES, STORAGE_UNITS, axis=axis
@@ -82,4 +82,12 @@ for axis in ("event order", "trace position", "time"):
         VISITS_K2,
         title=f"Running example, Level 3, maximal visits at κ = 2 (illustration), x = {axis}",
     ).write_html(OUT / f"trace-figure-visits-{name}.html", include_plotlyjs="cdn")
+relations = relations_for_figure(derivation, HUS, AGG, VEHICLES, STORAGE_UNITS)
+for style in ("squares", "ribbon", "shading", "outline"):
+    trace_figure(
+        relations,
+        VISITS_K2,
+        high_level_style=style,
+        title=f"High-level style '{style}': maximal visits at κ = 2 (illustration)",
+    ).write_html(OUT / f"trace-figure-style-{style}.html", include_plotlyjs="cdn")
 print(f"Written to {OUT}")

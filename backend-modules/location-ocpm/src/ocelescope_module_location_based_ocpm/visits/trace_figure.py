@@ -87,7 +87,13 @@ LANE = 0.42
 BAR = 0.3
 GAP = 0.75
 #: Height of the event labels above the low-level row.
-LABEL_OFFSET = 0.2
+LABEL_OFFSET = 0.1
+#: Height of a high-level ribbon ("ribbon" style) and of a high-level shading box ("shading" style).
+RIBBON = 0.14
+SHADE = 0.34
+#: Colour and width of the trace line.
+TRACE = "#adb5bd"
+TRACE_WIDTH = 2
 #: Pixels per y unit.
 PX_PER_UNIT = 70
 
@@ -200,7 +206,7 @@ def relations_for_figure(
         axis: See `add_x_positions`.
 
     Returns:
-        pl.DataFrame: Columns hu, hu_order, event, time, activity, is_movement, is_transformation, loc,
+        pl.DataFrame: Columns hu, hu_order, object_type, event, time, activity, is_movement, is_transformation, loc,
         high_level, location_kind, position, x.
     """
     relations = derivation.relations
@@ -216,6 +222,7 @@ def relations_for_figure(
     relations = relations.select(
         c.HU,
         HU_ORDER,
+        c.OBJECT_TYPE,
         c.EVENT,
         c.TIME,
         c.ACTIVITY,
@@ -331,28 +338,87 @@ def _relation_hover(row: dict) -> str:
     )
 
 
+def high_level_runs(relations: pl.DataFrame) -> pl.DataFrame:
+    """Runs of consecutive relations of a handling unit with the same high-level location (⊥ runs left out).
+
+    Args:
+        relations: Output of `relations_for_figure` (sorted by handling unit and trace position).
+
+    Returns:
+        pl.DataFrame: One row per run: hu, high_level, x0 (x of its first relation), x1 (x of its last relation).
+    """
+    return (
+        relations.with_columns(
+            (
+                pl.col(HIGH_LEVEL)
+                .ne_missing(pl.col(HIGH_LEVEL).shift(1))
+                .over(c.HU)
+                .fill_null(True)
+            )
+            .cum_sum()
+            .over(c.HU)
+            .alias("_run")
+        )
+        .group_by(c.HU, "_run", maintain_order=True)
+        .agg(
+            pl.col(HIGH_LEVEL).first(),
+            pl.col(X).first().alias("x0"),
+            pl.col(X).last().alias("x1"),
+        )
+        .filter(pl.col(HIGH_LEVEL).is_not_null())
+        .drop("_run")
+    )
+
+
+def _tint(colour: str, alpha: float) -> str:
+    """A hex colour as rgba with the given opacity.
+
+    Args:
+        colour: "#rrggbb".
+        alpha: Opacity from 0 to 1.
+
+    Returns:
+        str: "rgba(r,g,b,alpha)".
+    """
+    r, g, b = (int(colour[i : i + 2], 16) for i in (1, 3, 5))
+    return f"rgba({r},{g},{b},{alpha})"
+
+
+#: How the high-level locations are drawn (see `trace_figure`).
+HighLevelStyle = Literal["squares", "ribbon", "shading", "outline"]
+
+
 def trace_figure(
     relations: pl.DataFrame,
     visits: pl.DataFrame | None = None,
     filled_groups: Collection[str] = ("resolved",),
+    high_level_style: HighLevelStyle = "ribbon",
     show_event_labels: bool = True,
     link_shared_events: bool = True,
     title: str | None = None,
 ) -> go.Figure:
     """Draw the object traces of several handling units with their locations, and optionally visits.
 
-    Per handling unit (top to bottom, in the order of first appearance in `relations`):
+    Per handling unit (top to bottom, in the order of first appearance in `relations`; y label: the
+    handling unit and, below it, its object type in brackets):
     - the low-level row: one marker per relation at its x, coloured by loc (circle; open circle for
-      vehicles, diamond for storage units; grey × for ⊥), joined by a thin line (the trace);
-    - the high-level row just below: one square per relation, coloured by hat-hl;
+      vehicles, diamond for storage units; grey × for ⊥), joined by a line (the trace); the event id
+      is written at an angle above each marker;
+    - the high-level locations, drawn as chosen by `high_level_style`:
+      "squares": a row of squares below, one per relation;
+      "ribbon": a row below with one thick bar per run of relations with the same high-level location,
+      labelled with its name;
+      "shading": a tinted box behind the low-level row per run, labelled with its name (no extra row);
+      "outline": the low-level markers get a thick ring in the high-level colour (no extra row);
     - below that, each visit group (e.g. "maximal", "resolved") in its own lanes: one bar per visit
       from its first to its last relation, outlined (or filled for `filled_groups`), coloured by its location.
-    Dotted vertical lines join the relations of an event shared by several shown handling units.
+    Dashed vertical lines join the relations of an event shared by several shown handling units.
 
     Args:
         relations: Output of `relations_for_figure`.
         visits: Optional, one row per visit: hu, high_level, first_event, last_event, group.
         filled_groups: Visit groups drawn as filled bars; all others outlined.
+        high_level_style: See above.
         show_event_labels: Write the event id above every low-level marker.
         link_shared_events: Draw the lines joining shared events (not for the "trace position" axis,
             where a shared event has different x values).
@@ -364,13 +430,20 @@ def trace_figure(
     is_time = relations.schema[X].is_temporal()
     is_trace_position = not is_time and relations[X].equals(relations[POSITION])
     hus = relations[c.HU].unique(maintain_order=True).to_list()
+    types = (
+        dict(relations.select(c.HU, c.OBJECT_TYPE).unique().iter_rows())
+        if c.OBJECT_TYPE in relations.columns
+        else {}
+    )
     names = relations["loc"].to_list() + relations[HIGH_LEVEL].to_list()
     if visits is not None:
         visits = visit_lanes(_visit_positions(visits, relations))
         names += visits[HIGH_LEVEL].to_list()
     colours = location_colours(names)
+    runs = high_level_runs(relations)
+    has_high_row = high_level_style in ("squares", "ribbon")
 
-    # Half the width of a visit bar beyond its first and last relation, in x units.
+    # Half the width of a visit bar (and of a ribbon or shading) beyond its first and last relation, in x units.
     if is_time:
         times = relations[X].unique().sort()
         step = times.diff().drop_nulls().min() if len(times) > 1 else None
@@ -380,6 +453,7 @@ def trace_figure(
 
     fig = go.Figure()
     shapes: list[dict] = []
+    annotations: list[dict] = []
     tickvals, ticktext = [], []
     row_y: dict[str, float] = {}
     y = 0.0
@@ -388,13 +462,66 @@ def trace_figure(
         rows = relations.filter(pl.col(c.HU) == hu)
         row_y[hu] = y
         tickvals.append(y)
-        ticktext.append(f"<b>{hu}</b>")
+        ticktext.append(
+            f"<b>{hu}</b><br>({types[hu]})" if hu in types else f"<b>{hu}</b>"
+        )
         high_y = y - HIGH_OFFSET
-        bottom = high_y
+        bottom = high_y if has_high_row else y - HIGH_OFFSET / 2
+
+        # High-level runs as ribbons (own row) or shading (behind the low-level row).
+        for r in runs.filter(pl.col(c.HU) == hu).iter_rows(named=True):
+            colour = colours[r[HIGH_LEVEL]]
+            if high_level_style == "ribbon":
+                shapes.append(
+                    {
+                        "type": "rect",
+                        "x0": r["x0"] - pad,
+                        "x1": r["x1"] + pad,
+                        "y0": high_y - RIBBON / 2,
+                        "y1": high_y + RIBBON / 2,
+                        "line": {"width": 0},
+                        "fillcolor": colour,
+                        "layer": "below",
+                    }
+                )
+                annotations.append(
+                    {
+                        "x": r["x0"] - pad,
+                        "y": high_y,
+                        "xanchor": "left",
+                        "text": f"<b>{r[HIGH_LEVEL]}</b>",
+                        "showarrow": False,
+                        "font": {"size": 10, "color": "white"},
+                    }
+                )
+            elif high_level_style == "shading":
+                shapes.append(
+                    {
+                        "type": "rect",
+                        "x0": r["x0"] - pad,
+                        "x1": r["x1"] + pad,
+                        "y0": y - SHADE / 2,
+                        "y1": y + SHADE / 2,
+                        "line": {"color": colour, "width": 1.5},
+                        "fillcolor": _tint(colour, 0.18),
+                        "layer": "below",
+                    }
+                )
+                annotations.append(
+                    {
+                        "x": r["x0"] - pad,
+                        "y": y - SHADE / 2,
+                        "xanchor": "left",
+                        "yanchor": "bottom",
+                        "text": f"<b>{r[HIGH_LEVEL]}</b>",
+                        "showarrow": False,
+                        "font": {"size": 10, "color": colour},
+                    }
+                )
 
         # Visit bars, one block of lanes per group.
         if visits is not None:
-            lane_top = high_y - LANE
+            lane_top = bottom - LANE
             for group in (
                 visits[["group"]].unique(maintain_order=True)["group"].to_list()
             ):
@@ -433,14 +560,16 @@ def trace_figure(
                         )
                     )
                 n_lanes = own["lane"].max() + 1
-                fig.add_annotation(
-                    x=0,
-                    xref="paper",
-                    xanchor="right",
-                    y=lane_top - (n_lanes - 1) * LANE / 2,
-                    text=f"<i>{group}</i>",
-                    showarrow=False,
-                    font={"size": 10, "color": "#868e96"},
+                annotations.append(
+                    {
+                        "x": 0,
+                        "xref": "paper",
+                        "xanchor": "right",
+                        "y": lane_top - (n_lanes - 1) * LANE / 2,
+                        "text": f"<i>{group}</i>",
+                        "showarrow": False,
+                        "font": {"size": 10, "color": "#868e96"},
+                    }
                 )
                 bottom = lane_top - (n_lanes - 1) * LANE
                 lane_top = bottom - LANE
@@ -465,61 +594,132 @@ def trace_figure(
                 x=rows[X],
                 y=[y] * rows.height,
                 mode="lines",
-                line={"color": GUIDE, "width": 1},
+                line={"color": TRACE, "width": TRACE_WIDTH},
                 showlegend=False,
                 hoverinfo="skip",
             )
         )
-        # Markers: low-level row and high-level row, one trace per location, kind and level.
+        # Markers: low-level row (and high-level row for "squares"); one trace per location, kind and level.
         hover = [_relation_hover(r) for r in rows.iter_rows(named=True)]
         rows = rows.with_columns(pl.Series("_hover", hover))
-        for level, column, row_level_y in (
-            ("location", "loc", y),
-            ("high-level location", HIGH_LEVEL, high_y),
+        for (name, kind, high), part in rows.group_by(
+            "loc", KIND, HIGH_LEVEL, maintain_order=True
         ):
-            for (name, kind), part in rows.group_by(column, KIND, maintain_order=True):
-                if name is None:
-                    symbol, colour, label = BOTTOM_SYMBOL, GREY, NOT_LOCATED
-                else:
-                    symbol = LOW_SYMBOL[kind] if column == "loc" else HIGH_SYMBOL
-                    colour, label = colours[name], name
-                key = f"{level}|{label}"
+            if name is None:
+                symbol, colour, label = BOTTOM_SYMBOL, GREY, NOT_LOCATED
+            else:
+                symbol, colour, label = LOW_SYMBOL[kind], colours[name], name
+            ring = (
+                colours.get(high, GREY)
+                if high_level_style == "outline" and high is not None
+                else colour
+            )
+            ring_width = (
+                3.5 if high_level_style == "outline" and high is not None else 2
+            )
+            key = f"location|{label}"
+            fig.add_trace(
+                go.Scatter(
+                    x=part[X],
+                    y=[y] * part.height,
+                    mode="markers",
+                    marker={
+                        "symbol": symbol,
+                        "size": 13,
+                        "color": colour,
+                        "line": {"width": ring_width, "color": ring},
+                    },
+                    name=label,
+                    legendgroup="location",
+                    legendgrouptitle_text="location",
+                    showlegend=key not in shown_legend,
+                    customdata=part["_hover"],
+                    hovertemplate="%{customdata}<extra></extra>",
+                )
+            )
+            shown_legend.add(key)
+        if high_level_style == "squares":
+            for high, part in rows.group_by(HIGH_LEVEL, maintain_order=True):
+                high = high[0]
                 fig.add_trace(
                     go.Scatter(
                         x=part[X],
-                        y=[row_level_y] * part.height,
+                        y=[high_y] * part.height,
                         mode="markers",
                         marker={
-                            "symbol": symbol,
-                            "size": 13 if column == "loc" else 9,
-                            "color": colour,
-                            "line": {"width": 2, "color": colour},
+                            "symbol": BOTTOM_SYMBOL if high is None else HIGH_SYMBOL,
+                            "size": 13,
+                            "color": GREY if high is None else colours[high],
+                            "line": {
+                                "width": 2,
+                                "color": GREY if high is None else colours[high],
+                            },
                         },
-                        name=label,
-                        legendgroup=level,
-                        legendgrouptitle_text=level,
-                        showlegend=key not in shown_legend,
+                        showlegend=False,
                         customdata=part["_hover"],
                         hovertemplate="%{customdata}<extra></extra>",
                     )
                 )
-                shown_legend.add(key)
-        if show_event_labels:
+        elif high_level_style == "ribbon":
             fig.add_trace(
                 go.Scatter(
                     x=rows[X],
-                    y=[y + LABEL_OFFSET] * rows.height,
-                    mode="text",
-                    text=rows[c.EVENT],
-                    textposition="middle center",
-                    textfont={"size": 10, "color": "#495057"},
+                    y=[high_y] * rows.height,
+                    mode="markers",
+                    marker={"size": 12, "opacity": 0},
                     showlegend=False,
-                    hoverinfo="skip",
+                    customdata=rows["_hover"],
+                    hovertemplate="%{customdata}<extra></extra>",
                 )
             )
+        if show_event_labels:
+            for x, event in rows.select(X, c.EVENT).iter_rows():
+                annotations.append(
+                    {
+                        "x": x,
+                        "y": y + LABEL_OFFSET,
+                        "text": event,
+                        "textangle": -40,
+                        "showarrow": False,
+                        "font": {"size": 10, "color": "#495057"},
+                        "xanchor": "left",
+                        "yanchor": "bottom",
+                    }
+                )
         y = bottom - GAP
 
-    # Shared events: dotted lines between the low-level rows of their handling units.
+    # Legend entries of the high-level locations (one per name).
+    high_symbol = {
+        "squares": "square",
+        "ribbon": "line-ew-open",
+        "shading": "square",
+        "outline": "circle-open",
+    }[high_level_style]
+    for name in runs[HIGH_LEVEL].unique(maintain_order=True).to_list():
+        colour = colours[name]
+        fig.add_trace(
+            go.Scatter(
+                x=[None],
+                y=[None],
+                mode="markers",
+                name=name,
+                marker={
+                    "symbol": high_symbol,
+                    "size": 12,
+                    "line": {
+                        "width": 4 if high_level_style == "ribbon" else 2.5,
+                        "color": colour,
+                    },
+                    "color": _tint(colour, 0.25)
+                    if high_level_style == "shading"
+                    else colour,
+                },
+                legendgroup="high-level location",
+                legendgrouptitle_text="high-level location",
+            )
+        )
+
+    # Shared events: dashed lines between the low-level rows of their handling units.
     if link_shared_events and not is_trace_position:
         shared = (
             relations.with_columns(
@@ -551,10 +751,11 @@ def trace_figure(
     fig.update_layout(
         title=title,
         shapes=shapes,
-        height=int(140 + span * PX_PER_UNIT),
+        annotations=annotations,
+        height=int(160 + span * PX_PER_UNIT),
         template="plotly_white",
         legend={"groupclick": "toggleitem", "tracegroupgap": 12},
-        margin={"l": 110, "r": 20, "t": 60 if title else 30, "b": 40},
+        margin={"l": 110, "r": 20, "t": 70 if title else 40, "b": 40},
         hoverlabel={"align": "left"},
     )
     fig.update_yaxes(
@@ -562,7 +763,7 @@ def trace_figure(
         ticktext=ticktext,
         showgrid=False,
         zeroline=False,
-        range=[y + GAP / 2, 0.4],
+        range=[y + GAP / 2, 0.6],
     )
     x_title = (
         "time" if is_time else "trace position" if is_trace_position else "event order"
