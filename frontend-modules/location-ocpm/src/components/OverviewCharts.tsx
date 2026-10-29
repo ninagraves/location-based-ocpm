@@ -237,7 +237,6 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
     mostLocations ? "distinct locations" : measure === "events" ? "agreeing events" : "hu-event relations",
     chart === "movements" && "ranked by moved relations",
     data?.left_out ? `${num(data.left_out)} not agreeing events left out` : "",
-    data && `lvl ${data.level}`,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -383,7 +382,6 @@ const HeatmapCard = ({ ocelId, end }: { ocelId: string; end: End }) => {
             <Text span size="xs" c="dimmed" fw={400}>
               {unit}
               {data?.left_out ? ` · ${num(data.left_out)} not agreeing events left out` : ""}
-              {data && ` · lvl ${data.level}`}
             </Text>
           </Text>
           <Group gap={6}>

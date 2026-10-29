@@ -7,7 +7,7 @@ Still to come: flag explore sections.
 ## Page structure (Nina, 2026-10-29)
 Two sections, so that it is clear what the filters act on:
 - **Configuration** (page title): the configuration bar (`configuration.md`), configuration notices (section 2), input flags (section 3) and the data overview charts (section 4). Never filtered; always the whole log.
-- **Overview** (heading): the filter bar (section 0), key numbers (section 1), activity profile (section 5) and overview charts (section 6). Everything here follows the filters.
+- **Overview** (heading): the filter bar (section 0), key numbers (section 1), activity profile (section 5) and overview charts (section 6). Everything here follows the filters and uses the selected level, which the configuration bar shows; the section itself does not repeat the level.
 
 ## Code
 - Page: `frontend-modules/location-ocpm/src/routes/Overview.tsx`
@@ -36,7 +36,7 @@ A value is never included and excluded at the same time: choosing it in one pick
 |---|---|---|
 | Handling units | \|HU\|, including handling units without events | count per object type, largest first, e.g. "coil 5 · slab 1"; beyond five types the first five and "(+n)" for the n further types, hovering it lists all |
 | Agreed located events | events with eloc(e) ≠ ⊥ at the selected level, "x of \|E\|" | share of all events |
-| Relations with a known location | relations with loc ≠ ⊥ at the selected level, "x of \|E2HU\|" | share · "loc at Level k" |
+| Relations with a known location | relations with loc ≠ ⊥ at the selected level, "x of \|E2HU\|" | share |
 | Movement events | \|M\| | events per movement activity, largest first, e.g. "crane move 4 · load truck 2 · unload truck 2"; beyond three activities "(+n)", hovering it lists all |
 | Locations | \|L\| = distinct locations in uloc ∪ puloc | "target n · pickup m" (pickup "–" if no pickup locations are configured) |
 | Transformation events | \|T\|; "–" if none are configured | events per transformation activity, largest first, e.g. "cast slab 1 · cut 1 · roll 1"; beyond three activities "(+n)", hovering it lists all; "no transformation events configured" if none are configured |
@@ -46,7 +46,7 @@ With an active filter, each tile shows the filtered value in brackets next to th
 **How it is calculated:** `overview/key_numbers.py`, `key_numbers(derivation) -> KeyNumbers`.
 eloc and loc come from the derivation at the selected level (`derivation.event_locations[level]["eloc"]`, `derivation.relations[derivation.loc]`); see `docs/resources/location-derivation.md`.
 Pickup locations are counted after ignoring pickups of non-movement events (as resolved).
-**Example** (running example, Level 3): 6 (coil 5 · slab 1); 15 of 17, 88 % (e14 not agreeing, e17 unlocated); 26 of 28, 93 % · loc at Level 3; 8 (crane move 4 · load truck 2 · unload truck 2); 4 (target 4 · pickup 2); 3 (cast slab 1 · cut 1 · roll 1).
+**Example** (running example, Level 3): 6 (coil 5 · slab 1); 15 of 17, 88 % (e14 not agreeing, e17 unlocated); 26 of 28, 93 %; 8 (crane move 4 · load truck 2 · unload truck 2); 4 (target 4 · pickup 2); 3 (cast slab 1 · cut 1 · roll 1).
 **Filtering:** big numbers never; filtered values as above (`filtered_numbers`). Example "Location B1, post": 6 (4); 15 of 17 (5); 26 of 28 (8 of 8); 8 (2); 4 (1); 3 (1). The small grey lines are never filtered.
 Implementation choice: the concept's filter line names "kept events with a location from the input" for the second tile, but the tile itself counts agreed located events; the filtered value follows the tile (kept events with eloc ≠ ⊥: 5 in the example; with "location from the input" it would be 3).
 **Settings:** the selected level (configuration).
