@@ -2,11 +2,11 @@
 // The shared header is documented in docs/pages/configuration.md.
 import { Alert, Button, Card, Group, Loader, Stack, Text, Title } from "@mantine/core";
 import { useCurrentOcel } from "@ocelescope/core";
-import { SettingsIcon } from "lucide-react";
+import { DownloadIcon, SettingsIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { type DerivationConfig, useGetConfig, useGetStatus } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
-import { ConfigForm } from "./ConfigForm";
+import { ConfigForm, downloadJson } from "./ConfigForm";
 import { ShortList } from "./ShortList";
 
 export { errorText };
@@ -77,9 +77,14 @@ export const ModulePage = ({ title, children }: { title: string; children: (cont
       <Card withBorder padding="xs">
         <Group justify="space-between">
           <Text size="sm">Configuration: <SummaryLine config={config} />.</Text>
-          <Button size="xs" variant="default" leftSection={<SettingsIcon size={14} />} onClick={() => setEditing(true)}>
-            Edit configuration
-          </Button>
+          <Group gap="xs">
+            <Button size="xs" variant="default" leftSection={<DownloadIcon size={14} />} onClick={() => downloadJson(config)}>
+              Download configuration
+            </Button>
+            <Button size="xs" variant="default" leftSection={<SettingsIcon size={14} />} onClick={() => setEditing(true)}>
+              Edit configuration
+            </Button>
+          </Group>
         </Group>
       </Card>
     );

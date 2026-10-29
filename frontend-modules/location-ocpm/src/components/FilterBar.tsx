@@ -73,7 +73,7 @@ const Column = ({
 
 /**
  * The page filter bar: sticks to the top while scrolling; one column per filter (Activity,
- * Location, Object type), each with an include and an exclude picker; each option shows its count
+ * Location, Handling unit type), each with an include and an exclude picker; each option shows its count
  * over the whole log. Filters act on hu-event relations at the selected level (see `overview/filters.py`).
  */
 export const FilterBar = ({ ocelId }: { ocelId: string }) => {
@@ -94,8 +94,15 @@ export const FilterBar = ({ ocelId }: { ocelId: string }) => {
       onChange={(v) => setFilter((f) => ({ ...f, location_role: v as PageFilter["location_role"] }))}
     />
   );
-  const clear = isActive(filter) && (
-    <Button size="compact-xs" variant="subtle" leftSection={<FilterXIcon size={14} />} onClick={() => setFilter(emptyFilter)}>
+  // Always shown; disabled while no filter is set.
+  const clear = (
+    <Button
+      size="compact-xs"
+      variant="light"
+      leftSection={<FilterXIcon size={14} />}
+      disabled={!isActive(filter)}
+      onClick={() => setFilter(emptyFilter)}
+    >
       Clear filters
     </Button>
   );
@@ -120,7 +127,7 @@ export const FilterBar = ({ ocelId }: { ocelId: string }) => {
           onExclude={set("exclude_locations")}
         />
         <Column
-          title="Object type"
+          title="Handling unit type"
           extra={clear}
           options={withCounts(options?.object_types)}
           include={filter.object_types}

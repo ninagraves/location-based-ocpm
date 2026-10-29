@@ -30,9 +30,12 @@ const useAddFilter = (ocelId: string): Add => {
   };
 };
 
-/** Hover text of a segment: label, count and share, and a note where needed. */
-const hover = (s: Segment, total: number, unit: string) =>
-  [`<b>${s.label}</b>`, `${num(s.count)} ${unit} (${pct(s.count / total)})`, NOTES[s.label]].filter(Boolean).join("<br>");
+/** Shown name of a relations-chart segment: "Level 2", or "not located" for ⊥. */
+const levelName = (label: string) => (label === "⊥" ? "not located" : `Level ${label}`);
+
+/** Hover text of a segment: label (or its shown name), count and share, and a note where needed. */
+const hover = (s: Segment, total: number, unit: string, name: (label: string) => string = (l) => l) =>
+  [`<b>${name(s.label)}</b>`, `${num(s.count)} ${unit} (${pct(s.count / total)})`, NOTES[s.label]].filter(Boolean).join("<br>");
 
 /** Values of the sunburst's rings in display order (as in `overview/data_charts.py`). */
 const RINGS: [string, string[]][] = [
@@ -84,7 +87,19 @@ const ChartCard = ({ title, sub, children, legend }: { title: string; sub: strin
 const layout = { height: HEIGHT, margin: { l: 0, r: 0, t: 0, b: 0 }, showlegend: false };
 
 /** Donut of flat segments (E2HU chart, HU chart). */
-const Donut = ({ name, segments, unit, onAdd }: { name: string; segments: Segment[]; unit: string; onAdd: Add }) => {
+const Donut = ({
+  name,
+  segments,
+  unit,
+  onAdd,
+  labelOf,
+}: {
+  name: string;
+  segments: Segment[];
+  unit: string;
+  onAdd: Add;
+  labelOf?: (label: string) => string;
+}) => {
   const scheme = useScheme();
   const total = segments.reduce((sum, s) => sum + s.count, 0);
   return (
@@ -100,7 +115,7 @@ const Donut = ({ name, segments, unit, onAdd }: { name: string; segments: Segmen
           customdata: segments.map((_, i) => i) as unknown as number[],
           marker: { colors: segments.map((s) => STATUS[scheme][s.label] ?? OTHER[scheme]) },
           textinfo: "none",
-          hovertext: segments.map((s) => hover(s, total, unit)),
+          hovertext: segments.map((s) => hover(s, total, unit, labelOf)),
           hoverinfo: "text",
         },
       ]}
@@ -183,9 +198,9 @@ export const DataCharts = ({ ocelId }: { ocelId: string }) => {
       <ChartCard
         title="Relations: first level with a location"
         sub={`${kept("hu-event relations")} · all levels`}
-        legend={<Legend items={data.relations.map((s) => ({ label: s.label === "⊥" ? "⊥" : `Level ${s.label}`, colour: STATUS[scheme][s.label] }))} />}
+        legend={<Legend items={data.relations.map((s) => ({ label: levelName(s.label), colour: STATUS[scheme][s.label] }))} />}
       >
-        <Donut name="Relations first level" segments={data.relations} unit="relations" onAdd={onAdd} />
+        <Donut name="Relations first level" segments={data.relations} unit="relations" onAdd={onAdd} labelOf={levelName} />
       </ChartCard>
       <ChartCard
         title="Handling units"

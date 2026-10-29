@@ -651,7 +651,9 @@ const LocationFields = ({
 // endregion
 // region Download and load
 
-const downloadJson = (config: DerivationConfig) => {
+/** Saves a configuration as location-based-ocpm-configuration.json (form and folded header). */
+
+export const downloadJson = (config: DerivationConfig) => {
   const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
