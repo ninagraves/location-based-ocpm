@@ -4,7 +4,7 @@ Shown on top of every page. Concept: `overview/Deriving Locations.md`, sections 
 How the inputs are resolved and checked: `docs/resources/location-derivation.md`, section 1 and 2. Storage and caching: `docs/hosting/state-and-caching.md`.
 
 ## 1. Configuration summary
-**What it shows:** one line, e.g. `Configuration: handling units slab, coil; locations from "to_loc"; Level 3.`, and the button "Edit configuration". The notices of the applied configuration appear on the page below the key numbers (`overview.md`, section 2).
+**What it shows:** one line, e.g. `Configuration: handling units slab, coil; locations from "to_loc"; Level 3.`, and the buttons "Download configuration" (saves the applied configuration as JSON, like the button in the form) and "Edit configuration". The notices of the applied configuration appear on the page below the key numbers (`overview.md`, section 2).
 Locations read `from qualifier "to"` for the e2o-qualifier option and `from table "target_locations.csv"` for a table.
 More than five selected object types show the first five (in the order selected) and "(+n)", n being the number of further types; hovering it lists all (`components/ShortList.tsx`).
 **Example:** running example configuration (see `data/running_example/README.md`) gives the line above.
