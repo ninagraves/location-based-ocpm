@@ -64,7 +64,7 @@ Implementation choice: the concept's filter line names "kept events with a locat
 
 ## 4. Data overview charts
 **What it shows:** three small charts in one row, each with its legend to the right (the sunburst's legend grouped by ring); hovering a segment shows its count and share.
-- **Events** (sunburst): inner ring type (movement, transformation, movement and transformation, other), middle ring locatedness (fully / partially / unlocated), outer ring agreement (agreeing, not agreeing, not tested). Counts events.
+- **Events** (sunburst): inner ring type (movement, transformation, movement and transformation, other), middle ring locatedness (fully / partially / unlocated), outer ring agreement (agreeing, not agreeing, not tested). Counts events; subtitle "events · inner-outer: type, located, agreement (lvl k)" (one line, so without "kept").
 - **Relations: first level with a location** (donut): for every hu-event relation the lowest level k with loc_k ≠ ⊥, or ⊥ if there is none (shown as "Level k" and "not located" in legend and hover). Always all levels, independent of the selected one (helps to choose a level). Counts relations.
 - **Handling units** (donut): locatedness of each handling unit's trace at the selected level. Counts handling units with at least one event.
 
