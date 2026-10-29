@@ -4,6 +4,11 @@ Concept: `overview/Deriving Locations.md`, section "overview" (outside this repo
 Content elements are added one at a time; built so far: page filter bar, key numbers (with filtered values), configuration notices, flag badges, data overview charts, activity profile, overview charts.
 Still to come: flag explore sections.
 
+## Page structure (Nina, 2026-10-29)
+Two sections, so that it is clear what the filters act on:
+- **Configuration** (page title): the configuration bar (`configuration.md`), configuration notices (section 2), input flags (section 3) and the data overview charts (section 4). Never filtered; always the whole log.
+- **Overview** (heading): the filter bar (section 0), key numbers (section 1), activity profile (section 5) and overview charts (section 6). Everything here follows the filters.
+
 ## Code
 - Page: `frontend-modules/location-ocpm/src/routes/Overview.tsx`
 - Frame and shared header: `frontend-modules/location-ocpm/src/components/ModulePage.tsx`; the shared header (configuration summary and form) is documented in `configuration.md`.
@@ -50,12 +55,12 @@ Implementation choice: the concept's filter line names "kept events with a locat
 **Alternatives:** counting located events by locatedness (fully located) instead of eloc ≠ ⊥; the concept chose agreed located events.
 
 ## 2. Configuration notices
-**What it shows:** grey lines below the tiles with the notices of the applied configuration, e.g. ignored pickup locations or dropped table rows, each with its ids (first 20, "show all").
+**What it shows:** grey lines right below the configuration bar (configuration section) with the notices of the applied configuration, e.g. ignored pickup locations or dropped table rows, each with its ids (first 20, "show all").
 **Code:** `Overview.tsx`, `ConfigNotices` (reads `getConfig`), rendering `Notices` from `ConfigForm.tsx`.
 **Example:** none for the running example.
 
-## 3. Flags
-**What it shows:** one badge per flag, "F1 Partial movement · 2 events"; grey at 0, amber above 0; hovering shows the definition. F4 is hidden if no pickup locations are configured. The explore sections (opened by clicking a badge) follow in later steps.
+## 3. Input flags
+**What it shows:** a row headed "Input Flags" with one badge per flag, "F1 Partial movement · 2 events"; grey at 0, amber above 0; hovering shows the definition. F4 is hidden if no pickup locations are configured. The explore sections (opened by clicking a badge) follow in later steps.
 **How it is calculated:** `overview/flag_badges.py`, `flag_counts(derivation) -> list[FlagCount]`: number of distinct flagged events or handling units in `derivation.flags` (computed at the selected level, see `docs/resources/location-derivation.md`, section "Flags"). Labels, units and hover texts are in `FLAGS`.
 **Example** (running example, Level 3): F1 2 events, F2 2 handling units, F3 1 event, F4 1 handling unit, F5 2 events.
 **Filtering:** never filtered (whole log).
@@ -75,7 +80,7 @@ Implementation choice: the concept's filter line names "kept events with a locat
 - Locatedness of events and handling units: as in the filter bar (`derivation/agreement.py`).
 
 **Example** (running example, Level 3, no filter): events movement 8 (fully located: 4 agreeing, 4 not tested), transformation 3 (fully located: 2 agreeing, 1 not tested), other 6 (fully located 4: 1 agreeing, 1 not agreeing (e14), 2 not tested; partially located 1 (e16, not tested); unlocated 1 (e17, not tested)); relations Level 0: 15, Level 1: 4, Level 2: 3, Level 3: 4, ⊥: 2; handling units fully 5, unlocated 1 (c5).
-**Filtering:** the sunburst counts kept events, the relations chart passing relations, the handling-unit chart kept handling units; properties come from the whole event or trace. Example "Location B1, post": 6 events (e14 still fully located and not agreeing); relations Level 0: 4, Level 1: 2, Level 3: 2; handling units 4 fully located.
+**Filtering:** none since 2026-10-29: the charts sit in the configuration section and always show the whole log (the frontend sends no filter). The route still accepts the page filter (`data_charts(derivation, page_filter)`), e.g. "Location B1, post": 6 events; relations Level 0: 4, Level 1: 2, Level 3: 2; handling units 4 fully located. Clicks still set filter values for the overview section below.
 **Clicking** a segment adds its filter value to the filter bar, replacing any other value of the same category (e.g. "[transformation events]" replaces "[movement events]") and removing it from the matching exclude filter (`lib/filters.ts`, `withValue`, categories in `CATEGORIES`):
 
 | Segment | Filter value |
