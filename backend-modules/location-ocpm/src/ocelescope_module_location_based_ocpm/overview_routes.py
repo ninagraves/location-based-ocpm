@@ -15,6 +15,18 @@ from ocelescope_module_location_based_ocpm.overview.filters import (
 )
 from ocelescope_module_location_based_ocpm.overview.flag_badges import FlagCount, flag_counts
 from ocelescope_module_location_based_ocpm.overview.key_numbers import KeyNumbers, key_numbers
+from ocelescope_module_location_based_ocpm.overview.overview_charts import (
+    BarChart,
+    By,
+    ChartName,
+    End,
+    EventSet,
+    Heatmap,
+    Measure,
+    Mode,
+    heatmap,
+    overview_bar_chart,
+)
 
 router = APIRouter()
 
@@ -71,3 +83,29 @@ def get_data_charts(derivation: CurrentDerivation, page_filter: Filter) -> DataC
 def get_activity_profile(derivation: CurrentDerivation, page_filter: Filter) -> ActivityProfile:
     """One row per activity with kept events, at the selected level."""
     return activity_profile(derivation, page_filter)
+
+
+@router.get("/{ocel_id}/overview/bar-chart", operation_id="getBarChart")
+def get_bar_chart(
+    derivation: CurrentDerivation,
+    page_filter: Filter,
+    chart: ChartName = "activities",
+    measure: Measure = "relations",
+    by: By = "none",
+    mode: Mode = "frequent",
+    end: End = "top",
+) -> BarChart:
+    """One overview bar chart (Activities, Locations, Movement activities) of the kept part of the log."""
+    return overview_bar_chart(derivation, page_filter, chart=chart, measure=measure, by=by, mode=mode, end=end)
+
+
+@router.get("/{ocel_id}/overview/heatmap", operation_id="getHeatmap")
+def get_heatmap(
+    derivation: CurrentDerivation,
+    page_filter: Filter,
+    measure: Measure = "relations",
+    end: End = "top",
+    events: EventSet = "all",
+) -> Heatmap:
+    """Location × activity heatmap of the kept part of the log."""
+    return heatmap(derivation, page_filter, measure=measure, end=end, events=events)

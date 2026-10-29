@@ -1,4 +1,4 @@
-// Flag badges of the overview page. Documented in docs/pages/overview.md, section "Flags".
+// Input flag badges of the configuration section. Documented in docs/pages/overview.md, section "Input flags".
 import { Alert, Badge, Group, Loader, Text, Tooltip } from "@mantine/core";
 import { useGetFlagCounts } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
@@ -15,7 +15,7 @@ export const FlagBadges = ({ ocelId }: { ocelId: string }) => {
   return (
     <Group gap="xs">
       <Text size="sm" c="dimmed">
-        Flags
+        Input Flags
       </Text>
       {data.map((flag) => (
         <Tooltip key={flag.key} label={flag.definition} multiline w={360} withArrow>
