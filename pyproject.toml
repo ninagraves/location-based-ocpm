@@ -21,9 +21,16 @@ ocelescope-module-location-based-ocpm = { workspace = true }
 [dependency-groups]
 dev = [
     "ipykernel>=7.4.0",
+    "nbstripout>=0.9.1",
     "pytest>=8",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["backend-modules/location-ocpm/tests"]
 pythonpath = ["backend-modules/location-ocpm/tests"]
+
+[tool.nbstripout]
+# Keep cell ids, so stripping outputs does not renumber the cells.
+keep_id = true
+# Drop the Python version etc. that Jupyter writes on every run.
+extra_keys = "metadata.language_info"

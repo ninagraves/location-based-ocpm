@@ -26,3 +26,6 @@ compose.override.yaml
 
 # Written by `next dev` on every start
 app/AGENTS.md
+
+# Files written by the notebooks
+notebooks/output/
