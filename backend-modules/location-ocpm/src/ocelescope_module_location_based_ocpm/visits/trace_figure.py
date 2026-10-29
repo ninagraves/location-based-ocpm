@@ -11,7 +11,7 @@ The figure is built in small steps, each a function of its own:
 4. `location_colours`: one colour per location name, ranked by frequency in the figure.
 5. `visit_lanes`: places visits in lanes so that visits sharing relations do not overlap.
 6. `trace_figure`: draws everything.
-`relations_for_figure` runs steps 1 to 3 on a `Derivation`.
+`relations_for_figure` runs steps 1 to 3 on a relations frame (a saved location mapping or `Derivation.relations`).
 """
 
 from collections.abc import Collection, Mapping
@@ -22,7 +22,6 @@ import plotly.graph_objects as go
 import polars as pl
 
 from ..derivation import columns as c
-from ..derivation.pipeline import Derivation
 
 #: Axis options: position in the handling unit's own trace (as in the visit definition), order of all
 #: shown events (shared events line up vertically), or real time.
@@ -195,7 +194,8 @@ def add_x_positions(
 
 
 def relations_for_figure(
-    derivation: Derivation,
+    relations: pl.DataFrame,
+    location: str = "loc",
     handling_units: Collection[str] | None = None,
     agg: Mapping[str, str] | None = None,
     vehicles: Collection[str] = (),
@@ -205,7 +205,10 @@ def relations_for_figure(
     """Prepare the relations of some handling units for `trace_figure` (steps 1 to 3).
 
     Args:
-        derivation: Result of `derive`; its selected level gives loc.
+        relations: One row per hu-event relation with columns hu, object_type, event, time, activity,
+            is_movement, is_transformation and `location`, e.g. a saved location mapping of one level, or
+            `Derivation.relations`.
+        location: Column of the current location loc (e.g. "loc", or `Derivation.loc`).
         handling_units: Handling units to show, in this order; None = all.
         agg: Location mapping (see `add_high_level_locations`).
         vehicles: The set V.
@@ -216,7 +219,6 @@ def relations_for_figure(
         pl.DataFrame: Columns hu, hu_order, object_type, event, time, activity, is_movement, is_transformation, loc,
         high_level, location_kind, position, x.
     """
-    relations = derivation.relations
     if handling_units is not None:
         order = {hu: i for i, hu in enumerate(handling_units)}
         relations = relations.filter(pl.col(c.HU).is_in(list(order))).with_columns(
@@ -235,7 +237,7 @@ def relations_for_figure(
         c.ACTIVITY,
         c.IS_MOVEMENT,
         c.IS_TRANSFORMATION,
-        pl.col(derivation.loc).alias("loc"),
+        pl.col(location).alias("loc"),
     )
     relations = add_high_level_locations(relations, "loc", agg)
     relations = add_location_kinds(relations, "loc", vehicles, storage_units)

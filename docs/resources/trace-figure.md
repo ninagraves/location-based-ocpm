@@ -31,7 +31,7 @@ The trace position is the index in $otrace(hu)$ (time, then event id).
 
 ## Settings
 - `axis`: "event order" (default; rank of the event among all shown events, so shared events line up), "trace position" (index in $otrace(hu)$, as in the visit definition), or "time".
-- `agg`, `vehicles` ($V$), `storage_units` ($W$): until they are inputs of the tool, passed as arguments.
+- `agg`, `vehicles` ($V$), `storage_units` ($W$): until they are inputs of the tool, passed as arguments (in the notebook read from `data/running_example/inputs/locations.csv` with `location_context`).
 - `visits`: a table with columns hu, high_level, first_event, last_event, group. Visits are not computed yet; `notebooks/trace_figure.ipynb` passes a hand-written table (maximal visits at κ = 2), for illustration only.
 
 ## Example
@@ -49,7 +49,8 @@ None (draft outside the tool).
 5. `high_level_runs(relations)`: runs of equal high-level location per handling unit (for "ribbon" and "shading").
 6. `visit_lanes(visits)`: column lane (greedy interval packing per handling unit and group; containing visits above contained ones).
 7. `trace_figure(relations, visits, filled_groups, high_level_style, show_event_labels, link_shared_events, title)`: the plotly figure.
-`relations_for_figure(derivation, handling_units, agg, vehicles, storage_units, axis)` runs steps 1 to 3 on a derivation.
+`relations_for_figure(relations, location, handling_units, agg, vehicles, storage_units, axis)` runs steps 1 to 3 on a relations frame (a saved level mapping or `Derivation.relations`).
+`visits/context.py`: `location_context(table)` reads $agg$, $V$, $W$ from a table with one row per location (columns location, high_level, is_vehicle, is_storage; draft format), e.g. `data/running_example/inputs/locations.csv`.
 Tests: `tests/test_trace_figure.py`.
 
 ## How to change it

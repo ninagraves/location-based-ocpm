@@ -20,9 +20,15 @@ def test_high_level_locations_complete_agg_by_identity_and_keep_bottom():
 
 
 def test_relations_for_figure_c1(derivation):
-    """c1's trace at Level 3: positions, high-level locations and kinds (review-1-visits.md, section 3)."""
+    """c1's trace at Level 3: positions, high-level locations and kinds."""
     rel = relations_for_figure(
-        derivation, ["c1"], AGG, {"T"}, {"B1"}, axis="trace position"
+        derivation.relations,
+        derivation.loc,
+        ["c1"],
+        AGG,
+        {"T"},
+        {"B1"},
+        axis="trace position",
     )
     assert rel["event"].to_list() == [
         "e3",
@@ -49,7 +55,13 @@ def test_relations_for_figure_c1(derivation):
 
 def test_event_order_aligns_shared_events(derivation):
     """With the event order axis, the shared event e3 has one x for s1, c1 and c2; HU order is kept."""
-    rel = relations_for_figure(derivation, ["s1", "c1", "c2"], AGG, axis="event order")
+    rel = relations_for_figure(
+        derivation.relations,
+        derivation.loc,
+        ["s1", "c1", "c2"],
+        AGG,
+        axis="event order",
+    )
     assert rel["hu"].unique(maintain_order=True).to_list() == ["s1", "c1", "c2"]
     assert rel.filter(pl.col("event") == "e3")["x"].n_unique() == 1
 
@@ -75,7 +87,9 @@ def test_location_colours_ranked_by_frequency():
 
 def test_trace_figure_builds(derivation):
     """The figure builds with visits for all handling units."""
-    rel = relations_for_figure(derivation, None, AGG, {"T"}, {"B1"})
+    rel = relations_for_figure(
+        derivation.relations, derivation.loc, None, AGG, {"T"}, {"B1"}
+    )
     visits = pl.DataFrame(
         {
             "hu": ["c2", "c2"],
@@ -95,7 +109,9 @@ def test_high_level_runs_c1(derivation):
         high_level_runs,
     )
 
-    rel = relations_for_figure(derivation, ["c1"], AGG, axis="trace position")
+    rel = relations_for_figure(
+        derivation.relations, derivation.loc, ["c1"], AGG, axis="trace position"
+    )
     runs = high_level_runs(rel)
     assert runs["high_level"].to_list() == ["A", "B", "T", "A", "T"]
     assert list(zip(runs["x0"], runs["x1"])) == [(1, 3), (4, 4), (5, 5), (6, 7), (8, 9)]
@@ -103,7 +119,9 @@ def test_high_level_runs_c1(derivation):
 
 def test_all_high_level_styles_build(derivation):
     """Every high-level style builds."""
-    rel = relations_for_figure(derivation, None, AGG, {"T"}, {"B1"})
+    rel = relations_for_figure(
+        derivation.relations, derivation.loc, None, AGG, {"T"}, {"B1"}
+    )
     for style in ("squares", "ribbon", "shading", "outline"):
         assert trace_figure(rel, high_level_style=style).layout.annotations
 
@@ -111,9 +129,22 @@ def test_all_high_level_styles_build(derivation):
 def test_ribbon_labels_only_where_they_fit(derivation):
     """A long name is shown on c2's four-event run of B (e12 to e15) but not on c1's one-event run (e7)."""
     rel = relations_for_figure(
-        derivation, ["c1", "c2"], {**AGG, "B1": "Storage hall north"}
+        derivation.relations,
+        derivation.loc,
+        ["c1", "c2"],
+        {**AGG, "B1": "Storage hall north"},
     )
     fig = trace_figure(rel, high_level_style="ribbon", show_event_labels=False)
     labels = [a.text for a in fig.layout.annotations]
     assert labels.count("<b>Storage hall north</b>") == 1
     assert labels.count("<b>T</b>") == 3
+
+
+def test_location_context_from_running_example_table(input_tables):
+    """inputs/locations.csv: A1, A2 -> A, B1 -> B, T unmapped; V = {T}, W = {B1}."""
+    from ocelescope_module_location_based_ocpm.visits.context import location_context
+
+    context = location_context(input_tables["locations"])
+    assert context.agg == AGG
+    assert context.vehicles == {"T"}
+    assert context.storage_units == {"B1"}
