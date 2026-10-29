@@ -19,6 +19,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { DownloadIcon, FolderOpenIcon, InfoIcon, UploadIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { DropTarget } from "./DropTarget";
 import {
   type ApplyResult,
   type DerivationConfig,
@@ -415,52 +416,64 @@ const TableColumns = ({
     },
   });
   const selected = tables.find((t) => t.name === table);
+  const [rejected, setRejected] = useState<string | null>(null);
+  const uploadFile = (file: File) => {
+    setRejected(null);
+    upload.mutate({ data: { file } });
+  };
   return (
-    <Stack gap={4}>
-      <Group grow align="flex-end">
-        <Select
-          size="xs"
-          label="Table"
-          placeholder={tables.length ? "Select an uploaded table" : "Upload a CSV file"}
-          data={tables.map((t) => ({ value: t.name, label: `${t.name} (${t.row_count} rows)` }))}
-          value={table}
-          onChange={onTable}
-          searchable
-        />
-        {columns.map((c) => (
+    <DropTarget accept={[".csv"]} onFile={uploadFile} onReject={(name) => setRejected(`${name} is not a CSV file`)}>
+      <Stack gap={4}>
+        <Group grow align="flex-end">
           <Select
-            key={c.label}
             size="xs"
-            label={c.label}
-            data={selected?.columns ?? []}
-            value={c.value}
-            onChange={c.onChange}
-            disabled={!selected}
+            label="Table"
+            placeholder={tables.length ? "Select an uploaded table" : "Upload a CSV file"}
+            data={tables.map((t) => ({ value: t.name, label: `${t.name} (${t.row_count} rows)` }))}
+            value={table}
+            onChange={onTable}
             searchable
           />
-        ))}
-      </Group>
-      <Group gap="xs">
-        <FileButton onChange={(file) => file && upload.mutate({ data: { file } })} accept=".csv,text/csv">
-          {(props) => (
-            <Button {...props} size="compact-xs" variant="subtle" leftSection={<UploadIcon size={12} />} loading={upload.isPending}>
-              Upload CSV
-            </Button>
+          {columns.map((c) => (
+            <Select
+              key={c.label}
+              size="xs"
+              label={c.label}
+              data={selected?.columns ?? []}
+              value={c.value}
+              onChange={c.onChange}
+              disabled={!selected}
+              searchable
+            />
+          ))}
+        </Group>
+        <Group gap="xs">
+          <FileButton onChange={(file) => file && uploadFile(file)} accept=".csv,text/csv">
+            {(props) => (
+              <Button {...props} size="compact-xs" variant="subtle" leftSection={<UploadIcon size={12} />} loading={upload.isPending}>
+                Upload CSV
+              </Button>
+            )}
+          </FileButton>
+          {selected && (
+            <Anchor size="xs" onClick={() => setShowPreview((v) => !v)}>
+              {showPreview ? "Hide preview" : "Show first rows"}
+            </Anchor>
           )}
-        </FileButton>
-        {selected && (
-          <Anchor size="xs" onClick={() => setShowPreview((v) => !v)}>
-            {showPreview ? "Hide preview" : "Show first rows"}
-          </Anchor>
-        )}
-        {upload.error && (
-          <Text size="xs" c="red">
-            {errorText(upload.error)}
-          </Text>
-        )}
-      </Group>
-      {selected && showPreview && <Preview table={selected} />}
-    </Stack>
+          {upload.error && (
+            <Text size="xs" c="red">
+              {errorText(upload.error)}
+            </Text>
+          )}
+          {rejected && (
+            <Text size="xs" c="red">
+              {rejected}
+            </Text>
+          )}
+        </Group>
+        {selected && showPreview && <Preview table={selected} />}
+      </Stack>
+    </DropTarget>
   );
 };
 
@@ -706,13 +719,19 @@ export const ConfigForm = ({
       <Group justify="space-between">
         <Title order={4}>Configuration</Title>
         <Group gap="xs">
-          <FileButton onChange={load} accept=".json,application/json">
-            {(props) => (
-              <Button {...props} size="xs" variant="default" leftSection={<FolderOpenIcon size={14} />}>
-                Load configuration
-              </Button>
-            )}
-          </FileButton>
+          <DropTarget
+            accept={[".json"]}
+            onFile={load}
+            onReject={(name) => setLoadError(`${name} is not a configuration file (.json)`)}
+          >
+            <FileButton onChange={load} accept=".json,application/json">
+              {(props) => (
+                <Button {...props} size="xs" variant="default" leftSection={<FolderOpenIcon size={14} />}>
+                  Load configuration
+                </Button>
+              )}
+            </FileButton>
+          </DropTarget>
           <Button size="xs" variant="default" leftSection={<DownloadIcon size={14} />} onClick={() => downloadJson(toConfig(draft))}>
             Download configuration
           </Button>
