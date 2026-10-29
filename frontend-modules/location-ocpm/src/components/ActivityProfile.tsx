@@ -136,10 +136,11 @@ const Row = ({ row, withShare, kept, columns }: { row: ActivityRow; withShare: b
   );
   return (
     <Fragment>
-      <Table.Tr>
+      {/* A click anywhere on the row unfolds or folds it. */}
+      <Table.Tr onClick={() => setOpen(!open)} style={{ cursor: "pointer" }} aria-expanded={open}>
         <Table.Td style={{ whiteSpace: "nowrap" }}>
           <Group gap={4} wrap="nowrap">
-            <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => setOpen(!open)} aria-label="expand">
+            <ActionIcon size="xs" variant="subtle" color="gray" component="span" aria-hidden>
               {open ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
             </ActionIcon>
             <Text size="xs" fw={500}>
@@ -222,7 +223,7 @@ export const ActivityProfile = ({ ocelId }: { ocelId: string }) => {
           <Table striped highlightOnHover verticalSpacing={4}>
             <Table.Thead>
               <Table.Tr>
-                {head("activity", "Click the arrow to show the top 5 locations.", "activity")}
+                {head("activity", "Click a row to show its top 5 locations (click again to hide them).", "activity")}
                 {head("events", INFO.events, "events")}
                 {withShare && head("share at location", INFO.share, "share")}
                 {head("role", INFO.role, "role")}

@@ -11,11 +11,11 @@ Still to come: flag explore sections.
 - Number formatting: `frontend-modules/location-ocpm/src/lib/format.ts` (`num`, `pct`).
 
 ## 0. Page filter bar
-**What it shows:** a bar that sticks to the top while scrolling, with three columns: Activity, Location and Object type. Each column has an "include" picker and below it an "exclude" picker. Next to the Location heading, the switch "either / pre / post" decides whether a location filter matches ploc (pre, the pickup or previous location), loc (post, the target or current location) or either. "Clear filters" appears next to the Object type heading while a filter is set. Each option shows its count over the whole log in brackets.
+**What it shows:** a bar that sticks to the top while scrolling, with three columns: Activity, Location and Handling unit type. Each column has an "include" picker and below it an "exclude" picker. Next to the Location heading, the switch "either / pre / post" decides whether a location filter matches ploc (pre, the pickup or previous location), loc (post, the target or current location) or either. "Clear filters" sits next to the Handling unit type heading; it is always shown and disabled while no filter is set. Each option shows its count over the whole log in brackets.
 A value is never included and excluded at the same time: choosing it in one picker removes it from the other (`lib/filters.ts`, `withValues`).
 - Activity lists: "[movement events]", "[transformation events]", "[fully / partially / unlocated events]", "[agreeing / disagreeing events]", then the activities; counts are events.
 - Location lists: "[unknown]" (⊥), then the locations; counts are relations whose loc or ploc is that location ("[unknown]": loc or ploc is ⊥).
-- Object type lists: "[fully / partially / unlocated HUs]", then the object types; counts are handling units.
+- Handling unit type lists: "[fully / partially / unlocated HUs]", then the object types; counts are handling units.
 
 **How it is calculated** (`overview/filters.py`): every filter is evaluated on hu-event relations at the selected level (`relation_properties`, `passes`). A relation passes if it passes every active filter (AND across filters, OR within one filter's values; an exclude filter removes matching relations). Location filters match loc ("post", `after` in the API), ploc ("pre", `before`) or either. Special values match properties of the whole event or the whole trace (locatedness, agreement), never of the passing relations only. Events and handling units are kept if at least one of their relations passes. Filters never change loc or ploc.
 **Example** (running example, Level 3, "Location B1, post"): 8 passing relations (c1, e7), (c3, e10), (c2, e12), (c3, e12), (c3, e14), (c2, e15), (c4, e15), (c4, e16); kept events e7, e10, e12, e14, e15, e16; kept handling units c1-c4.
@@ -65,7 +65,7 @@ Implementation choice: the concept's filter line names "kept events with a locat
 ## 4. Data overview charts
 **What it shows:** three small charts in one row, each with its legend to the right (the sunburst's legend grouped by ring); hovering a segment shows its count and share.
 - **Events** (sunburst): inner ring type (movement, transformation, movement and transformation, other), middle ring locatedness (fully / partially / unlocated), outer ring agreement (agreeing, not agreeing, not tested). Counts events.
-- **Relations: first level with a location** (donut): for every hu-event relation the lowest level k with loc_k ≠ ⊥, or ⊥ if there is none. Always all levels, independent of the selected one (helps to choose a level). Counts relations.
+- **Relations: first level with a location** (donut): for every hu-event relation the lowest level k with loc_k ≠ ⊥, or ⊥ if there is none (shown as "Level k" and "not located" in legend and hover). Always all levels, independent of the selected one (helps to choose a level). Counts relations.
 - **Handling units** (donut): locatedness of each handling unit's trace at the selected level. Counts handling units with at least one event.
 
 **How it is calculated:** `overview/data_charts.py`, `data_charts(derivation, page_filter) -> DataCharts`.
@@ -83,7 +83,7 @@ Implementation choice: the concept's filter line names "kept events with a locat
 | fully / partially / unlocated (events) | Activity "[fully / partially / unlocated events]" |
 | movement, transformation | Activity "[movement events]", "[transformation events]" |
 | agreeing, not agreeing | Activity "[agreeing events]", "[disagreeing events]" |
-| fully / partially / unlocated (handling units) | Object type "[fully / partially / unlocated HUs]" |
+| fully / partially / unlocated (handling units) | Handling unit type "[fully / partially / unlocated HUs]" |
 | movement and transformation, other, not tested, every segment of the relations chart | nothing (no filter value matches them) |
 
 Values of different categories within the Activity filter are combined with OR, so clicking a type and then a locatedness segment widens the filter instead of narrowing it.
@@ -94,7 +94,7 @@ A sunburst click never zooms into the segment.
 **Alternatives:** bar charts instead of donuts (easier to compare small segments); a click that sets the whole path of a sunburst segment would need an AND between activity values, which the filter bar does not have.
 
 ## 5. Activity profile
-**What it shows:** a table with one row per activity with kept events, a search box ("Search activity", only hides rows) and sortable columns (click a heading; activity, events, share at location, role, HUs per event by max, located by the share of fully located events, agreed). Default: most events first. Every heading has a hover text. The arrow in front of an activity expands the row and shows its top 5 locations, each with a frequency bar, share and count, plus the number of distinct locations.
+**What it shows:** a table with one row per activity with kept events, a search box ("Search activity", only hides rows) and sortable columns (click a heading; activity, events, share at location, role, HUs per event by max, located by the share of fully located events, agreed). Default: most events first. Every heading has a hover text. A click anywhere on a row (or its arrow) unfolds it, a second click folds it again; the unfolded row shows its top 5 locations, each with a frequency bar, share and count, plus the number of distinct locations.
 
 | Column | Content | Example (crane move, Level 3) |
 |---|---|---|
