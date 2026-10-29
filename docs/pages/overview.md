@@ -72,7 +72,7 @@ Implementation choice: the concept's filter line names "kept events with a locat
 - Type: movement if e ∈ M \ T, transformation if e ∈ T \ M, "movement and transformation" if e ∈ M ∩ T, other otherwise (`event_categories`).
 - Agreement: "not tested" if fewer than two handling units of the event are located (agreeing by definition, but nothing is compared); otherwise agreeing or not agreeing at the selected level (`derivation.event_locations[level]`).
 - First level: `first_levels` over loc_0 … loc_3.
-- Locatedness of events and handling units: as in the filter bar (`derivation/agreement.py`).
+- Locatedness of events and handling units: as in the filter bar (`derivation/locatedness.py`).
 
 **Example** (running example, Level 3, no filter): events movement 8 (fully located: 4 agreeing, 4 not tested), transformation 3 (fully located: 2 agreeing, 1 not tested), other 6 (fully located 4: 1 agreeing, 1 not agreeing (e14), 2 not tested; partially located 1 (e16, not tested); unlocated 1 (e17, not tested)); relations Level 0: 15, Level 1: 4, Level 2: 3, Level 3: 4, ⊥: 2; handling units fully 5, unlocated 1 (c5).
 **Filtering:** the sunburst counts kept events, the relations chart passing relations, the handling-unit chart kept handling units; properties come from the whole event or trace. Example "Location B1, post": 6 events (e14 still fully located and not agreeing); relations Level 0: 4, Level 1: 2, Level 3: 2; handling units 4 fully located.

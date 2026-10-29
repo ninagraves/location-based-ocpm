@@ -10,7 +10,7 @@ import polars as pl
 from pydantic import BaseModel
 
 from ocelescope_module_location_based_ocpm.derivation import columns as c
-from ocelescope_module_location_based_ocpm.derivation.agreement import FULLY, PARTIALLY, UNLOCATED
+from ocelescope_module_location_based_ocpm.derivation.locatedness import FULLY, PARTIALLY, UNLOCATED
 from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation
 from ocelescope_module_location_based_ocpm.overview import filters as f
 from ocelescope_module_location_based_ocpm.overview.filters import PageFilter, passing_relations

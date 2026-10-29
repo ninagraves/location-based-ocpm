@@ -3,7 +3,7 @@
 import polars as pl
 
 from conftest import example_config, expected
-from ocelescope_module_location_based_ocpm.derivation.agreement import hu_locatedness
+from ocelescope_module_location_based_ocpm.derivation.locatedness import hu_locatedness
 from ocelescope_module_location_based_ocpm.derivation.pipeline import derive
 
 
@@ -45,3 +45,19 @@ def test_flags_use_the_selected_level(ocel):
     level_1 = derive(ocel, example_config(level=1))
     assert (level_1.loc, level_1.ploc) == ("loc_1", "ploc_1")
     assert level_1.flags.f1.to_list() == ["e11", "e12"]
+
+
+def test_relation_locatedness_level_3(derivation):
+    from ocelescope_module_location_based_ocpm.derivation.locatedness import relation_locatedness
+
+    located = relation_locatedness(derivation.relations, "loc_3")
+    assert located["located"].sum() == 26
+    assert located.filter(~pl.col("located"))["hu"].unique().to_list() == ["c5"]
+
+
+def test_event_agreement_level_1(derivation):
+    from ocelescope_module_location_based_ocpm.derivation.agreement import event_agreement
+
+    agreement = event_agreement(derivation.relations, derivation.events, "loc_1")
+    e14 = agreement.filter(pl.col("event") == "e14").row(0, named=True)
+    assert e14 == {"event": "e14", "n_locations": 2, "agreeing": False, "eloc": None}

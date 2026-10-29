@@ -15,7 +15,7 @@ Status: used by the configuration (iteration 3, `docs/pages/configuration.md`); 
 | 2. Resolve inputs | `inputs.py`, `resolve_inputs` | `relations` (one row per hu-event relation), `events`, notices, blocking errors |
 | 3. Requirements | `requirements.py`, `check_requirements` | blocking errors RQ1-RQ3 |
 | 4. Levels | `levels.py`, `add_loc_0` … `add_loc_3`, `add_before`, `add_ploc` | columns `loc_k`, `before_k`, `ploc_k` for k = 0..3 |
-| 5. Agreement | `agreement.py`, `event_locations`, `hu_locatedness` | per event: agreeing, eloc, located; per HU: located |
+| 5. Locatedness, agreement | `locatedness.py`, `agreement.py` | per relation, event, HU: located; per event: agreeing, eloc |
 | 6. Flags | `flags.py`, `f1_…` to `f5_…` | flagged events / HUs |
 | All | `pipeline.py`, `derive` | `Derivation` |
 
@@ -101,12 +101,19 @@ Alternatives considered: a row-by-row loop per handling unit (closer to the form
 - `add_ploc(relations, k)`: ploc_k = puloc(e) where provided, else before_{loc_k}.
 Example: `data/running_example/expected/ploc_1.csv`; e.g. (c1, e13): before_1 = A2, puloc = A1, so ploc_1 = A1.
 
-## 5. Agreement, eloc and locatedness (concept boxes "Location Agreement", "Locatedness")
+## 5. Locatedness, agreement and eloc (concept boxes "Locatedness", "Location Agreement")
 
-- `event_locations(relations, events, "loc_k")`: per event the number of relations and located relations, `agreeing` (at most one distinct location ≠ ⊥), `eloc` (that location if exactly one, else ⊥) and `located` (fully located / partially located / unlocated). Events without handling units are included and unlocated.
-- `hu_locatedness(relations, "loc_k")`: the same locatedness per handling unit.
-- `Derivation.event_locations[k]` holds the result for every level.
-Example: `data/running_example/expected/agreement.csv`; e.g. e14 at Level 1: c1 T, c3 B1 → fully located, disagreeing, eloc ⊥.
+Locatedness (`locatedness.py`), all for a location column λ such as "loc_3":
+- `relation_locatedness(relations, "loc_k")`: per hu-event relation, `located` = loc_k ≠ ⊥.
+- `event_locatedness(relations, events, "loc_k")`: per event `n_relations`, `n_located` and `located` (fully located / partially located / unlocated). Events without handling units are included and unlocated.
+- `hu_locatedness(relations, "loc_k")`: the same per handling unit.
+- `locatedness(n_relations, n_located)`: the shared rule as a polars expression; constants `FULLY`, `PARTIALLY`, `UNLOCATED`.
+
+Agreement (`agreement.py`):
+- `event_agreement(relations, events, "loc_k")`: per event `n_locations` (distinct locations ≠ ⊥), `agreeing` (at most one) and `eloc` (that location if exactly one, else ⊥).
+- `event_locations(relations, events, "loc_k")`: both joined per event; `Derivation.event_locations[k]` holds the result for every level.
+
+Example: `data/running_example/expected/agreement.csv`; e.g. e14 at Level 1: c1 T, c3 B1 → fully located, disagreeing, eloc ⊥. All functions are demonstrated in `notebooks/location_derivation.ipynb`, section 6.
 
 ## 6. Flags (concept section "Flags (whole log)")
 
@@ -122,3 +129,12 @@ All at the selected level; the whole log.
 
 "Already at the target" (F1, F3, F5 b) is ploc_k = uloc(e); ⊥ counts as a change (`flags._unchanged`).
 Explore sections are not built yet.
+
+## 7. Saved level mappings and the demo notebook
+
+`notebooks/location_derivation.ipynb` walks through steps 1 to 5 on the running example (locatedness and agreement included), showing every input and output frame, and explains each function and its parameters.
+It ends by saving the mapping of every level with `level_files.save_level_mappings` to `data/running_example/derived/locations_level_{k}.csv` (k = 0..3).
+
+File format: one row per hu-event relation, sorted by hu, time, event; columns event, hu, object_type, time, activity, is_movement, is_transformation, `loc` (= loc_k), `ploc` (= ploc_k); time in ISO format, ⊥ as an empty cell.
+Other notebooks read a level with `level_files.load_level_mapping(folder, k)`, which restores the column types.
+`test_level_files.py` checks that the committed files match the current derivation: after a change to the derivation or the running example, rerun the notebook and commit the files.
