@@ -169,7 +169,7 @@ export const DataCharts = ({ ocelId }: { ocelId: string }) => {
     <SimpleGrid cols={{ base: 1, md: 3 }} spacing="sm">
       <ChartCard
         title="Events"
-        sub={`${kept("events")} · inner: type · middle: located · outer: agreement (Level ${data.level})`}
+        sub={`inner-outer: type, located, agreement (lvl ${data.level})`}
         legend={
           <Stack gap={6}>
             {RINGS.map(([ring, values]) => (
