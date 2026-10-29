@@ -8,6 +8,7 @@ import { FilterBar } from "../components/FilterBar";
 import { FlagBadges } from "../components/FlagBadges";
 import { KeyNumbers } from "../components/KeyNumbers";
 import { ModulePage } from "../components/ModulePage";
+import { OverviewCharts } from "../components/OverviewCharts";
 
 /** Configuration notices (e.g. ignored pickups), as grey lines below the key numbers. */
 const ConfigNotices = ({ ocelId }: { ocelId: string }) => {
@@ -26,6 +27,7 @@ export default function Overview() {
           <FlagBadges ocelId={ocelId} />
           <DataCharts ocelId={ocelId} />
           <ActivityProfile ocelId={ocelId} />
+          <OverviewCharts ocelId={ocelId} />
         </Stack>
       )}
     </ModulePage>
