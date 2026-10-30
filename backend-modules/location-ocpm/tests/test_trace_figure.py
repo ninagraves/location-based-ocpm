@@ -3,6 +3,7 @@
 import polars as pl
 from ocelescope_module_location_based_ocpm.visits.trace_figure import (
     TIE_FILL,
+    VISIT_DASH,
     add_high_level_locations,
     location_colours,
     relations_for_figure,
@@ -236,4 +237,4 @@ def test_maximal_visits_dashed(derivation):
         for s in trace_figure(rel, visits).layout.shapes
         if s.type == "rect" and s.line.dash
     ]
-    assert sorted(s.line.dash for s in bars) == ["dash", "solid"]
+    assert sorted(s.line.dash for s in bars) == sorted([VISIT_DASH, "solid"])

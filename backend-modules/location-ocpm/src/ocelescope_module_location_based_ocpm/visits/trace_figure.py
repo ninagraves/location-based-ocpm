@@ -106,6 +106,8 @@ TIE_SPREAD = 0.5
 PX_PER_UNIT = 70
 #: Fill of the background box behind events with the same timestamp (very light, very transparent grey).
 TIE_FILL = "rgba(134, 142, 150, 0.12)"
+#: Dash pattern of the outline of visits in `dashed_groups` (dash length, gap; plotly also accepts "dash", "dot").
+VISIT_DASH = "4px,2px"
 
 
 def add_high_level_locations(
@@ -616,7 +618,7 @@ def trace_figure(
                 if own.is_empty():
                     continue
                 filled = group in filled_groups
-                dash = "dash" if group in dashed_groups else "solid"
+                dash = VISIT_DASH if group in dashed_groups else "solid"
                 for v in own.iter_rows(named=True):
                     centre = lane_top - v["lane"] * LANE
                     colour = colours.get(v[HIGH_LEVEL], GREY)
