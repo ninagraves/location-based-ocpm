@@ -479,7 +479,7 @@ def trace_figure(
       "shading": a tinted box behind the low-level row per run, labelled with its name (no extra row);
       "outline": the low-level markers get a thick ring in the high-level colour (no extra row);
     - below that, each visit group (e.g. "maximal", "resolved") in its own lanes: one bar per visit
-      from its first to its last relation, outlined (or filled for `filled_groups`; outline dashed for
+      from its first to its last relation (a visit at ⊥, high_level null, is grey), outlined (or filled for `filled_groups`; outline dashed for
       `dashed_groups`), coloured by its location.
     Dashed vertical lines join the relations of an event shared by several shown handling units.
     Events with the same timestamp get a light grey background box (`mark_ties`): across the whole figure
@@ -488,7 +488,7 @@ def trace_figure(
 
     Args:
         relations: Output of `relations_for_figure`.
-        visits: Optional, one row per visit: hu, high_level, first_event, last_event, group.
+        visits: Optional, one row per visit: hu, high_level (null = ⊥), first_event, last_event, group.
         filled_groups: Visit groups drawn as filled bars; all others outlined.
         dashed_groups: Visit groups whose outline is dashed (e.g. maximal visits, to tell them apart
             from resolved ones); all others solid.
@@ -643,7 +643,7 @@ def trace_figure(
                             marker={"size": 12, "opacity": 0},
                             showlegend=False,
                             hovertemplate=(
-                                f"<b>{hu}</b> at {v[HIGH_LEVEL]} ({group} visit)<br>"
+                                f"<b>{hu}</b> at {v[HIGH_LEVEL] or NOT_LOCATED} ({group} visit)<br>"
                                 f"{v['first_event']} to {v['last_event']}, trace positions "
                                 f"{v['first_position']} to {v['last_position']}<extra></extra>"
                             ),

@@ -18,7 +18,7 @@ The object traces of several handling units, one block per handling unit (top to
     In the tool (Plotly.js), the rendered width can be measured instead.
 - **Visits** (optional): below the high-level row, one block of lanes per visit group (e.g. "maximal", "resolved").
   The group name is written left of its lanes (κ belongs in the title, not in the group name).
-  One bar per visit from its first to its last relation, outlined (filled for the groups in `filled_groups`; dashed outline for the groups in `dashed_groups`, default "maximal", Nina 2026-10-30), coloured by its high-level location.
+  One bar per visit from its first to its last relation, outlined (filled for the groups in `filled_groups`; dashed outline for the groups in `dashed_groups`, default "maximal", Nina 2026-10-30), coloured by its high-level location; a visit at ⊥ (high_level null; ⊥ visits have κ(⊥) = 0, Nina 2026-10-30) is grey.
   Visits sharing relations are put in different lanes, so contained and overlapping visits are visible.
 - Dashed vertical lines join the relations of an event shared by several shown handling units (not for the "trace position" axis).
 - Events with the same timestamp get a very light, transparent grey background box (`mark_ties`, colour `TIE_FILL`; Nina 2026-10-30): over the whole figure height on the "event order" and "time" axes; on the "trace position" axis per handling unit only (around the tied relations of that unit, its rows and visit lanes), since tied events of different units do not line up there. A legend entry "same timestamp" explains it.
@@ -33,7 +33,7 @@ The trace position is the index in $otrace(hu)$ (time, then event id).
 ## Settings
 - `axis`: "event order" (default; rank of the event among all shown events, so shared events line up), "trace position" (index in $otrace(hu)$, as in the visit definition), or "time" (events with the same timestamp are spread side by side around it in event id order, over at most `TIE_SPREAD` = half the smallest gap between timestamps; `add_tie_offsets`).
 - `agg`, `vehicles` ($V$), `storage_units` ($W$): until they are inputs of the tool, passed as arguments (in the notebook read from `data/running_example/inputs/locations.csv` with `location_context`).
-- `visits`: a table with columns hu, high_level, first_event, last_event, group. Visits are not computed yet; `notebooks/trace_figure.ipynb` passes a hand-written table (maximal visits at κ = 2), for illustration only.
+- `visits`: a table with columns hu, high_level (null = ⊥), first_event, last_event, group. Visits are not computed yet; `notebooks/trace_figure.ipynb` passes a hand-written table (maximal visits at κ = 2), for illustration only.
 
 ## Example
 `notebooks/trace_figure.ipynb` (start with `uv run --with jupyter jupyter lab notebooks/trace_figure.ipynb`) demos every function and parameter on the running example (Level 3, $agg$: A1, A2 → A; B1 → B; T unmapped; $V$ = {T}, $W$ = {B1}): the preparation steps, the three axes, visits (outlined and filled), the four high-level styles, label fitting and `width`, and switching labels and links off.

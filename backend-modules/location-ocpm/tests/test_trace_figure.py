@@ -238,3 +238,25 @@ def test_maximal_visits_dashed(derivation):
         if s.type == "rect" and s.line.dash
     ]
     assert sorted(s.line.dash for s in bars) == sorted([VISIT_DASH, "solid"])
+
+
+def test_bottom_visit_drawn_grey(derivation):
+    """A visit at ⊥ (high_level null) is drawn as a grey bar and named ⊥ in the hover."""
+    rel = relations_for_figure(derivation.relations, derivation.loc, ["c5"], AGG)
+    visits = pl.DataFrame(
+        {
+            "hu": ["c5"],
+            "high_level": [None],
+            "first_event": ["e16"],
+            "last_event": ["e17"],
+            "group": ["maximal"],
+        },
+        schema_overrides={"high_level": pl.String},
+    )
+    fig = trace_figure(rel, visits)
+    bars = [s for s in fig.layout.shapes if s.type == "rect" and s.line.dash]
+    assert len(bars) == 1
+    assert bars[0].line.color == "#adb5bd"
+    assert any(
+        "⊥" in (t.hovertemplate or "") and "visit" in t.hovertemplate for t in fig.data
+    )
