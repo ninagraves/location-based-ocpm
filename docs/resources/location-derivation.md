@@ -127,8 +127,9 @@ All at the selected level; the whole log.
 | F4 Location gap | `f4_location_gap` (`f4_location_gaps` lists the gaps) | handling units | c1 (e13: A2 ⇢ A1) |
 | F5 Movement disagreement | `f5_movement_disagreement` | events, with kind a / b | e7 (a), e11 (b) |
 
-"Already at the target" (F1, F3, F5 b) is ploc_k = uloc(e); ⊥ counts as a change (`flags._unchanged`).
+"Already at the target" (F1, F3, F5 b) is ploc_k = uloc(e); ⊥ counts as a change (`flags.at_target`).
 Explore sections are not built yet.
+All flag functions are demonstrated on the running example in `notebooks/flags.ipynb`.
 
 ## 7. Saved level mappings and the demo notebook
 
