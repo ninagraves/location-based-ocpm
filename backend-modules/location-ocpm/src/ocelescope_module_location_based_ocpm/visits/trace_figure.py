@@ -106,6 +106,8 @@ TIE_SPREAD = 0.5
 PX_PER_UNIT = 70
 #: Fill of the background box behind events with the same timestamp (very light, very transparent grey).
 TIE_FILL = "rgba(134, 142, 150, 0.12)"
+#: Optional column of the visits table with an id per visit, written in the middle of its bar.
+VISIT_ID = "visit_id"
 #: Dash pattern of the outline of visits in `dashed_groups` (dash length, gap; plotly also accepts "dash", "dot").
 VISIT_DASH = "4px,2px"
 
@@ -462,6 +464,7 @@ def trace_figure(
     show_event_labels: bool = True,
     link_shared_events: bool = True,
     mark_ties: bool = True,
+    show_visit_ids: bool = True,
     title: str | None = None,
     width: int = WIDTH,
 ) -> go.Figure:
@@ -488,7 +491,8 @@ def trace_figure(
 
     Args:
         relations: Output of `relations_for_figure`.
-        visits: Optional, one row per visit: hu, high_level (null = ⊥), first_event, last_event, group.
+        visits: Optional, one row per visit: hu, high_level (null = ⊥), first_event, last_event, group,
+            and optionally visit_id (any text, e.g. "m1"; shown in the middle of the bar and in the hover).
         filled_groups: Visit groups drawn as filled bars; all others outlined.
         dashed_groups: Visit groups whose outline is dashed (e.g. maximal visits, to tell them apart
             from resolved ones); all others solid.
@@ -496,6 +500,7 @@ def trace_figure(
         show_event_labels: Write the event id above every low-level marker.
         link_shared_events: Draw the lines joining shared events (not for the "trace position" axis,
             where a shared event has different x values).
+        show_visit_ids: Write the visit_id (if the column is given) in the middle of each visit bar.
         mark_ties: Draw the background boxes behind events with the same timestamp (needs column time).
         title: Figure title.
         width: Figure width in pixels. A run label ("ribbon", "shading") is only shown if it fits
@@ -643,12 +648,27 @@ def trace_figure(
                             marker={"size": 12, "opacity": 0},
                             showlegend=False,
                             hovertemplate=(
-                                f"<b>{hu}</b> at {v[HIGH_LEVEL] or NOT_LOCATED} ({group} visit)<br>"
+                                (f"<b>{v[VISIT_ID]}</b>: " if v.get(VISIT_ID) else "")
+                                + f"<b>{hu}</b> at {v[HIGH_LEVEL] or NOT_LOCATED} ({group} visit)<br>"
                                 f"{v['first_event']} to {v['last_event']}, trace positions "
                                 f"{v['first_position']} to {v['last_position']}<extra></extra>"
                             ),
                         )
                     )
+                    if show_visit_ids and v.get(VISIT_ID):
+                        annotations.append(
+                            {
+                                "x": v["x0"] + (v["x1"] - v["x0"]) / 2,
+                                "y": centre,
+                                "text": f"<b>{v[VISIT_ID]}</b>",
+                                "showarrow": False,
+                                "font": {
+                                    "size": 9,
+                                    "color": "white" if filled else colour,
+                                },
+                                "bgcolor": None if filled else "rgba(255,255,255,0.85)",
+                            }
+                        )
                 n_lanes = own["lane"].max() + 1
                 annotations.append(
                     {

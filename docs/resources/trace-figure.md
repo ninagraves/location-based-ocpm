@@ -33,7 +33,7 @@ The trace position is the index in $otrace(hu)$ (time, then event id).
 ## Settings
 - `axis`: "event order" (default; rank of the event among all shown events, so shared events line up), "trace position" (index in $otrace(hu)$, as in the visit definition), or "time" (events with the same timestamp are spread side by side around it in event id order, over at most `TIE_SPREAD` = half the smallest gap between timestamps; `add_tie_offsets`).
 - `agg`, `vehicles` ($V$), `storage_units` ($W$): until they are inputs of the tool, passed as arguments (in the notebook read from `data/running_example/inputs/locations.csv` with `location_context`).
-- `visits`: a table with columns hu, high_level (null = ⊥), first_event, last_event, group. Visits are not computed yet; `notebooks/trace_figure.ipynb` passes a hand-written table (maximal visits at κ = 2), for illustration only.
+- `visits`: a table with columns hu, high_level (null = ⊥), first_event, last_event, group, and optionally visit_id (Nina 2026-10-30: shown in the middle of the bar and in the hover, to talk about single visits; `show_visit_ids=False` hides it). Visits are not computed yet; `notebooks/trace_figure.ipynb` passes a hand-written table (maximal visits at κ = 2), for illustration only.
 
 ## Example
 `notebooks/trace_figure.ipynb` (start with `uv run --with jupyter jupyter lab notebooks/trace_figure.ipynb`) demos every function and parameter on the running example (Level 3, $agg$: A1, A2 → A; B1 → B; T unmapped; $V$ = {T}, $W$ = {B1}): the preparation steps, the three axes, visits (outlined and filled), the four high-level styles, label fitting and `width`, and switching labels and links off.
@@ -49,7 +49,7 @@ None (draft outside the tool).
 4. `location_colours(names)`: location → colour (module palette, light scheme).
 5. `high_level_runs(relations)`: runs of equal high-level location per handling unit (for "ribbon" and "shading").
 6. `visit_lanes(visits)`: column lane (greedy interval packing per handling unit and group; containing visits above contained ones).
-7. `trace_figure(relations, visits, filled_groups, dashed_groups, high_level_style, show_event_labels, link_shared_events, mark_ties, title)`: the plotly figure.
+7. `trace_figure(relations, visits, filled_groups, dashed_groups, high_level_style, show_event_labels, link_shared_events, mark_ties, show_visit_ids, title)`: the plotly figure.
 `relations_for_figure(relations, location, handling_units, agg, vehicles, storage_units, axis)` runs steps 1 to 3 on a relations frame (a saved level mapping or `Derivation.relations`).
 `visits/context.py`: `location_context(table)` reads $agg$, $V$, $W$ from a table with one row per location (columns location, high_level, is_vehicle, is_storage; draft format), e.g. `data/running_example/inputs/locations.csv`.
 Tests: `tests/test_trace_figure.py`.

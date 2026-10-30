@@ -260,3 +260,25 @@ def test_bottom_visit_drawn_grey(derivation):
     assert any(
         "⊥" in (t.hovertemplate or "") and "visit" in t.hovertemplate for t in fig.data
     )
+
+
+def test_visit_ids_shown_in_bars(derivation):
+    """An optional visit_id is written into the bar; without the column or with show_visit_ids=False, nothing."""
+    rel = relations_for_figure(derivation.relations, derivation.loc, ["c1"], AGG)
+    visits = pl.DataFrame(
+        {
+            "visit_id": ["m1", "m2"],
+            "hu": ["c1", "c1"],
+            "high_level": ["A", "B"],
+            "first_event": ["e3", "e7"],
+            "last_event": ["e11", "e7"],
+            "group": ["maximal", "maximal"],
+        }
+    )
+
+    def ids(fig):
+        return {a.text for a in fig.layout.annotations} & {"<b>m1</b>", "<b>m2</b>"}
+
+    assert ids(trace_figure(rel, visits)) == {"<b>m1</b>", "<b>m2</b>"}
+    assert ids(trace_figure(rel, visits, show_visit_ids=False)) == set()
+    assert ids(trace_figure(rel, visits.drop("visit_id"))) == set()
