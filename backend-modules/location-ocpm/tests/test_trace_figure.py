@@ -2,6 +2,8 @@
 
 import polars as pl
 from ocelescope_module_location_based_ocpm.visits.trace_figure import (
+    TIE_FILL,
+    VISIT_DASH,
     add_high_level_locations,
     location_colours,
     relations_for_figure,
@@ -148,3 +150,113 @@ def test_location_context_from_running_example_table(input_tables):
     assert context.agg == AGG
     assert context.vehicles == {"T"}
     assert context.storage_units == {"B1"}
+
+
+def test_time_axis_spreads_tied_events(derivation):
+    """Events at the same timestamp get distinct x values around it; a shared event keeps one x."""
+    from datetime import timedelta
+
+    rel = derivation.relations
+    t5 = rel.filter(pl.col("event") == "e5")["time"][0]
+    rel = rel.with_columns(
+        pl.when(pl.col("event").is_in(["e6", "e7"]))
+        .then(pl.lit(t5))
+        .otherwise(pl.col("time"))
+        .alias("time")
+    )
+    out = relations_for_figure(rel, derivation.loc, ["c1", "c2"], AGG, axis="time")
+    xs = dict(
+        out.filter(pl.col("event").is_in(["e5", "e6", "e7"]))
+        .select("event", "x")
+        .unique()
+        .iter_rows()
+    )
+    assert xs["e5"] < xs["e6"] < xs["e7"]
+    assert xs["e6"] == t5
+    assert xs["e7"] - xs["e5"] <= timedelta(hours=1) * 0.5
+    assert out.filter(pl.col("event") == "e3")["x"].n_unique() == 1
+
+
+def _tied(rel):
+    """Move e6 and e7 to the timestamp of e5."""
+    t5 = rel.filter(pl.col("event") == "e5")["time"][0]
+    return rel.with_columns(
+        pl.when(pl.col("event").is_in(["e6", "e7"]))
+        .then(pl.lit(t5))
+        .otherwise(pl.col("time"))
+        .alias("time")
+    )
+
+
+def _tie_boxes(fig):
+    """The background boxes behind tied events."""
+    return [s for s in fig.layout.shapes if s.fillcolor == TIE_FILL]
+
+
+def test_tie_boxes_global_on_event_order_and_time(derivation):
+    """e5, e6, e7 at one timestamp: one box over the whole figure height."""
+    rel = _tied(derivation.relations)
+    for axis in ("event order", "time"):
+        out = relations_for_figure(rel, derivation.loc, ["c1", "c2"], AGG, axis=axis)
+        boxes = _tie_boxes(trace_figure(out))
+        assert len(boxes) == 1
+        assert boxes[0].yref == "paper"
+    plain = relations_for_figure(
+        derivation.relations, derivation.loc, ["c1", "c2"], AGG
+    )
+    assert _tie_boxes(trace_figure(plain)) == []
+    assert _tie_boxes(trace_figure(out, mark_ties=False)) == []
+
+
+def test_tie_boxes_per_handling_unit_on_trace_position(derivation):
+    """Trace position: only c1 has two tied events (e5, e7); c2 has just e6 at that time."""
+    rel = _tied(derivation.relations)
+    out = relations_for_figure(
+        rel, derivation.loc, ["c1", "c2"], AGG, axis="trace position"
+    )
+    boxes = _tie_boxes(trace_figure(out))
+    assert len(boxes) == 1
+    assert boxes[0].yref != "paper"
+    assert boxes[0].y1 > 0 > boxes[0].y0
+
+
+def test_maximal_visits_dashed(derivation):
+    """Maximal visits get a dashed outline, resolved ones a solid one."""
+    rel = relations_for_figure(derivation.relations, derivation.loc, ["c1"], AGG)
+    visits = pl.DataFrame(
+        {
+            "hu": ["c1", "c1"],
+            "high_level": ["A", "A"],
+            "first_event": ["e3", "e3"],
+            "last_event": ["e4", "e4"],
+            "group": ["maximal", "resolved"],
+        }
+    )
+    bars = [
+        s
+        for s in trace_figure(rel, visits).layout.shapes
+        if s.type == "rect" and s.line.dash
+    ]
+    assert sorted(s.line.dash for s in bars) == sorted([VISIT_DASH, "solid"])
+
+
+def test_bottom_visit_drawn_grey(derivation):
+    """A visit at ⊥ (high_level null) is drawn as a grey bar and named ⊥ in the hover."""
+    rel = relations_for_figure(derivation.relations, derivation.loc, ["c5"], AGG)
+    visits = pl.DataFrame(
+        {
+            "hu": ["c5"],
+            "high_level": [None],
+            "first_event": ["e16"],
+            "last_event": ["e17"],
+            "group": ["maximal"],
+        },
+        schema_overrides={"high_level": pl.String},
+    )
+    fig = trace_figure(rel, visits)
+    bars = [s for s in fig.layout.shapes if s.type == "rect" and s.line.dash]
+    assert len(bars) == 1
+    assert bars[0].line.color == "#adb5bd"
+    assert any(
+        "⊥" in (t.hovertemplate or "") and "visit" in t.hovertemplate for t in fig.data
+    )

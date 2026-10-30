@@ -100,8 +100,14 @@ NON_PLOT_WIDTH = 110 + 20 + 160
 #: Estimated width of one character of a run label (bold, size 10) and the padding around it, in pixels.
 CHAR_PX = 7
 LABEL_PADDING_PX = 6
+#: Time axis: share of the smallest gap between timestamps over which events with the same timestamp are spread.
+TIE_SPREAD = 0.5
 #: Pixels per y unit.
 PX_PER_UNIT = 70
+#: Fill of the background box behind events with the same timestamp (very light, very transparent grey).
+TIE_FILL = "rgba(134, 142, 150, 0.12)"
+#: Dash pattern of the outline of visits in `dashed_groups` (dash length, gap; plotly also accepts "dash", "dot").
+VISIT_DASH = "4px,2px"
 
 
 def add_high_level_locations(
@@ -189,8 +195,46 @@ def add_x_positions(
     elif axis == "event order":
         x = pl.struct(c.TIME, c.EVENT).rank("dense")
     else:
-        x = pl.col(c.TIME)
+        return add_tie_offsets(out)
     return out.with_columns(x.alias(X))
+
+
+def add_tie_offsets(
+    relations: pl.DataFrame, spread: float = TIE_SPREAD
+) -> pl.DataFrame:
+    """Time axis: x = time, with events that share a timestamp spread slightly around it.
+
+    Without the spread, events at the same timestamp would be drawn on top of each other.
+    The tied events of a timestamp (all shown events, so a shared event keeps one x) are placed side
+    by side in event id order (as `seq`), centred on the timestamp, together spanning at most `spread`
+    times the smallest gap between two distinct timestamps.
+
+    Args:
+        relations: Relations frame with columns event and time.
+        spread: Share of the smallest gap between timestamps that the tied events of one timestamp span.
+
+    Returns:
+        pl.DataFrame: `relations` with column x (datetime).
+    """
+    times = relations[c.TIME].unique().sort()
+    gaps = times.diff().drop_nulls()
+    gap = gaps.min() if len(gaps) else timedelta(hours=1)
+    ties = (
+        relations.select(c.TIME, c.EVENT)
+        .unique()
+        .with_columns(
+            (pl.col(c.EVENT).rank("dense").over(c.TIME) - 1).alias("_i"),
+            pl.col(c.EVENT).n_unique().over(c.TIME).alias("_n"),
+        )
+    )
+    max_n = ties["_n"].max() if ties.height else 1
+    step = gap * spread / max(max_n - 1, 1)
+    ties = ties.with_columns(
+        (pl.col(c.TIME) + (pl.col("_i") - (pl.col("_n") - 1) / 2) * pl.lit(step)).alias(
+            X
+        )
+    ).select(c.TIME, c.EVENT, X)
+    return relations.join(ties, on=[c.TIME, c.EVENT], how="left", maintain_order="left")
 
 
 def relations_for_figure(
@@ -413,9 +457,11 @@ def trace_figure(
     relations: pl.DataFrame,
     visits: pl.DataFrame | None = None,
     filled_groups: Collection[str] = ("resolved",),
+    dashed_groups: Collection[str] = ("maximal",),
     high_level_style: HighLevelStyle = "ribbon",
     show_event_labels: bool = True,
     link_shared_events: bool = True,
+    mark_ties: bool = True,
     title: str | None = None,
     width: int = WIDTH,
 ) -> go.Figure:
@@ -433,17 +479,24 @@ def trace_figure(
       "shading": a tinted box behind the low-level row per run, labelled with its name (no extra row);
       "outline": the low-level markers get a thick ring in the high-level colour (no extra row);
     - below that, each visit group (e.g. "maximal", "resolved") in its own lanes: one bar per visit
-      from its first to its last relation, outlined (or filled for `filled_groups`), coloured by its location.
+      from its first to its last relation (a visit at ⊥, high_level null, is grey), outlined (or filled for `filled_groups`; outline dashed for
+      `dashed_groups`), coloured by its location.
     Dashed vertical lines join the relations of an event shared by several shown handling units.
+    Events with the same timestamp get a light grey background box (`mark_ties`): across the whole figure
+    on the "event order" and "time" axes; per handling unit on the "trace position" axis, where the tied
+    events of one handling unit sit next to each other but those of different units do not line up.
 
     Args:
         relations: Output of `relations_for_figure`.
-        visits: Optional, one row per visit: hu, high_level, first_event, last_event, group.
+        visits: Optional, one row per visit: hu, high_level (null = ⊥), first_event, last_event, group.
         filled_groups: Visit groups drawn as filled bars; all others outlined.
+        dashed_groups: Visit groups whose outline is dashed (e.g. maximal visits, to tell them apart
+            from resolved ones); all others solid.
         high_level_style: See above.
         show_event_labels: Write the event id above every low-level marker.
         link_shared_events: Draw the lines joining shared events (not for the "trace position" axis,
             where a shared event has different x values).
+        mark_ties: Draw the background boxes behind events with the same timestamp (needs column time).
         title: Figure title.
         width: Figure width in pixels. A run label ("ribbon", "shading") is only shown if it fits
             into its ribbon or box at this width; otherwise the legend and the hover name the location.
@@ -489,6 +542,7 @@ def trace_figure(
     annotations: list[dict] = []
     tickvals, ticktext = [], []
     row_y: dict[str, float] = {}
+    row_bottom: dict[str, float] = {}
     y = 0.0
     shown_legend: set[str] = set()
     for hu in hus:
@@ -564,6 +618,7 @@ def trace_figure(
                 if own.is_empty():
                     continue
                 filled = group in filled_groups
+                dash = VISIT_DASH if group in dashed_groups else "solid"
                 for v in own.iter_rows(named=True):
                     centre = lane_top - v["lane"] * LANE
                     colour = colours.get(v[HIGH_LEVEL], GREY)
@@ -574,7 +629,7 @@ def trace_figure(
                             "x1": v["x1"] + pad,
                             "y0": centre - BAR / 2,
                             "y1": centre + BAR / 2,
-                            "line": {"color": colour, "width": 2},
+                            "line": {"color": colour, "width": 2, "dash": dash},
                             "fillcolor": colour if filled else "rgba(0,0,0,0)",
                             "opacity": 0.8 if filled else 1,
                             "layer": "below",
@@ -588,7 +643,7 @@ def trace_figure(
                             marker={"size": 12, "opacity": 0},
                             showlegend=False,
                             hovertemplate=(
-                                f"<b>{hu}</b> at {v[HIGH_LEVEL]} ({group} visit)<br>"
+                                f"<b>{hu}</b> at {v[HIGH_LEVEL] or NOT_LOCATED} ({group} visit)<br>"
                                 f"{v['first_event']} to {v['last_event']}, trace positions "
                                 f"{v['first_position']} to {v['last_position']}<extra></extra>"
                             ),
@@ -721,6 +776,7 @@ def trace_figure(
                         "yanchor": "bottom",
                     }
                 )
+        row_bottom[hu] = bottom
         y = bottom - GAP
 
     # Legend entries of the high-level locations (one per name).
@@ -780,6 +836,48 @@ def trace_figure(
                     "line": {"color": "#868e96", "width": 1, "dash": "dash"},
                     "layer": "below",
                 }
+            )
+
+    # Same timestamp: a light background box around the tied events.
+    if mark_ties and c.TIME in relations.columns:
+        keys = [c.HU, c.TIME] if is_trace_position else [c.TIME]
+        ties = (
+            relations.group_by(keys)
+            .agg(
+                pl.col(X).min().alias("x0"),
+                pl.col(X).max().alias("x1"),
+                pl.col(c.EVENT).n_unique().alias("n"),
+            )
+            .filter(pl.col("n") > 1)
+            .sort(keys)
+        )
+        for r in ties.iter_rows(named=True):
+            box = {
+                "type": "rect",
+                "x0": r["x0"] - pad,
+                "x1": r["x1"] + pad,
+                "line": {"width": 0},
+                "fillcolor": TIE_FILL,
+                "layer": "below",
+            }
+            if is_trace_position:
+                box |= {
+                    "y0": row_bottom[r[c.HU]] - BAR / 2 - 0.05,
+                    "y1": row_y[r[c.HU]] + 0.45,
+                }
+            else:
+                box |= {"yref": "paper", "y0": 0, "y1": 1}
+            shapes.append(box)
+        if ties.height:
+            fig.add_trace(
+                go.Scatter(
+                    x=[None],
+                    y=[None],
+                    mode="markers",
+                    marker={"symbol": "square", "size": 14, "color": TIE_FILL},
+                    name="same timestamp",
+                    hoverinfo="skip",
+                )
             )
 
     span = -y
