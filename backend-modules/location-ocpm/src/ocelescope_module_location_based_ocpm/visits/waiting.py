@@ -49,6 +49,9 @@ PIECE = "piece"
 START_POSITION, END_POSITION = "start_position", "end_position"
 START_EVENT, END_EVENT = "start_event", "end_event"
 START_TIME, END_TIME = "start_time", "end_time"
+#: Activities of the start and end event of a piece (for a waiting piece, end_activity is the activity of
+#: the processing operation the waiting time belongs to).
+START_ACTIVITY, END_ACTIVITY = "start_activity", "end_activity"
 LABEL = "label"
 PIECE_DURATION = "piece_duration"
 
@@ -116,7 +119,7 @@ def add_storage_removals(
     return visit_relations.with_columns(removal.alias(v.IS_STORAGE_REMOVAL))
 
 
-def time_pieces(visit_relations: Frame, visits: Frame) -> Frame:
+def time_pieces(visit_relations: Frame, visits: Frame, activity: str = c.ACTIVITY) -> Frame:
     """One row per piece of a visit between two consecutive clock events, labelled by the event ending it.
 
     How it works:
@@ -125,16 +128,21 @@ def time_pieces(visit_relations: Frame, visits: Frame) -> Frame:
     - each clock event after the entry ends a piece from the previous clock event; the label is "storage"
       for a removal, "waiting" for a processing operation, "remaining" for the exit;
     - a processing operation at the entry, or one that is itself a removal, also gets a waiting piece of
-      length 0 (so every processing operation has exactly one waiting time).
+      length 0 (so every processing operation has exactly one waiting time);
+    - the activities of the start and end event are looked up by (hu, event) in `visit_relations` (the
+      exit event is always there, since every relation lies in its own maximal visit), so waiting times
+      can be grouped by the activity of their processing operation (Nina, 2026-10-31).
 
     Args:
         visit_relations: Output of `add_processing` and `add_storage_removals`.
         visits: One row per visit with columns visit_id, hu, high_level, last_position, exit_event,
             exit_time, ends_trace (e.g. `maximal.maximal_visits`).
+        activity: Column of the activity in `visit_relations`; if the column is missing, the activity
+            columns are left out.
 
     Returns:
         Frame: Columns visit_id, hu, visit_high_level, piece, start_position, end_position, start_event,
-        end_event, start_time, end_time, label, piece_duration; sorted by visit_id and piece. Visits at ⊥
+        end_event, start_activity, end_activity, start_time, end_time, label, piece_duration; sorted by visit_id and piece. Visits at ⊥
         have no rows.
     """
     is_entry = pl.col(v.POSITION) == pl.col(v.FIRST_POSITION)
@@ -197,7 +205,7 @@ def time_pieces(visit_relations: Frame, visits: Frame) -> Frame:
     pieces = pl.concat(
         [ending.with_columns(pl.lit(0.0).alias("_sub")), zero], how="vertical_relaxed"
     )
-    return (
+    out = (
         pieces.sort(v.VISIT_ID, v.POSITION, "_order", "_sub")
         .with_columns(
             (pl.int_range(pl.len()).over(v.VISIT_ID) + 1).cast(pl.Int64).alias(PIECE),
@@ -217,8 +225,19 @@ def time_pieces(visit_relations: Frame, visits: Frame) -> Frame:
             LABEL,
             PIECE_DURATION,
         )
-        .sort(v.VISIT_ID, PIECE)
     )
+    if activity in visit_relations.collect_schema().names():
+        activities = visit_relations.select(c.HU, c.EVENT, activity).unique()
+        for event_column, activity_column in ((START_EVENT, START_ACTIVITY), (END_EVENT, END_ACTIVITY)):
+            out = out.join(
+                activities.rename({c.EVENT: event_column, activity: activity_column}),
+                on=[c.HU, event_column],
+                how="left",
+            )
+        order = [v.VISIT_ID, c.HU, v.VISIT_HIGH_LEVEL, PIECE, START_POSITION, END_POSITION, START_EVENT,
+                 END_EVENT, START_ACTIVITY, END_ACTIVITY, START_TIME, END_TIME, LABEL, PIECE_DURATION]
+        out = out.select(order)
+    return out.sort(v.VISIT_ID, PIECE)
 
 
 def waiting_times(pieces: Frame) -> Frame:

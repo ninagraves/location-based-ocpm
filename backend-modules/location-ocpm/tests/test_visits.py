@@ -311,3 +311,11 @@ def test_ignore_vehicles_keeps_bottom_strict():
     )
     _, visits = derive_maximal_visits(relations, "loc", None, 2, {"T"}, ignore_vehicles=True)
     assert visits.filter(pl.col("high_level").is_null()).height == 2
+
+
+def test_waiting_times_carry_activities(edge):
+    """Every piece has the activities of its start and end event; waiting times group by the processing activity."""
+    assert edge.pieces["end_activity"].null_count() == 0 and edge.pieces["start_activity"].null_count() == 0
+    roll = edge.waiting_times.filter(pl.col("end_activity") == "roll")
+    assert roll.select("hu", "end_event", "start_activity").rows() == [("h5", "e35", "crane move"), ("h6", "e46", "crane pick")]
+    assert hours(roll, "piece_duration") == [3, 3]

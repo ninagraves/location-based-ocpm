@@ -30,7 +30,7 @@ Per visit at $hl \in HL$:
 | Shift summary | `shifts.py`, `shift_summary` | counts per category, $L(\nu)$, $L_{hl}(\nu)$, $L_{stop}(\nu)$, $L_{\neg v}(\nu)$, vehicle / transferring visit |
 | Processing | `waiting.py`, `add_processing` | $e \in P$; $e \in P$ at the visit's $hl$ |
 | Storage removals | `waiting.py`, `add_storage_removals` | $loc_{j-1} \in W$, $loc_j \notin W$ (not at the first relation of the visit) |
-| Pieces | `waiting.py`, `time_pieces` | one row per piece between two clock events, labelled waiting / storage / remaining |
+| Pieces | `waiting.py`, `time_pieces` | one row per piece between two clock events, labelled waiting / storage / remaining, with the activities of its start and end event (`start_activity`, `end_activity`; for a waiting time, `end_activity` is the processing activity, so waiting times group by activity directly) |
 | Waiting times | `waiting.py`, `waiting_times` | the waiting pieces, one per processing operation |
 | Waiting summary | `waiting.py`, `waiting_summary` | number of processing operations and removals, total waiting, storage and remaining time |
 | All | `pipeline.py`, `analyse_visits` | `VisitAnalysis` (relations, visits, visit_relations, transfers, pieces, waiting_times) |
