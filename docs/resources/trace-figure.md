@@ -8,7 +8,7 @@ The object traces of several handling units, one block per handling unit (top to
 - **Low-level row**: one marker per hu-event relation, coloured by its current location $loc$ at the selected level.
   Circles for ordinary locations, open circles for vehicles ($V$), diamonds for storage units ($W$), a grey × for ⊥.
   A line joins the relations of the trace; the event id is written at an angle above each marker.
-  Processing operations ($e \in P$, column is_processing; Nina 2026-10-31) are stars instead, in the same colour: a star for ordinary locations, an open star on vehicles, a star-diamond on storage units, an asterisk for ⊥; a legend entry "processing operation" explains the shape, the location legend keeps the plain symbols.
+  Processing operations ($e \in P$, column is_processing; Nina 2026-10-31) are stars instead, in the same colour: a star for ordinary locations and storage units (processing overwrites the diamond, Nina 2026-10-31), an open star on vehicles, an asterisk for ⊥; a legend entry "processing operation" explains the shape, the location legend keeps the plain symbols.
 - **High-level locations** $\widehat{hl}$, in one of four styles (`high_level_style`; under discussion):
   - "squares": a row of squares below the low-level row, one per relation (grey × for ⊥);
   - "ribbon" (default; Nina's choice, 2026-10-29): a row below with one thick bar per run of consecutive relations with the same high-level location, labelled with its name;

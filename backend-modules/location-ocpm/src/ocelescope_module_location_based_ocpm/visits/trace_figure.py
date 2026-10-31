@@ -82,7 +82,8 @@ HIGH_SYMBOL = "square"
 #: Marker symbol of ⊥ (both levels).
 BOTTOM_SYMBOL = "x-thin-open"
 #: Marker symbol of a processing operation by location kind (replaces LOW_SYMBOL; same colour and fill).
-PROCESSING_SYMBOL = {"vehicle": "star-open", "storage": "star-diamond", "other": "star"}
+#: Processing overwrites the storage-unit diamond (Nina 2026-10-31): one star shape, open on vehicles.
+PROCESSING_SYMBOL = {"vehicle": "star-open", "storage": "star", "other": "star"}
 #: Marker symbol of a processing operation without a location.
 BOTTOM_PROCESSING_SYMBOL = "asterisk-open"
 #: Marker size of a processing operation (stars look smaller than circles of the same size).
@@ -516,7 +517,7 @@ def trace_figure(
     - the low-level row: one marker per relation at its x, coloured by loc (circle; open circle for
       vehicles, diamond for storage units; grey × for ⊥), joined by a line (the trace); the event id
       is written at an angle above each marker; processing operations (column is_processing, see
-      `add_processing`) are stars instead (open star on vehicles, star-diamond on storage units,
+      `add_processing`) are stars instead (open star on vehicles, also a star on storage units,
       asterisk for ⊥), in the same colour, with an extra legend entry "processing operation";
     - the high-level locations, drawn as chosen by `high_level_style`:
       "squares": a row of squares below, one per relation;
