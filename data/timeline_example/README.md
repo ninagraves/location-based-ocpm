@@ -15,10 +15,10 @@ Processing operations $P$ = {x5, x6}; transformation events $T$ = {x3, x4, x5}.
 | h2 | x4 | 4 | discharge furnace | ✓ | ✓ | | Y2 | ⊥ | produced | ▲ on the band; no lead-in |
 | h2 | x5 | 5 | rework | | ✓ | ✓ | Y2 | Y2 | consumed and produced | amber star; same timestamp as x6 |
 | h2 | x6 | 5 | label | | | ✓ | Y2 | Y2 | | grey star; same timestamp as x5 |
-| h2 | x7 | 6 | crane move | ✓ | | | Y1 | Y3 | | pickup location Y3 ≠ Y2: the low-level band switches to Y3 halfway (the high-level band stays Y); same timestamp as x8 |
-| h2 | x8 | 6 | scan | | | | Y1 | Y2 | | its ploc (Y2) is not used: the location before 6:00 comes from the movement x7 |
+| h2 | x7 | 6 | scan | | | | Y1 | Y2 | | same timestamp as x8; drawn after x8, because movements come first among tied events (event id order alone would put it first) |
+| h2 | x8 | 6 | crane move | ✓ | | | Y1 | Y3 | | pickup location Y3 ≠ Y2 (location after x6): open diamond instead of the tick, details in the hover; the band shows loc only (Y2, then Y1) |
 | h3 | x9 | 2 | inspect | | | | ⊥ | ⊥ | | not located: no band |
-| h3 | x10 | 3 | crane pick | ✓ | | | C | Y1 | | band after x9 is ⊥, but the location before x10 is Y1: second half Y1; then C (hatched) |
+| h3 | x10 | 3 | crane pick | ✓ | | | C | Y1 | | gap after x9 (⊥); no diamond, since the previous location is unknown; then C (hatched) |
 | h3 | x11 | 4 | crane drop | ✓ | | | Y2 | C | | |
 
 Example time t is 2026-01-01 00:00 plus t hours.

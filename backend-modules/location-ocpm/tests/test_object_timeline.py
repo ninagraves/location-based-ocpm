@@ -17,7 +17,6 @@ from ocelescope_module_location_based_ocpm.timeline.object_timeline import (
     shared_events,
     tie_groups,
     timeline_relations,
-    timestamp_before,
 )
 from ocelescope_module_location_based_ocpm.visits.context import location_context
 
@@ -92,17 +91,26 @@ def test_markers_and_roles(relations):
     ]
 
 
-def test_low_band_c1_shows_pickup_location_halfway(relations):
-    """c1 after e11 is at A2, but e13 picks it up at A1: A2 up to the middle, then A1; continuation after e14."""
+def test_low_band_c1_shows_loc_only(relations):
+    """c1's band shows loc only; continuation (0.3) after e14."""
     assert _segments(relations, "c1") == [
         ("A1", False, 3.0, 5.0),
         ("A2", False, 5.0, 7.0),
         ("B1", False, 7.0, 8.0),
         ("T", True, 8.0, 9.0),
-        ("A2", False, 9.0, 12.0),
-        ("A1", False, 12.0, 13.0),
-        ("T", True, 13.0, 14.6),
+        ("A2", False, 9.0, 13.0),
+        ("T", True, 13.0, 14.3),
     ]
+
+
+def test_pickup_differs_marks_e13_only(relations):
+    """e13 picks c1 up at A1, but c1 was at A2 after e11: the only pickup disagreement of the example."""
+    rows = (
+        relations.filter("pickup_differs")
+        .select("hu", "event", "ploc", "prev_loc")
+        .rows()
+    )
+    assert rows == [("c1", "e13", "A1", "A2")]
 
 
 def test_high_band_merges_and_band_ends_at_consumption(relations):
@@ -112,7 +120,7 @@ def test_high_band_merges_and_band_ends_at_consumption(relations):
         ("B", False, 7.0, 8.0),
         ("T", True, 8.0, 9.0),
         ("A", False, 9.0, 13.0),
-        ("T", True, 13.0, 14.6),
+        ("T", True, 13.0, 14.3),
     ]
     assert _segments(relations, "s1") == [("A1", False, 1.0, 3.0)]
     assert _segments(relations, "c2")[-1] == ("B1", False, 12.0, 15.0)
@@ -159,8 +167,8 @@ def test_ties_get_own_positions_and_boxes(mapping):
 
 def test_edge_lead_in_consumption_and_production(edge):
     """h1: lead-in at X1, band ends at x3 (consumed); h2 produced at x4: no lead-in."""
-    assert _segments(edge, "h1") == [("X1", False, 0.4, 1.0), ("Y1", False, 1.0, 5.0)]
-    assert _segments(edge, "h2")[0] == ("Y2", False, 7.0, 9.5)
+    assert _segments(edge, "h1") == [("X1", False, 0.7, 1.0), ("Y1", False, 1.0, 5.0)]
+    assert _segments(edge, "h2")[0] == ("Y2", False, 7.0, 10.0)
     roles = dict(edge.select("event", "role").rows())
     assert (
         roles["x3"] == "consumed"
@@ -169,30 +177,43 @@ def test_edge_lead_in_consumption_and_production(edge):
     )
 
 
-def test_edge_location_before_a_timestamp_comes_from_the_movement(edge):
-    """At 6:00, h2 has the movement x7 (ploc Y3) and the scan x8 (ploc Y2): the location before is Y3."""
-    before = (
-        timestamp_before(edge)
-        .filter(pl.col("hu") == "h2")
-        .sort("time")["before"]
-        .to_list()
+def test_edge_movements_first_among_tied_events(edge):
+    """At 6:00, the crane move x8 comes before the scan x7 (movements first, then event id)."""
+    h2 = edge.filter(pl.col("hu") == "h2")
+    assert h2["event"].to_list() == ["x4", "x5", "x6", "x8", "x7"]
+    assert (
+        h2.filter(pl.col("event") == "x8")["x"].item()
+        < h2.filter(pl.col("event") == "x7")["x"].item()
     )
-    assert before == [None, "Y2", "Y3"]
+    # x5 and x6 (no movement) stay in event id order.
+    assert h2["position"].to_list() == [1, 2, 3, 4, 5]
+
+
+def test_edge_pickup_differs_and_band_loc_only(edge):
+    """x8 picks h2 up at Y3, but h2 was at Y2: marked; the band stays Y2 up to x8, then Y1."""
+    assert edge.filter("pickup_differs")["event"].to_list() == ["x8"]
     assert _segments(edge, "h2") == [
-        ("Y2", False, 7.0, 9.5),
-        ("Y3", False, 9.5, 10.0),
-        ("Y1", False, 10.0, 11.6),
+        ("Y2", False, 7.0, 10.0),
+        ("Y1", False, 10.0, 11.3),
     ]
-    assert _segments(edge, "h2", "high") == [("Y", False, 7.0, 11.6)]
+    assert _segments(edge, "h2", "high") == [("Y", False, 7.0, 11.3)]
 
 
-def test_edge_unknown_location_then_known_before_next_event(edge):
-    """h3 is not located at x9, but the location before x10 is Y1: second half Y1, then the crane C (hatched)."""
-    assert _segments(edge, "h3") == [
-        ("Y1", False, 3.5, 4.0),
-        ("C", True, 4.0, 6.0),
-        ("Y2", False, 6.0, 6.6),
-    ]
+def test_edge_unknown_location_is_a_gap(edge):
+    """h3 is not located at x9: a gap, then the crane C (hatched); x10 is not marked (previous location ⊥)."""
+    assert _segments(edge, "h3") == [("C", True, 4.0, 6.0), ("Y2", False, 6.0, 6.3)]
+    assert not edge.filter(pl.col("event") == "x10")["pickup_differs"].item()
+
+
+def test_at_most_50_handling_units_by_default():
+    """More than 50 handling units: the first 50 are kept, with a warning."""
+    frame = pl.DataFrame(
+        {"hu": [f"h{i:03d}" for i in range(60)], "time": [datetime(2026, 1, 1)] * 60}
+    )
+    with pytest.warns(UserWarning, match="50 of 60"):
+        order = hu_order(frame)
+    assert len(order) == 50
+    assert len(hu_order(frame, max_handling_units=None)) == 60
 
 
 @pytest.mark.parametrize("axis", ["event order", "time"])
@@ -203,7 +224,14 @@ def test_figure_draws_bands_markers_and_tie_boxes(edge, axis):
     fig = object_timeline(rel)
     assert isinstance(fig, go.Figure)
     names = {t.name for t in fig.data if t.name}
-    assert {"Y1", "Y", "C", "vehicle (hatched)", "same timestamp"} <= names
+    assert {
+        "Y1",
+        "Y",
+        "C",
+        "vehicle",
+        "same timestamp",
+        "movement: pickup ≠ previous location",
+    } <= names
     assert {
         "movement: consumed",
         "movement: produced",

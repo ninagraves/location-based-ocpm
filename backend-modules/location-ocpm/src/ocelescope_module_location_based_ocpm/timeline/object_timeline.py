@@ -1,9 +1,10 @@
 """Object timeline: one row per handling unit with its location band and its events.
 
 Concept draft: `claude_notes/Object Timeline (draft).md`; documented in `docs/resources/object-timeline.md`.
-A variation of the playground's object timeline (material_flow_analysis, `ObjectTimeline.tsx`): the bands use
-loc and ploc, the high-level band uses agg, processing operations are stars, other events circles, and
-consumption/production at transformation events colours the event markers. Flags are not shown.
+A variation of the playground's object timeline (material_flow_analysis, `ObjectTimeline.tsx`): the bands show
+loc (and agg(loc)), processing operations are stars, other events circles, consumption/production at
+transformation events colours the event markers, and a movement whose pickup location differs from the location
+after the previous event gets a different tick. Flags are not shown.
 
 The data is prepared in small steps, each a function of its own (all take and return polars frames):
 1. `add_high_level_locations`: hl = agg(loc) and the high-level previous location agg(ploc).
@@ -11,15 +12,17 @@ The data is prepared in small steps, each a function of its own (all take and re
 3. `add_processing`: whether the event is a processing operation (P; default: the transformation events T).
 4. `add_transformation_roles`: whether the handling unit is consumed and/or produced at the event (only e ∈ T).
 5. `add_markers`: marker shape (processing, movement, other) and role colour of every relation.
-6. `add_x_positions` (from the trace figure): x per relation on the "event order" or "time" axis;
-   events with the same timestamp get their own x, side by side in event id order.
-`timeline_relations` runs steps 1 to 6 on a relations frame (a saved level mapping or `Derivation.relations`).
+6. `add_positions`: trace position and x per relation on the "event order" or "time" axis; events with the
+   same timestamp get their own x, movements first, then by event id.
+7. `add_pickup_differs`: movements whose pickup location differs from the location after the previous event.
+`timeline_relations` runs steps 1 to 7 on a relations frame (a saved level mapping or `Derivation.relations`).
 From its output:
-7. `band_segments`: the coloured stretches of the low-level or high-level band.
-8. `tie_groups`, `shared_events`, `lifespans`: same-timestamp boxes, shared-event links, lifespan lines.
-9. `object_timeline`: draws the plotly figure.
+8. `band_segments`: the coloured stretches of the low-level or high-level band.
+9. `tie_groups`, `shared_events`, `lifespans`: same-timestamp boxes, shared-event links, lifespan lines.
+10. `object_timeline`: draws the plotly figure.
 """
 
+import warnings
 from collections.abc import Collection, Mapping
 from datetime import timedelta
 from typing import Literal
@@ -32,9 +35,10 @@ from ..visits.trace_figure import (
     CATEGORICAL,
     GREY,
     HU_ORDER,
+    POSITION,
     TIE_FILL,
+    TIE_SPREAD,
     X,
-    add_x_positions,
     location_colours,
 )
 
@@ -68,6 +72,10 @@ IS_PRODUCED = "is_produced"
 MARKER = "marker"
 #: Role of the handling unit at the event: "produced", "consumed", "consumed and produced", or null.
 ROLE = "role"
+#: loc of the previous relation of the handling unit (null for its first relation or ⊥).
+PREV_LOC = "prev_loc"
+#: True for a movement whose ploc (pickup location) is known and differs from PREV_LOC (also known).
+PICKUP_DIFFERS = "pickup_differs"
 
 #: Values of the column `ROLE`.
 PRODUCED, CONSUMED, BOTH = "produced", "consumed", "consumed and produced"
@@ -82,6 +90,12 @@ TICK = "#343a40"
 SYMBOL = {"processing": "star", "other": "circle", "movement": "line-ns-open"}
 #: Marker sizes by marker shape (a star looks smaller than a circle of the same size).
 SIZE = {"processing": 17, "other": 10, "movement": 16}
+#: Movement tick whose pickup location differs from the previous location (Nina 2026-10-31: visible, not
+#: dominant; details in the hover): a small open diamond instead of the tick.
+PICKUP_DIFFERS_SYMBOL = "diamond-tall-open"
+PICKUP_DIFFERS_SIZE = 13
+#: Most handling units shown in one timeline (Nina 2026-10-31).
+MAX_HANDLING_UNITS = 50
 
 # Geometry in y units: one handling unit per row; offsets from the row's centre.
 #: Top and bottom of the band; with a high-level band, the low-level band is the upper half.
@@ -103,9 +117,11 @@ PX_PER_UNIT = 90
 #: Default figure width in pixels.
 WIDTH = 1200
 #: How far a band reaches beyond the first or last event (lead-in, continuation): event-order axis in
-#: positions; time axis as a share of the time span (at least one minute).
-ORDER_CONTINUATION = 0.6
-TIME_CONTINUATION = 0.02
+#: positions; time axis as a share of the time span (at least `MIN_TIME_CONTINUATION`). Halved on
+#: Nina's request (2026-10-31).
+ORDER_CONTINUATION = 0.3
+TIME_CONTINUATION = 0.01
+MIN_TIME_CONTINUATION = timedelta(seconds=30)
 #: Half the width of a same-timestamp box beyond its first and last event, in positions (event order)
 #: or as a share of the smallest gap between timestamps (time).
 TIE_PAD = 0.4
@@ -252,7 +268,9 @@ def add_markers(relations: pl.DataFrame) -> pl.DataFrame:
 
 
 def hu_order(
-    relations: pl.DataFrame, handling_units: Collection[str] | None = None
+    relations: pl.DataFrame,
+    handling_units: Collection[str] | None = None,
+    max_handling_units: int | None = MAX_HANDLING_UNITS,
 ) -> dict[str, int]:
     """Order of the handling units in the timeline (top to bottom).
 
@@ -260,6 +278,8 @@ def hu_order(
         relations: Relations frame with the columns hu and time.
         handling_units: Handling units to show, in this order; None = all, ordered by their first
             event's time, then by id (as in the playground).
+        max_handling_units: Show at most this many (the first ones); a warning names how many were cut.
+            None = no limit.
 
     Returns:
         dict[str, int]: Handling unit -> row index (0 = top); handling units without relations are left out.
@@ -274,7 +294,94 @@ def hu_order(
             .sort("_first", c.HU)[c.HU]
             .to_list()
         )
+    if max_handling_units is not None and len(shown) > max_handling_units:
+        warnings.warn(
+            f"Only the first {max_handling_units} of {len(shown)} handling units are shown.",
+            stacklevel=2,
+        )
+        shown = shown[:max_handling_units]
     return {hu: i for i, hu in enumerate(shown)}
+
+
+def add_positions(
+    relations: pl.DataFrame,
+    axis: TimelineAxis = "event order",
+    spread: float = TIE_SPREAD,
+) -> pl.DataFrame:
+    """Add the trace position of every relation and its x value on the chosen axis.
+
+    Order of the relations (the order of seq, with one tie rule; Nina 2026-10-31): by time; among events with
+    the same timestamp, movements first (an event at the same timestamp as a movement counts as after it, as
+    in Level 1 of `overview/Deriving Locations.md`), then by event id.
+
+    Args:
+        relations: Relations frame with columns hu, hu_order, event, time, is_movement.
+        axis: "event order": x = rank of the event among all shown events in this order, so every event has
+            its own x and a shared event one x; "time": x = the timestamp, with the tied events of a timestamp
+            placed side by side in this order, centred on it and together spanning at most `spread` times the
+            smallest gap between two distinct timestamps.
+        spread: See `axis` ("time" only).
+
+    Returns:
+        pl.DataFrame: `relations` sorted by hu_order and this order, with columns position (index in the
+        handling unit's trace, from 1) and x.
+    """
+    later = pl.col(c.IS_MOVEMENT).fill_null(False).not_().alias("_later")
+    out = (
+        relations.with_columns(later)
+        .sort(HU_ORDER, c.TIME, "_later", c.EVENT)
+        .with_columns((pl.int_range(pl.len()).over(c.HU) + 1).alias(POSITION))
+    )
+    if axis == "event order":
+        return out.with_columns(
+            pl.struct(c.TIME, "_later", c.EVENT).rank("dense").alias(X)
+        ).drop("_later")
+    times = out[c.TIME].unique().sort()
+    gaps = times.diff().drop_nulls()
+    gap = gaps.min() if len(gaps) else timedelta(hours=1)
+    ties = (
+        out.select(c.TIME, "_later", c.EVENT)
+        .unique()
+        .with_columns(
+            (pl.struct("_later", c.EVENT).rank("dense").over(c.TIME) - 1).alias("_i"),
+            pl.col(c.EVENT).n_unique().over(c.TIME).alias("_n"),
+        )
+    )
+    max_n = ties["_n"].max() if ties.height else 1
+    step = gap * spread / max(max_n - 1, 1)
+    ties = ties.select(
+        c.EVENT,
+        (pl.col(c.TIME) + (pl.col("_i") - (pl.col("_n") - 1) / 2) * pl.lit(step)).alias(
+            X
+        ),
+    )
+    return out.join(ties, on=c.EVENT, how="left", maintain_order="left").drop("_later")
+
+
+def add_pickup_differs(relations: pl.DataFrame) -> pl.DataFrame:
+    """Add the previous location and whether a movement's pickup location differs from it.
+
+    prev_loc = loc of the handling unit's previous relation (in the order of `add_positions`; for a movement
+    that is a relation at an earlier timestamp, since movements come first among tied events and RQ3 allows
+    one movement per handling unit and timestamp). pickup_differs is true for a movement (e ∈ M) with
+    ploc ≠ ⊥, prev_loc ≠ ⊥ and ploc ≠ prev_loc, i.e. a provided pickup location that disagrees.
+    The band shows loc only; this is marked on the movement (Nina 2026-10-31).
+
+    Args:
+        relations: Output of `add_positions` (sorted by handling unit and trace position) with loc, ploc.
+
+    Returns:
+        pl.DataFrame: `relations` with the columns prev_loc and pickup_differs.
+    """
+    out = relations.with_columns(pl.col(LOC).shift(1).over(c.HU).alias(PREV_LOC))
+    return out.with_columns(
+        (
+            pl.col(c.IS_MOVEMENT).fill_null(False)
+            & pl.col(PLOC).is_not_null()
+            & pl.col(PREV_LOC).is_not_null()
+            & (pl.col(PLOC) != pl.col(PREV_LOC))
+        ).alias(PICKUP_DIFFERS)
+    )
 
 
 def timeline_relations(
@@ -285,8 +392,9 @@ def timeline_relations(
     processing: Collection[str] | None = None,
     roles: pl.DataFrame | None = None,
     axis: TimelineAxis = "event order",
+    max_handling_units: int | None = MAX_HANDLING_UNITS,
 ) -> pl.DataFrame:
-    """Prepare the relations of some handling units for the timeline (steps 1 to 6).
+    """Prepare the relations of some handling units for the timeline (steps 1 to 7).
 
     Args:
         relations: One row per hu-event relation with columns event, hu, object_type, time, activity,
@@ -296,16 +404,15 @@ def timeline_relations(
         vehicles: The set V.
         processing: Event ids of P (None = the transformation events).
         roles: Consumed/produced roles (see `add_transformation_roles`).
-        axis: "event order" (every event its own position; shared events line up; events with the same
-            timestamp side by side in event id order) or "time" (real time; events with the same timestamp
-            spread slightly around it, see `trace_figure.add_tie_offsets`).
+        axis: "event order" or "time", see `add_positions`.
+        max_handling_units: See `hu_order` (default 50).
 
     Returns:
         pl.DataFrame: The columns of `relations` (only the shown handling units) plus hu_order,
         high_level, prev_high_level, is_vehicle, prev_is_vehicle, is_processing, is_consumed, is_produced,
-        marker, role, position and x; sorted by hu_order, time, event.
+        marker, role, position, x, prev_loc and pickup_differs; sorted by hu_order and trace position.
     """
-    order = hu_order(relations, handling_units)
+    order = hu_order(relations, handling_units, max_handling_units)
     out = relations.filter(pl.col(c.HU).is_in(list(order))).with_columns(
         pl.col(c.HU).replace_strict(order, return_dtype=pl.Int64).alias(HU_ORDER)
     )
@@ -314,7 +421,7 @@ def timeline_relations(
     out = add_processing(out, processing)
     out = add_transformation_roles(out, roles)
     out = add_markers(out)
-    return add_x_positions(out, axis)
+    return add_pickup_differs(add_positions(out, axis))
 
 
 def continuation(relations: pl.DataFrame):
@@ -325,12 +432,12 @@ def continuation(relations: pl.DataFrame):
 
     Returns:
         float | timedelta: `ORDER_CONTINUATION` positions on the event-order axis; on the time axis
-        `TIME_CONTINUATION` of the shown time span, at least one minute.
+        `TIME_CONTINUATION` of the shown time span, at least `MIN_TIME_CONTINUATION`.
     """
     if not relations.schema[X].is_temporal():
         return ORDER_CONTINUATION
     span = relations[X].max() - relations[X].min()
-    return max(span * TIME_CONTINUATION, timedelta(minutes=1))
+    return max(span * TIME_CONTINUATION, MIN_TIME_CONTINUATION)
 
 
 def timestamp_before(relations: pl.DataFrame, level: BandLevel = "low") -> pl.DataFrame:
@@ -366,18 +473,15 @@ def band_segments(
     """The coloured stretches of the low-level or high-level band of every handling unit.
 
     Per handling unit with relations r_1, ..., r_n in trace order (x increasing):
-    - after r_j, the band shows loc(r_j) up to r_{j+1};
-    - if r_{j+1} has a later timestamp than r_j and the location just before that timestamp (see
-      `timestamp_before`) is known and differs from loc(r_j) (a provided pickup location that disagrees),
-      the stretch is split in the middle: the second half shows the location before r_{j+1};
-      between relations with the same timestamp nothing is split (ploc refers to before the timestamp);
+    - after r_j, the band shows loc(r_j) up to r_{j+1} (only loc, Nina 2026-10-31: a pickup location that
+      disagrees is marked on the movement instead, see `add_pickup_differs`);
     - lead-in: if the location before the first timestamp is known and the handling unit is not produced at
       it, the band starts `reach` before r_1 with that location;
     - continuation: after r_n, the band goes on for `reach` with loc(r_n), unless the handling unit is
       consumed at r_n (then it ends there);
     - stretches at ⊥ are left out (gaps), neighbouring stretches with the same location and vehicle status
       are merged.
-    On the high-level band, agg(loc) and agg(ploc) are used instead; vehicle status is that of the
+    On the high-level band, agg(loc) (and agg(ploc) for the lead-in) is used instead; vehicle status is that of the
     underlying low-level location, so a high-level stretch is hatched where the handling unit is on a vehicle.
 
     Args:
@@ -393,28 +497,16 @@ def band_segments(
     now = LOC if level == "low" else HIGH_LEVEL
     if not relations.schema[X].is_temporal():
         relations = relations.with_columns(pl.col(X).cast(pl.Float64))
-    rel = relations.sort(HU_ORDER, X).join(
+    rel = relations.sort(HU_ORDER, POSITION).join(
         timestamp_before(relations, level),
         on=[c.HU, c.TIME],
         how="left",
         maintain_order="left",
     )
-    nxt = lambda col: pl.col(col).shift(-1).over(c.HU)
     rel = rel.with_columns(
-        nxt(X).alias("_x_next"),
-        nxt(c.TIME).alias("_t_next"),
-        nxt("before").alias("_before_next"),
-        nxt("before_vehicle").alias("_before_vehicle_next"),
+        pl.col(X).shift(-1).over(c.HU).alias("_x_next"),
         (pl.int_range(pl.len()).over(c.HU) == 0).alias("_first"),
         pl.col(IS_PRODUCED).any().over(c.HU, c.TIME).alias("_produced_at_t"),
-    ).with_columns(
-        (
-            pl.col("_x_next").is_not_null()
-            & (pl.col("_t_next") > pl.col(c.TIME))
-            & pl.col("_before_next").is_not_null()
-            & pl.col("_before_next").ne_missing(pl.col(now))
-        ).alias("_split"),
-        (pl.col(X) + (pl.col("_x_next") - pl.col(X)) / 2).alias("_mid"),
     )
     keys = [c.HU, HU_ORDER]
     after = rel.select(
@@ -424,17 +516,8 @@ def band_segments(
         pl.col(X).alias("x0"),
         pl.when(pl.col("_x_next").is_null())
         .then(pl.when(pl.col(IS_CONSUMED)).then(pl.col(X)).otherwise(pl.col(X) + reach))
-        .when(pl.col("_split"))
-        .then(pl.col("_mid"))
         .otherwise(pl.col("_x_next"))
         .alias("x1"),
-    )
-    before_next = rel.filter("_split").select(
-        *keys,
-        pl.col("_before_next").alias("location"),
-        pl.col("_before_vehicle_next").alias("is_vehicle"),
-        pl.col("_mid").alias("x0"),
-        pl.col("_x_next").alias("x1"),
     )
     lead_in = rel.filter(
         pl.col("_first") & pl.col("before").is_not_null() & ~pl.col("_produced_at_t")
@@ -446,7 +529,7 @@ def band_segments(
         pl.col(X).alias("x1"),
     )
     pieces = (
-        pl.concat([lead_in, after, before_next])
+        pl.concat([lead_in, after])
         .filter(pl.col("location").is_not_null() & (pl.col("x1") > pl.col("x0")))
         .sort(HU_ORDER, "x0")
     )
@@ -555,11 +638,17 @@ def _relation_hover(row: dict) -> str:
     ]
     role = f": {row[ROLE]}" if row[ROLE] else ""
     vehicle = " (vehicle)" if row[IS_VEHICLE] else ""
+    differs = (
+        f"<br><i>pickup location {row[PLOC]} ≠ location after the previous event {row[PREV_LOC]}</i>"
+        if row.get(PICKUP_DIFFERS)
+        else ""
+    )
     return (
         f"<b>{row[c.ACTIVITY]}</b> ({row[c.EVENT]}){' · ' + ', '.join(kinds) if kinds else ''}<br>"
         f"{row[c.HU]}{role}<br>{row[c.TIME]:%Y-%m-%d %H:%M:%S}<br>"
         f"ploc: {row[PLOC] or NOT_LOCATED} → loc: {row[LOC] or NOT_LOCATED}{vehicle}<br>"
         f"high-level: {row[PREV_HIGH_LEVEL] or NOT_LOCATED} → {row[HIGH_LEVEL] or NOT_LOCATED}"
+        f"{differs}"
     )
 
 
@@ -594,8 +683,10 @@ def object_timeline(
       `band_segments`; one colour per location (low and high level share the colour map), hatched on vehicles;
     - the lifespan line just below the band, with a tick at the first and the last event;
     - markers: processing operations are stars, other events that are not movements circles, both above
-      the band with the activity name written at an angle; movements sit on the band: a vertical tick, or
-      ▲/▼ if the handling unit is produced/consumed there; a processing movement is a star on the band;
+      the band with the activity name written at an angle; movements sit on the band: a vertical tick (a
+      small open diamond if the pickup location differs from the previous location, see
+      `add_pickup_differs`; details in the hover), or ▲/▼ if the handling unit is produced/consumed there;
+      a processing movement is a star on the band;
       colour by role: produced green, consumed pink, consumed and produced amber, none dark grey.
     Dotted lines join the markers of an event shared by several handling units (`link_shared_events`), and
     events with the same timestamp get a light grey box over the whole height (`mark_ties`).
@@ -717,7 +808,7 @@ def object_timeline(
         fig.add_trace(
             go.Bar(
                 orientation="h",
-                name="vehicle (hatched)",
+                name="vehicle",
                 x=[None],
                 y=[None],
                 marker={"color": GREY, "pattern": VEHICLE_PATTERN},
@@ -741,8 +832,16 @@ def object_timeline(
             .otherwise(MARKER_Y)
         ).alias("_y")
     )
-    for (marker, role), part in rel.sort(MARKER, ROLE, nulls_last=True).group_by(
-        MARKER, ROLE, maintain_order=True
+    if PICKUP_DIFFERS not in rel.columns:
+        rel = rel.with_columns(pl.lit(False).alias(PICKUP_DIFFERS))
+    # A plain movement tick whose pickup location differs gets its own (subtle) symbol.
+    differs = (
+        (pl.col(MARKER) == "movement") & pl.col(ROLE).is_null() & pl.col(PICKUP_DIFFERS)
+    )
+    for (marker, role), part in (
+        rel.filter(~differs)
+        .sort(MARKER, ROLE, nulls_last=True)
+        .group_by(MARKER, ROLE, maintain_order=True)
     ):
         colour = ROLE_COLOUR.get(role, NO_ROLE_COLOUR)
         label = f"{marker}{': ' + role if role else ''}"
@@ -793,6 +892,26 @@ def object_timeline(
                     "line": line,
                 },
                 customdata=part["_hover"],
+                hovertemplate="%{customdata}<extra></extra>",
+            )
+        )
+    flagged = rel.filter(differs)
+    if flagged.height:
+        fig.add_trace(
+            go.Scatter(
+                x=flagged[X],
+                y=flagged["_y"],
+                mode="markers",
+                name="movement: pickup ≠ previous location",
+                legendgroup="event",
+                legendgrouptitle_text="event",
+                marker={
+                    "symbol": PICKUP_DIFFERS_SYMBOL,
+                    "size": PICKUP_DIFFERS_SIZE,
+                    "color": TICK,
+                    "line": {"width": 1.5, "color": TICK},
+                },
+                customdata=flagged["_hover"],
                 hovertemplate="%{customdata}<extra></extra>",
             )
         )
