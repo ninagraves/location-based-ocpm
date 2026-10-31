@@ -11,7 +11,8 @@ The steps, each a function of its own (all work on eager and lazy polars frames 
 1. `add_trace_positions`: position of every relation in otrace(hu).
 2. `context.add_high_level_locations`: hat-hl of every relation (agg, completed by identity).
 3. `add_kappa`: κ(hat-hl) of every relation.
-4. `add_gaps`: the gap g_j to the previous relation of hu at the same high-level location.
+4. `add_gaps`: the gap g_j to the previous relation of hu at the same high-level location (optionally
+   without relations on vehicles).
 5. `add_visit_ids`: whether a relation starts a new maximal visit, and the visit it belongs to at its
    own high-level location.
 6. `maximal_visits`: one row per maximal visit (first, last and exit event, duration, ...).
@@ -19,7 +20,7 @@ The steps, each a function of its own (all work on eager and lazy polars frames 
 `derive_maximal_visits` runs steps 1 to 6 in one call.
 """
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 
 import polars as pl
 
@@ -71,24 +72,57 @@ def add_kappa(relations: Frame, kappa: int, high_level: str = v.HIGH_LEVEL) -> F
     )
 
 
-def add_gaps(relations: Frame, high_level: str = v.HIGH_LEVEL) -> Frame:
-    """Add the gap before every relation: g_j = p_j - p_{j-1} - 1.
+def add_gaps(
+    relations: Frame,
+    high_level: str = v.HIGH_LEVEL,
+    location: str = "loc",
+    vehicles: Collection[str] = (),
+    ignore_vehicles: bool = False,
+) -> Frame:
+    """Add the gap before every relation: the number of events since the previous relation of the
+    handling unit at the same high-level location that count towards the tolerance κ.
 
-    p_{j-1} is the position of the previous relation of the same handling unit at the same high-level
-    location (⊥ counts as one location here), so the gap is the number of events in between, none of
-    which is at that high-level location.
+    By default every event in between counts, so the gap is g_j = p_j - p_{j-1} - 1, with p_{j-1} the
+    position of the previous relation of the same handling unit at the same high-level location (⊥ counts
+    as one location here).
+    With `ignore_vehicles` (Nina, 2026-10-31), relations on a vehicle (loc ∈ V) in between do not count,
+    even if the vehicle maps to another high-level location; so a trip on a truck that is not part of hl
+    does not use up the tolerance. Gaps before ⊥ relations always count every event, since visits to ⊥
+    allow no excursions.
     The first relation of a handling unit at a high-level location has no gap (null).
 
+    How it works: w = 0 for relations that do not count, 1 otherwise; with C the cumulative sum of w per
+    handling unit, the counted events strictly between p_{j-1} and p_j are C(p_j) - w(p_j) - C(p_{j-1}).
+    With w = 1 everywhere this is p_j - p_{j-1} - 1.
+
     Args:
-        relations: Output of `add_trace_positions` with the column `high_level`.
+        relations: Output of `add_trace_positions` with the columns `high_level` and `location`.
         high_level: Column of hat-hl.
+        location: Column of loc (only used with `ignore_vehicles`).
+        vehicles: The set V (only used with `ignore_vehicles`).
+        ignore_vehicles: True = relations on a vehicle do not count towards the gap (default False:
+            they count).
 
     Returns:
         Frame: `relations` with the column gap (null for the first relation at a high-level location).
     """
+    if ignore_vehicles:
+        weight = (~pl.col(location).is_in(list(vehicles)).fill_null(False)).cast(pl.Int64)
+    else:
+        weight = pl.repeat(1, pl.len(), dtype=pl.Int64)
+    out = relations.with_columns(weight.alias("_w")).with_columns(
+        (pl.col("_w").cum_sum().over(c.HU, order_by=v.POSITION) - pl.col("_w")).alias("_c")
+    )
     # `over` puts all nulls (⊥) of a handling unit into one group, so ⊥ needs no stand-in value.
-    previous = pl.col(v.POSITION).shift(1).over(c.HU, high_level, order_by=v.POSITION)
-    return relations.with_columns((pl.col(v.POSITION) - previous - 1).alias(v.GAP))
+    group = (c.HU, high_level)
+    previous_c = (pl.col("_c") + pl.col("_w")).shift(1).over(*group, order_by=v.POSITION)
+    previous_p = pl.col(v.POSITION).shift(1).over(*group, order_by=v.POSITION)
+    gap = (
+        pl.when(pl.col(high_level).is_null())
+        .then(pl.col(v.POSITION) - previous_p - 1)
+        .otherwise(pl.col("_c") - previous_c)
+    )
+    return out.with_columns(gap.alias(v.GAP)).drop("_w", "_c")
 
 
 def add_visit_ids(relations: Frame, high_level: str = v.HIGH_LEVEL) -> Frame:
@@ -247,6 +281,8 @@ def derive_maximal_visits(
     location: str = "loc",
     agg: Mapping[str, str] | None = None,
     kappa: int = 0,
+    vehicles: Collection[str] = (),
+    ignore_vehicles: bool = False,
 ) -> tuple[Frame, Frame]:
     """All maximal visits V_max in one call (steps 1 to 6).
 
@@ -256,6 +292,9 @@ def derive_maximal_visits(
         location: Column of the current location loc (null = ⊥), e.g. "loc" or "loc_3".
         agg: Location mapping L -> HL (partial, completed by identity); None = identity.
         kappa: κ_max, the excursion tolerance of every high-level location (κ(⊥) = 0).
+        vehicles: The set V (only used with `ignore_vehicles`).
+        ignore_vehicles: True = relations on a vehicle do not count towards the tolerance (see
+            `add_gaps`); default False.
 
     Returns:
         tuple[Frame, Frame]: The relations with the columns high_level, position, kappa, gap,
@@ -264,6 +303,6 @@ def derive_maximal_visits(
     rel = add_trace_positions(relations)
     rel = add_high_level_locations(rel, location, agg)
     rel = add_kappa(rel, kappa)
-    rel = add_gaps(rel)
+    rel = add_gaps(rel, location=location, vehicles=vehicles, ignore_vehicles=ignore_vehicles)
     rel = add_visit_ids(rel)
     return rel, maximal_visits(rel)

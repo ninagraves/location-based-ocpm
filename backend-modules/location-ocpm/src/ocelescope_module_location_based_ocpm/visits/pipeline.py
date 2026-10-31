@@ -44,6 +44,7 @@ def analyse_visits(
     vehicles: Collection[str] = (),
     kappa: int = 0,
     processing: Collection[str] | None = None,
+    ignore_vehicles: bool = False,
 ) -> VisitAnalysis:
     """Maximal visits with their shifts and waiting times, in one call.
 
@@ -55,11 +56,13 @@ def analyse_visits(
         vehicles: The set V.
         kappa: κ_max, the excursion tolerance of every high-level location (κ(⊥) = 0).
         processing: The processing operations P as event ids; None = the transformation events T.
+        ignore_vehicles: True = relations on a vehicle do not count towards the tolerance κ, even if the
+            vehicle maps to another high-level location (`maximal.add_gaps`); default False.
 
     Returns:
         VisitAnalysis: All frames, collected.
     """
-    rel, visits = derive_maximal_visits(relations, location, agg, kappa)
+    rel, visits = derive_maximal_visits(relations, location, agg, kappa, vehicles, ignore_vehicles)
     vrel = visit_relations(rel, visits)
     vrel = add_stops(vrel, vehicles, location)
     vrel = add_processing(vrel, processing)

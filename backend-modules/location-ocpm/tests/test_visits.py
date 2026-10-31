@@ -227,3 +227,45 @@ def test_visit_files_round_trip(running, tmp_path):
     loaded = load_visits(tmp_path, 3, 2)
     assert loaded.drop("duration").equals(running.visits.select(loaded.drop("duration").columns))
     assert loaded["duration"].equals(running.visits["duration"])
+
+
+def test_ignore_vehicles_running_example(derivation):
+    """κ = 1 with ignore_vehicles: c1's A visit is no longer cut at ⟨e7 B1, e8 T⟩ (only B1 counts), T still is."""
+    _, visits = derive_maximal_visits(
+        derivation.relations, derivation.loc, CONTEXT.agg, 1, CONTEXT.vehicles, ignore_vehicles=True
+    )
+    c1 = visits.filter(pl.col("hu") == "c1").select("high_level", "first_event", "last_event").rows()
+    assert c1 == [("A", "e3", "e11"), ("B", "e7", "e7"), ("T", "e8", "e8"), ("T", "e13", "e14")]
+    assert visits.height == 12
+
+
+def test_ignore_vehicles_edge_example():
+    """κ = 0 with ignore_vehicles: h1 at A runs on across ⟨e6 on T⟩ and is cut only at e8 (B1)."""
+    relations = pl.read_csv(EDGE / "relations.csv", schema=MAPPING_SCHEMA)
+    _, default = derive_maximal_visits(relations, "loc", EDGE_CONTEXT.agg, 0, EDGE_CONTEXT.vehicles)
+    _, ignoring = derive_maximal_visits(relations, "loc", EDGE_CONTEXT.agg, 0, EDGE_CONTEXT.vehicles, True)
+
+    def h1_a(visits: pl.DataFrame) -> list[tuple]:
+        """h1's visits to A as (first, last event)."""
+        return visits.filter((pl.col("hu") == "h1") & (pl.col("high_level") == "A")).select(
+            "first_event", "last_event"
+        ).rows()
+
+    assert h1_a(default) == [("e1", "e5"), ("e7", "e7"), ("e9", "e10")]
+    assert h1_a(ignoring) == [("e1", "e7"), ("e9", "e10")]
+
+
+def test_ignore_vehicles_keeps_bottom_strict():
+    """⊥ visits allow no excursions, also with ignore_vehicles: ⊥, T, ⊥ gives two ⊥ visits."""
+    import datetime as dt
+
+    relations = pl.DataFrame(
+        {
+            "hu": ["x"] * 3,
+            "event": ["a", "b", "c"],
+            "time": [dt.datetime(2026, 1, 1, h) for h in (1, 2, 3)],
+            "loc": [None, "T", None],
+        }
+    )
+    _, visits = derive_maximal_visits(relations, "loc", None, 2, {"T"}, ignore_vehicles=True)
+    assert visits.filter(pl.col("high_level").is_null()).height == 2

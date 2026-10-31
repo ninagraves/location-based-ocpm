@@ -21,7 +21,7 @@ Per visit at $hl \in HL$:
 | Trace positions | `maximal.py`, `add_trace_positions` | position in $otrace(hu)$ (time, then event id) |
 | High-level locations | `context.py`, `add_high_level_locations` | $\widehat{hl}$ ($agg$ completed by identity) |
 | Tolerance | `maximal.py`, `add_kappa` | $\kappa(\widehat{hl})$: $\kappa_{max}$, 0 for ⊥ |
-| Gaps | `maximal.py`, `add_gaps` | $g_j = p_j - p_{j-1} - 1$ per (hu, $hl$) |
+| Gaps | `maximal.py`, `add_gaps` | $g_j = p_j - p_{j-1} - 1$ per (hu, $hl$); with `ignore_vehicles` without relations on vehicles |
 | Visit ids | `maximal.py`, `add_visit_ids` | new visit iff gap null or gap $> \kappa$; cumulative sum numbers the visits |
 | Visits | `maximal.py`, `maximal_visits` | one row per visit: first, last and exit event, times, duration, counts, interrupted |
 | Visit relations | `maximal.py`, `visit_relations` | one row per visit and $r \in R(\nu)$ (incl. excursions), at_location |
@@ -59,6 +59,7 @@ None (not on a page yet).
 ## 5. Settings
 
 - `kappa`: $\kappa_{max} \geq 0$, the tolerance of every high-level location (default 0).
+- `ignore_vehicles` (Nina, 2026-10-31; default `False`): if `True`, relations on a vehicle ($loc \in V$) do not count as part of deviating infixes, even if the vehicle maps to another high-level location, so a vehicle trip does not use up the tolerance. Visits to ⊥ are not affected. Example: κ = 1, c1's visit to A stays e3–e11 (the excursion ⟨e7 at B1, e8 on T⟩ counts 1), while by default it is cut into e3–e5 and e9–e11.
 - `agg`, `vehicles`: the location context; until they are inputs of the tool, read with `context.location_context` from a table (e.g. `data/running_example/inputs/locations.csv`).
 - `processing`: $P$ as event ids; default $T$.
 
