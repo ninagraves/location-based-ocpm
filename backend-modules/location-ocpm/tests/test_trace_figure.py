@@ -282,3 +282,52 @@ def test_visit_ids_shown_in_bars(derivation):
     assert ids(trace_figure(rel, visits)) == {"<b>m1</b>", "<b>m2</b>"}
     assert ids(trace_figure(rel, visits, show_visit_ids=False)) == set()
     assert ids(trace_figure(rel, visits.drop("visit_id"))) == set()
+
+
+def test_processing_defaults_to_transformations_and_takes_given_events(derivation):
+    """Without P, the transformation events are processing operations; with P, exactly the given events."""
+    default = relations_for_figure(derivation.relations, derivation.loc, ["c2"], AGG)
+    assert default.filter("is_processing")["event"].to_list() == ["e3", "e15"]
+    given = relations_for_figure(
+        derivation.relations, derivation.loc, ["c2"], AGG, processing={"e4", "e15"}
+    )
+    assert given.filter("is_processing")["event"].to_list() == ["e4", "e15"]
+    none = relations_for_figure(
+        derivation.relations, derivation.loc, ["c2"], AGG, processing=()
+    )
+    assert not none["is_processing"].any()
+
+
+def test_processing_drawn_as_stars_with_legend_entry(derivation):
+    """Processing operations are stars in their location colour; the legend gets 'processing operation'."""
+    rel = relations_for_figure(
+        derivation.relations,
+        derivation.loc,
+        ["c1"],
+        AGG,
+        {"T"},
+        processing={"e4", "e14"},
+    )
+    fig = trace_figure(rel)
+    stars = {
+        (t.marker.symbol, x)
+        for t in fig.data
+        if t.marker.symbol in ("star", "star-open") and t.name != "processing operation"
+        for x in t.x
+    }
+    x_of = dict(rel.select("event", "x").iter_rows())
+    assert stars == {("star", x_of["e4"]), ("star-open", x_of["e14"])}
+    assert "processing operation" in {t.name for t in fig.data}
+    # The location legend keeps the plain symbols.
+    legend = {
+        t.name: t.marker.symbol
+        for t in fig.data
+        if t.showlegend and t.legendgroup == "location"
+    }
+    assert legend["A1"] == "circle" and legend["T"] == "circle-open"
+    plain = trace_figure(
+        relations_for_figure(
+            derivation.relations, derivation.loc, ["c1"], AGG, processing=()
+        )
+    )
+    assert "processing operation" not in {t.name for t in plain.data}
