@@ -76,7 +76,7 @@ RELATIONS = {
 }
 
 #: E2O qualifiers at transformation events (all other relations get "handled").
-#: Data only: the concept does not use consumed/produced yet.
+#: Also written to inputs/transformation_roles.csv (used by the object timeline).
 QUALIFIERS = {
     ("e1", "s1"): "produced",
     ("e3", "s1"): "consumed",
@@ -98,6 +98,8 @@ LOCATIONS = {
 #: Movement events M and transformation events T, by activity.
 MOVEMENT_ACTIVITIES = ["crane move", "load truck", "unload truck"]
 TRANSFORMATION_ACTIVITIES = ["cast slab", "roll", "cut"]
+#: Processing operations P, by activity (object timeline and trace figure; input format not decided yet).
+PROCESSING_ACTIVITIES = ["cast slab", "roll", "label", "cut"]
 
 
 def event_group(activity: str) -> str:
@@ -164,7 +166,8 @@ def build_input_tables() -> dict[str, pl.DataFrame]:
     Returns:
         dict[str, pl.DataFrame]: File name (without `.csv`) -> table: handling units,
         movement events, transformation events, target locations, pickup locations, and the
-        location context (columns location, high_level, is_vehicle, is_storage; draft).
+        processing operations P, consumed/produced roles at the transformation events (columns event,
+        hu, role), and the location context (columns location, high_level, is_vehicle, is_storage; draft).
     """
     rows = [
         (eid, activity, uloc, puloc)
@@ -189,6 +192,14 @@ def build_input_tables() -> dict[str, pl.DataFrame]:
                 "event": [e for e, _, _, p in rows if p],
                 "location": [p for _, _, _, p in rows if p],
             }
+        ),
+        "processing_events": pl.DataFrame(
+            {"event": [e for e, a, _, _ in rows if a in PROCESSING_ACTIVITIES]}
+        ),
+        "transformation_roles": pl.DataFrame(
+            [(e, hu, role) for (e, hu), role in QUALIFIERS.items()],
+            schema=["event", "hu", "role"],
+            orient="row",
         ),
         "locations": pl.DataFrame(
             [

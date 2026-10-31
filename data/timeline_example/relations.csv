@@ -1,0 +1,12 @@
+event,hu,object_type,time,activity,is_movement,is_transformation,loc,ploc
+x1,h1,coil,2026-01-01T01:00:00.000000,unload truck,true,false,Y1,X1
+x2,h1,coil,2026-01-01T02:00:00.000000,quality check,false,false,Y1,Y1
+x3,h1,coil,2026-01-01T03:00:00.000000,charge furnace,true,true,F,Y1
+x4,h2,coil,2026-01-01T04:00:00.000000,discharge furnace,true,true,Y2,
+x5,h2,coil,2026-01-01T05:00:00.000000,rework,false,true,Y2,Y2
+x6,h2,coil,2026-01-01T05:00:00.000000,label,false,false,Y2,Y2
+x7,h2,coil,2026-01-01T06:00:00.000000,crane move,true,false,Y1,Y3
+x8,h2,coil,2026-01-01T06:00:00.000000,scan,false,false,Y1,Y2
+x9,h3,coil,2026-01-01T02:00:00.000000,inspect,false,false,,
+x10,h3,coil,2026-01-01T03:00:00.000000,crane pick,true,false,C,Y1
+x11,h3,coil,2026-01-01T04:00:00.000000,crane drop,true,false,Y2,C

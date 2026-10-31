@@ -1,0 +1,7 @@
+event,hu,role
+e1,s1,produced
+e3,s1,consumed
+e3,c1,produced
+e3,c2,produced
+e15,c2,consumed
+e15,c4,produced
