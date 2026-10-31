@@ -22,17 +22,15 @@ import plotly.graph_objects as go
 import polars as pl
 
 from ..derivation import columns as c
+from .columns import HIGH_LEVEL, POSITION
+from .context import add_high_level_locations
 
 #: Axis options: position in the handling unit's own trace (as in the visit definition), order of all
 #: shown events (shared events line up vertically), or real time.
 Axis = Literal["trace position", "event order", "time"]
 
-#: Column of the high-level location hat-hl((e, hu)); null = ⊥.
-HIGH_LEVEL = "high_level"
 #: Column of the location kind: "vehicle", "storage" or "other"; null if the location is ⊥.
 KIND = "location_kind"
-#: Column of the position of the relation in otrace(hu), starting at 1.
-POSITION = "position"
 #: Optional column giving the order of the handling units in the figure (top to bottom).
 HU_ORDER = "hu_order"
 #: Column of the x value of the relation in the figure.
@@ -110,32 +108,6 @@ TIE_FILL = "rgba(134, 142, 150, 0.12)"
 VISIT_ID = "visit_id"
 #: Dash pattern of the outline of visits in `dashed_groups` (dash length, gap; plotly also accepts "dash", "dot").
 VISIT_DASH = "4px,2px"
-
-
-def add_high_level_locations(
-    relations: pl.DataFrame,
-    location: str,
-    agg: Mapping[str, str] | None = None,
-    high_level: str = HIGH_LEVEL,
-) -> pl.DataFrame:
-    """Add hat-hl((e, hu)) = agg(loc((e, hu))) if loc((e, hu)) ≠ ⊥, else ⊥.
-
-    `agg` may be partial: locations it does not map are their own high-level location (identity),
-    as in the note's todo "auto-complete via identity function".
-
-    Args:
-        relations: One row per hu-event relation with the column `location` (null = ⊥).
-        location: Column of the low-level location, e.g. "loc_3".
-        agg: Low-level location -> high-level location; None = identity for all.
-        high_level: Name of the new column.
-
-    Returns:
-        pl.DataFrame: `relations` with the column `high_level` (null where `location` is null).
-    """
-    expr = pl.col(location)
-    if agg:
-        expr = expr.replace(dict(agg))
-    return relations.with_columns(expr.alias(high_level))
 
 
 def add_location_kinds(

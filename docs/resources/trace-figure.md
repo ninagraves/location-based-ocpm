@@ -33,7 +33,7 @@ The trace position is the index in $otrace(hu)$ (time, then event id).
 ## Settings
 - `axis`: "event order" (default; rank of the event among all shown events, so shared events line up), "trace position" (index in $otrace(hu)$, as in the visit definition), or "time" (events with the same timestamp are spread side by side around it in event id order, over at most `TIE_SPREAD` = half the smallest gap between timestamps; `add_tie_offsets`).
 - `agg`, `vehicles` ($V$), `storage_units` ($W$): until they are inputs of the tool, passed as arguments (in the notebook read from `data/running_example/inputs/locations.csv` with `location_context`).
-- `visits`: a table with columns hu, high_level (null = ⊥), first_event, last_event, group, and optionally visit_id (Nina 2026-10-30: shown in the middle of the bar and in the hover, to talk about single visits; `show_visit_ids=False` hides it). Visits are not computed yet; `notebooks/trace_figure.ipynb` passes a hand-written table (maximal visits at κ = 2), for illustration only.
+- `visits`: a table with columns hu, high_level (null = ⊥), first_event, last_event, group, and optionally visit_id (Nina 2026-10-30: shown in the middle of the bar and in the hover, to talk about single visits; `show_visit_ids=False` hides it). `notebooks/trace_figure.ipynb` passes a hand-written table (maximal visits at κ = 2, resolved visits) for illustration; computed maximal visits (`docs/resources/visits.md`) can be passed directly after adding a `group` column, as in `notebooks/visits.ipynb`.
 
 ## Example
 `notebooks/trace_figure.ipynb` (start with `uv run --with jupyter jupyter lab notebooks/trace_figure.ipynb`) demos every function and parameter on the running example (Level 3, $agg$: A1, A2 → A; B1 → B; T unmapped; $V$ = {T}, $W$ = {B1}): the preparation steps, the three axes, visits (outlined and filled), the four high-level styles, label fitting and `width`, and switching labels and links off.
@@ -43,7 +43,7 @@ None (draft outside the tool).
 
 ## Where it lives in the code
 `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/visits/trace_figure.py`, one function per step:
-1. `add_high_level_locations(relations, location, agg)`: column high_level.
+1. `add_high_level_locations(relations, location, agg)` (in `visits/context.py`, imported here): column high_level.
 2. `add_location_kinds(relations, location, vehicles, storage_units)`: column location_kind (vehicle wins if a location is in both).
 3. `add_x_positions(relations, axis)`: columns position and x.
 4. `location_colours(names)`: location → colour (module palette, light scheme).

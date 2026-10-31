@@ -1,13 +1,22 @@
 """Location context for visits: the location mapping agg, the vehicles V and the storage units W
 (`overview/Single Level Visit Mappings.md`, "Specific new notations").
 
+Also `add_high_level_locations`, which applies agg to the relations (hat-hl).
+
 Draft: the input format is not decided yet. Until then, the context is read from a table with one row per
 location (e.g. `data/running_example/inputs/locations.csv`).
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import TypeVar
 
 import polars as pl
+
+from .columns import HIGH_LEVEL
+
+#: A polars frame, eager or lazy; the functions return the same kind they get.
+Frame = TypeVar("Frame", pl.DataFrame, pl.LazyFrame)
 
 
 @dataclass
@@ -62,3 +71,29 @@ def location_context(
     return LocationContext(
         agg=agg, vehicles=flagged(is_vehicle), storage_units=flagged(is_storage)
     )
+
+
+def add_high_level_locations(
+    relations: Frame,
+    location: str,
+    agg: Mapping[str, str] | None = None,
+    high_level: str = HIGH_LEVEL,
+) -> Frame:
+    """Add hat-hl((e, hu)) = agg(loc((e, hu))) if loc((e, hu)) ≠ ⊥, else ⊥.
+
+    `agg` may be partial: locations it does not map are their own high-level location (identity),
+    as in the note's todo "auto-complete via identity function".
+
+    Args:
+        relations: One row per hu-event relation with the column `location` (null = ⊥).
+        location: Column of the low-level location, e.g. "loc_3".
+        agg: Low-level location -> high-level location; None = identity for all.
+        high_level: Name of the new column.
+
+    Returns:
+        Frame: `relations` with the column `high_level` (null where `location` is null).
+    """
+    expr = pl.col(location)
+    if agg:
+        expr = expr.replace(dict(agg))
+    return relations.with_columns(expr.alias(high_level))
