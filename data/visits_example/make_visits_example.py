@@ -1,4 +1,4 @@
-"""Generate the small visits example: five handling units whose traces cover the edge cases of
+"""Generate the small visits example: six handling units whose traces cover the edge cases of
 maximal visits, shifts and waiting times (`overview/Single Level Visit Mappings.md`).
 
 The single source of the files in this folder; never edit the outputs by hand. Run from the repository
@@ -8,7 +8,7 @@ Outputs:
 - `relations.csv`: one row per hu-event relation in the format of a saved level mapping
   (`derivation/level_files.py`, `MAPPING_COLUMNS`); loc is given directly (as if derived), ploc is the
   location of the previous relation of the handling unit.
-- `locations.csv`: the location context (agg, vehicles), same format as `running_example/inputs/locations.csv`.
+- `locations.csv`: the location context (agg, vehicles, storage units), same format as `running_example/inputs/locations.csv`.
 - `processing_events.csv`: the processing operations P (column event).
 
 Time t is 2026-01-01 00:00 plus t hours. The example is meant for κ_max = 1.
@@ -22,14 +22,18 @@ import polars as pl
 HERE = Path(__file__).parent
 START = datetime(2026, 1, 1)
 
-#: Location context: A1, A2 and the crane C1 lie in hall A, B1 in hall B; the truck T is not mapped
-#: (its own high-level location). Vehicles: C1 and T.
+#: Location context: A1, A2, the crane C1 and the storage units S1, S2 lie in hall A, B1 and the storage
+#: unit B2 in hall B; the truck T is not mapped (its own high-level location).
+#: Columns: location, high-level location, vehicle, storage unit.
 LOCATIONS = [
-    ("A1", "A", False),
-    ("A2", "A", False),
-    ("C1", "A", True),
-    ("B1", "B", False),
-    ("T", None, True),
+    ("A1", "A", False, False),
+    ("A2", "A", False, False),
+    ("C1", "A", True, False),
+    ("S1", "A", False, True),
+    ("S2", "A", False, True),
+    ("B1", "B", False, False),
+    ("B2", "B", False, True),
+    ("T", None, True, False),
 ]
 
 #: Traces: hu -> list of (event, hour, activity, is_movement, is_transformation, is_processing, loc).
@@ -92,6 +96,21 @@ TRACES = {
         ("e40", 10, "pack and move", True, False, True, "B1"),
         ("e41", 12, "store", False, False, False, "B1"),
     ],
+    # h6: storage units restart the clock: a move between storage units (no removal), a removal, a
+    # processing operation that removes from storage (waiting 0), a removal outside A (during an excursion).
+    "h6": [
+        ("e42", 0, "crane move", True, False, False, "S1"),
+        ("e43", 2, "crane move", True, False, False, "S2"),
+        ("e44", 5, "crane pick", True, False, False, "C1"),
+        ("e45", 6, "crane drop", True, False, False, "A1"),
+        ("e46", 8, "roll", False, False, True, "A1"),
+        ("e47", 9, "crane move", True, False, False, "S1"),
+        ("e48", 12, "unpack and move", True, False, True, "A2"),
+        ("e49", 13, "crane move", True, False, False, "B2"),
+        ("e50", 15, "crane move", True, False, False, "A2"),
+        ("e51", 16, "grind", False, False, True, "A2"),
+        ("e52", 18, "load truck", True, False, False, "T"),
+    ],
 }
 
 
@@ -126,7 +145,9 @@ def relations() -> pl.DataFrame:
 def main() -> None:
     """Write the three files of the example next to this script."""
     relations().write_csv(HERE / "relations.csv")
-    pl.DataFrame(LOCATIONS, schema=["location", "high_level", "is_vehicle"], orient="row").write_csv(
+    pl.DataFrame(
+        LOCATIONS, schema=["location", "high_level", "is_vehicle", "is_storage"], orient="row"
+    ).write_csv(
         HERE / "locations.csv"
     )
     processing = [e for trace in TRACES.values() for e, *_, p, _ in trace if p]

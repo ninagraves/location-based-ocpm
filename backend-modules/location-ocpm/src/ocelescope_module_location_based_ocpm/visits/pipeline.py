@@ -12,7 +12,7 @@ import polars as pl
 from . import columns as v
 from .maximal import derive_maximal_visits, visit_relations
 from .shifts import add_stops, shift_summary, transfers
-from .waiting import add_processing, waiting_summary, waiting_times
+from .waiting import add_processing, add_storage_removals, time_pieces, waiting_summary, waiting_times
 
 
 @dataclass
@@ -25,15 +25,18 @@ class VisitAnalysis:
         visits: One row per maximal visit: the columns of `maximal.maximal_visits`, then those of
             `shifts.shift_summary` and `waiting.waiting_summary`.
         visit_relations: One row per visit and relation r ∈ R(ν), with at_location, on_vehicle, is_stop,
-            is_processing_event and is_processing.
+            is_processing_event, is_processing and is_storage_removal.
         transfers: One row per transfer μ_j (`shifts.transfers`).
-        waiting_times: One row per processing position q_j (`waiting.waiting_times`).
+        pieces: One row per timed piece of a visit, labelled waiting, storage or remaining
+            (`waiting.time_pieces`).
+        waiting_times: The waiting pieces, one per processing operation (`waiting.waiting_times`).
     """
 
     relations: pl.DataFrame
     visits: pl.DataFrame
     visit_relations: pl.DataFrame
     transfers: pl.DataFrame
+    pieces: pl.DataFrame
     waiting_times: pl.DataFrame
 
 
@@ -45,6 +48,7 @@ def analyse_visits(
     kappa: int = 0,
     processing: Collection[str] | None = None,
     ignore_vehicles: bool = False,
+    storage_units: Collection[str] = (),
 ) -> VisitAnalysis:
     """Maximal visits with their shifts and waiting times, in one call.
 
@@ -58,6 +62,8 @@ def analyse_visits(
         processing: The processing operations P as event ids; None = the transformation events T.
         ignore_vehicles: True = relations on a vehicle do not count towards the tolerance κ, even if the
             vehicle maps to another high-level location (`maximal.add_gaps`); default False.
+        storage_units: The set W; a removal from a storage unit restarts the clock of the waiting times
+            (`waiting.add_storage_removals`); empty = no removals.
 
     Returns:
         VisitAnalysis: All frames, collected.
@@ -66,12 +72,13 @@ def analyse_visits(
     vrel = visit_relations(rel, visits)
     vrel = add_stops(vrel, vehicles, location)
     vrel = add_processing(vrel, processing)
+    vrel = add_storage_removals(vrel, storage_units, location)
     transfer_frame = transfers(vrel, location)
-    waiting = waiting_times(vrel)
+    pieces = time_pieces(vrel, visits)
     summary = visits.join(shift_summary(vrel, transfer_frame, location), on=v.VISIT_ID).join(
-        waiting_summary(visits, waiting), on=v.VISIT_ID
+        waiting_summary(visits, pieces), on=v.VISIT_ID
     )
-    frames = [rel, summary.sort(v.VISIT_ID), vrel, transfer_frame, waiting]
+    frames = [rel, summary.sort(v.VISIT_ID), vrel, transfer_frame, pieces, waiting_times(pieces)]
     if isinstance(relations, pl.LazyFrame):
         frames = pl.collect_all(frames)
     return VisitAnalysis(*frames)

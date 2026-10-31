@@ -1,7 +1,7 @@
 # Maximal visits, shifts and waiting times
 
 Status: implemented in the backend package and demoed in `notebooks/visits.ipynb`; not used by any page yet.
-Concept: `overview/Single Level Visit Mappings.md` (outside this repo), sections "Visits", "Deriving maximal Visits", "Visit duration", "identifying shifts" and "Waiting Times"; waiting times as decided in Part C of `claude_notes/excursions-and-visit-sequences.md` (2026-10-31).
+Concept: `overview/Single Level Visit Mappings.md` (outside this repo), sections "Visits", "Deriving maximal Visits", "Visit duration", "identifying shifts" and "Waiting Times"; waiting times as decided in Part C with C.6 (storage units) of `claude_notes/excursions-and-visit-sequences.md` (2026-10-31).
 Code: `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/visits/` (paths below are relative to it).
 Tests: `backend-modules/location-ocpm/tests/test_visits.py` (running example and the edge-case example).
 
@@ -12,7 +12,7 @@ Not implemented (benched or discarded in the concept): cutting visits and excurs
 Per handling unit, its **maximal visits**: the stays at one high-level location $hl \in HL_\bot$, allowing excursions of at most $\kappa(hl)$ events ($\kappa(\bot) = 0$).
 Per visit at $hl \in HL$:
 - its **stops** (relations at $hl$ not on a vehicle) and the **transfers** between consecutive stops, each a stay, direct shift, vehicle shift or external shift;
-- its **waiting times** $w_1, \dots, w_r$ before each processing operation at $hl$ and its **remaining time** $w_{rem}$ after the last one, adding up to the visit duration.
+- its **timed pieces**: the visit is cut at its clock events (entry, processing operations at $hl$, removals from a storage unit) and each piece is labelled by the event ending it: **waiting** time (ends at a processing operation), **storage** time (ends at a removal from a storage unit), **remaining** time (ends at the exit); they add up to the visit duration. So the waiting time before a processing operation counts from the latest of entry, previous processing operation and storage removal.
 
 ## 2. How it is calculated
 
@@ -29,9 +29,11 @@ Per visit at $hl \in HL$:
 | Transfers | `shifts.py`, `transfers` | one row per $\mu_j$ with its category |
 | Shift summary | `shifts.py`, `shift_summary` | counts per category, $L(\nu)$, $L_{hl}(\nu)$, $L_{stop}(\nu)$, $L_{\neg v}(\nu)$, vehicle / transferring visit |
 | Processing | `waiting.py`, `add_processing` | $e \in P$; $e \in P$ at the visit's $hl$ |
-| Waiting times | `waiting.py`, `waiting_times` | one row per processing position $q_j$ with $w_j$ |
-| Waiting summary | `waiting.py`, `waiting_summary` | $r$, $\sum_j w_j$, $w_{rem}$ |
-| All | `pipeline.py`, `analyse_visits` | `VisitAnalysis` (relations, visits, visit_relations, transfers, waiting_times) |
+| Storage removals | `waiting.py`, `add_storage_removals` | $loc_{j-1} \in W$, $loc_j \notin W$ (not at the first relation of the visit) |
+| Pieces | `waiting.py`, `time_pieces` | one row per piece between two clock events, labelled waiting / storage / remaining |
+| Waiting times | `waiting.py`, `waiting_times` | the waiting pieces, one per processing operation |
+| Waiting summary | `waiting.py`, `waiting_summary` | number of processing operations and removals, total waiting, storage and remaining time |
+| All | `pipeline.py`, `analyse_visits` | `VisitAnalysis` (relations, visits, visit_relations, transfers, pieces, waiting_times) |
 
 Column names are in `columns.py` (relations, visits and visit relations) and at the top of `shifts.py` and `waiting.py` (their own frames).
 All functions take and return polars frames, eager or lazy alike; nothing iterates over rows.
@@ -42,14 +44,16 @@ Decisions taken in the implementation (all from the concept, listed for referenc
 - ⊥ inside a transfer counts as not on a vehicle, so the transfer is an external shift.
 - A processing movement counts at the location after the event ($loc$): it is the exit event of the visit it leaves and the entry ($w_1 = 0$) of the visit it enters.
 - Processing operations on a vehicle mapped into $hl$ count; those during an excursion count for the visit to their own high-level location.
+- Storage removals count anywhere in the visit, also outside $hl$ during an excursion (Nina, 2026-10-31); a move between two storage units is no removal; a removal at the exit event (outside the visit) does not count for that visit.
+- A processing operation at the entry, or one that is itself a storage removal, gets a waiting time of 0 (an extra piece of length 0 after the storage piece).
 - If no $P$ is given, $P = T$ (column `is_transformation`).
 
 ## 3. Example
 
 Running example (Level 3, $\kappa_{max} = 2$, $V = \{T\}$): the maximal visits are $m_1$ to $m_{11}$ of the note (14, 13, 11 visits for κ = 0, 1, 2, including the ⊥ visit of c5); c2's A visit ($m_5$) has the transfers stay, direct shift, vehicle shift, stay; c1's ($m_2$) stay, direct, external, stay; $m_6$ and $m_8$ are vehicle visits, $m_4$ is transferring.
-With $P = \{e1, e3, e4, e15\}$ the waiting times of the working doc (C.2) come out, e.g. $m_5$: $w = (0, 1)$ h, $w_{rem} = 8$ h.
+With $P = \{e1, e3, e4, e15\}$ the waiting times of the working doc (C.2) come out, e.g. $m_5$: $w = (0, 1)$ h, $w_{rem} = 8$ h; with $W = \{B1\}$ (C.6), $m_2$ is cut into waiting 0, waiting 1 h, storage 4 h (removal e8, outside A), remaining 5 h.
 
-Edge-case example `data/visits_example/` (generated by `make_visits_example.py`, $\kappa_{max} = 1$, crane C1 mapped into A, truck T unmapped, both vehicles, explicit $P$ incl. two processing movements): five handling units covering all transfer categories, vehicles inside and outside $hl$, vehicle relations at the start and end of a visit, vehicle and transferring visits, ⊥ visits and ⊥ in a transfer, cuts by κ, processing on a vehicle, during an excursion and as movements, entry by processing, trace end.
+Edge-case example `data/visits_example/` (generated by `make_visits_example.py`, $\kappa_{max} = 1$, crane C1 mapped into A, truck T unmapped, both vehicles, storage units S1, S2 in A and B2 in B, explicit $P$ incl. three processing movements): six handling units covering all transfer categories, vehicles inside and outside $hl$, vehicle relations at the start and end of a visit, vehicle and transferring visits, ⊥ visits and ⊥ in a transfer, cuts by κ, processing on a vehicle, during an excursion and as movements, entry by processing, trace end, and storage units (move between storage units, removal, processing that removes from storage, removal outside $hl$).
 `notebooks/visits.ipynb`, section 6, goes through each case.
 
 ## 4. Filtering
@@ -62,6 +66,7 @@ None (not on a page yet).
 - `ignore_vehicles` (Nina, 2026-10-31; default `False`): if `True`, relations on a vehicle ($loc \in V$) do not count as part of deviating infixes, even if the vehicle maps to another high-level location, so a vehicle trip does not use up the tolerance. Visits to ⊥ are not affected. Example: κ = 1, c1's visit to A stays e3–e11 (the excursion ⟨e7 at B1, e8 on T⟩ counts 1), while by default it is cut into e3–e5 and e9–e11.
 - `agg`, `vehicles`: the location context; until they are inputs of the tool, read with `context.location_context` from a table (e.g. `data/running_example/inputs/locations.csv`).
 - `processing`: $P$ as event ids; default $T$.
+- `storage_units`: the set $W$ (read with `context.location_context`, column is_storage); default empty, which gives waiting and remaining time only.
 
 ## 6. Where it lives in the code
 
@@ -74,7 +79,8 @@ See the table in section 2; every function has a docstring with its parameters a
 - **Another rule for new visits** (e.g. a time limit on excursions): change the `starts` expression in `maximal.add_visit_ids`.
 - **Other transfer categories**: change `shifts.transfer_category` and `CATEGORIES` / `CATEGORY_COUNTS`; the summary counts follow `CATEGORY_COUNTS`.
 - **Counting processing movements where they start** (at $ploc$ instead of $loc$): change the `is_processing` condition in `waiting.add_processing` (needs the high-level location of `ploc`).
-- **Visits other than the maximal ones** (e.g. later a visit sequence): `visit_relations`, `add_stops`, `transfers`, `shift_summary`, `add_processing`, `waiting_times` and `waiting_summary` work for any visits table with visit_id, hu, high_level, first_position, last_position (plus first_event, entry_time, exit_time for `waiting_summary`).
+- **Visits other than the maximal ones** (e.g. later a visit sequence): `visit_relations`, `add_stops`, `transfers`, `shift_summary`, `add_processing`, `add_storage_removals`, `time_pieces`, `waiting_times` and `waiting_summary` work for any visits table with visit_id, hu, high_level, first_position, last_position (plus exit_event, exit_time, ends_trace for `time_pieces`).
+- **Time in storage on its own** (C.6 note): add storage entries ($loc_{j-1} \notin W$, $loc_j \in W$) as clock events in `time_pieces` with their own label.
 - After a change: run `uv run pytest`, re-run `notebooks/visits.ipynb`, and adapt `tests/test_visits.py` where expected values change.
 
 ## 8. Alternatives

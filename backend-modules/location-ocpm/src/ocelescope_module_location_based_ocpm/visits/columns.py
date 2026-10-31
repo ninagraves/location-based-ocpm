@@ -55,3 +55,5 @@ IS_STOP = "is_stop"
 IS_PROCESSING_EVENT = "is_processing_event"
 #: True if the relation is a processing operation of the visit (e ∈ P and at the visit's high-level location).
 IS_PROCESSING = "is_processing"
+#: True if the relation takes the handling unit out of a storage unit (loc_{j-1} ∈ W, loc_j ∉ W).
+IS_STORAGE_REMOVAL = "is_storage_removal"
