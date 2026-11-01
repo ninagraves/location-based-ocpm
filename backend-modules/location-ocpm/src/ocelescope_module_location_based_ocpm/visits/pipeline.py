@@ -11,6 +11,7 @@ import polars as pl
 
 from . import columns as v
 from .maximal import derive_maximal_visits, visit_relations
+from .order import add_waiting_positions
 from .shifts import add_stops, shift_summary, transfers
 from .waiting import add_processing, add_storage_removals, time_pieces, waiting_summary, waiting_times
 
@@ -20,8 +21,8 @@ class VisitAnalysis:
     """The results of `analyse_visits` (eager frames).
 
     Attributes:
-        relations: One row per hu-event relation with high_level, position, kappa, gap, starts_visit and
-            visit_id (the maximal visit at the relation's own high-level location).
+        relations: One row per hu-event relation with tie_rank, position, waiting_position, high_level,
+            kappa, gap, starts_visit and visit_id (the maximal visit at the relation's own high-level location).
         visits: One row per maximal visit: the columns of `maximal.maximal_visits`, then those of
             `shifts.shift_summary` and `waiting.waiting_summary`.
         visit_relations: One row per visit and relation r ∈ R(ν), with at_location, on_vehicle, is_stop,
@@ -63,7 +64,8 @@ def analyse_visits(
         kappa: κ_max, the excursion tolerance of every high-level location (κ(⊥) = 0).
         processing: The processing operations P as event ids; None = the transformation events T. Also
             orders events with the same timestamp (AS4: movements, then processing operations, then the
-            rest), so trace positions, visits and waiting times follow AS4.
+            rest), so trace positions and visits follow AS4; waiting times use the waiting-time order
+            (processing operations before movements, `order.add_waiting_positions`).
         ignore_vehicles: True = relations on a vehicle do not count towards the tolerance κ, even if the
             vehicle maps to another high-level location (`maximal.add_gaps`); default False.
         storage_units: The set W; a removal from a storage unit restarts the clock of the waiting times
@@ -80,6 +82,7 @@ def analyse_visits(
     rel, visits = derive_maximal_visits(
         relations, location, agg, kappa, vehicles, ignore_vehicles, processing
     )
+    rel = add_waiting_positions(rel, processing)
     vrel = visit_relations(rel, visits)
     vrel = add_stops(vrel, vehicles, location)
     vrel = add_processing(vrel, processing)
