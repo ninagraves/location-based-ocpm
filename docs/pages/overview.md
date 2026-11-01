@@ -65,13 +65,13 @@ Implementation choice: the concept's filter line names "kept events with a locat
 ## 4. Data overview charts
 **What it shows:** three small charts in one row, each with its legend to the right (the sunburst's legend grouped by ring); hovering a segment shows its count and share.
 - **Events** (sunburst): inner ring type (movement, transformation, movement and transformation, other), middle ring locatedness (fully / partially / unlocated), outer ring agreement (agreeing, not agreeing, not tested). Counts events.
-- **Relations: first level with a location** (donut): for every hu-event relation the lowest level k with loc_k ≠ ⊥, or ⊥ if there is none (shown as "Level k" and "not located" in legend and hover). Always all levels, independent of the selected one (helps to choose a level). Counts relations.
+- **Relations: first level with a location** (donut): for every hu-event relation the lowest level k with loc^k ≠ ⊥, or ⊥ if there is none (shown as "Level k" and "not located" in legend and hover). Always all levels, independent of the selected one (helps to choose a level). Counts relations.
 - **Handling units** (donut): locatedness of each handling unit's trace at the selected level. Counts handling units with at least one event.
 
 **How it is calculated:** `overview/data_charts.py`, `data_charts(derivation, page_filter) -> DataCharts`.
 - Type: movement if e ∈ M \ T, transformation if e ∈ T \ M, "movement and transformation" if e ∈ M ∩ T, other otherwise (`event_categories`).
 - Agreement: "not tested" if fewer than two handling units of the event are located (agreeing by definition, but nothing is compared); otherwise agreeing or not agreeing at the selected level (`derivation.event_locations[level]`).
-- First level: `first_levels` over loc_0 … loc_3.
+- First level: `first_levels` over loc^0 … loc^3.
 - Locatedness of events and handling units: as in the filter bar (`derivation/locatedness.py`).
 
 **Example** (running example, Level 3, no filter): events movement 8 (fully located: 4 agreeing, 4 not tested), transformation 3 (fully located: 2 agreeing, 1 not tested), other 6 (fully located 4: 1 agreeing, 1 not agreeing (e14), 2 not tested; partially located 1 (e16, not tested); unlocated 1 (e17, not tested)); relations Level 0: 15, Level 1: 4, Level 2: 3, Level 3: 4, ⊥: 2; handling units fully 5, unlocated 1 (c5).
