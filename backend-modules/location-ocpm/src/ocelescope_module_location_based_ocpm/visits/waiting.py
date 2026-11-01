@@ -16,9 +16,12 @@ x = k if the trace ends with σ), and loc_j = loc((e_j, hu)). Visits at ⊥ have
   two storage units is no removal; ⊥ after a storage unit counts as a removal (loc_j ∉ W).
 - **Clock events** c_0 = i < c_1 < ... < c_s: the positions in {i} ∪ Q(ν) ∪ X_W(ν), followed by c_{s+1} = x.
 - The **piece** ending at c_l (l = 1, ..., s + 1) lasts time(e_{c_l}) - time(e_{c_{l-1}}) and is labelled by its
-  end: "storage" if c_l ∈ X_W(ν), "waiting" if c_l ∈ Q(ν) \\ X_W(ν), "remaining" if l = s + 1.
-  Every processing operation gets one waiting time: a processing operation at the entry or one that is
-  itself a storage removal gets a waiting time of 0 (an extra piece of length 0).
+  end: "waiting" if c_l ∈ Q(ν), "storage" if c_l ∈ X_W(ν) \\ Q(ν), "remaining" if l = s + 1.
+  Every processing operation gets one waiting time; one at the entry gets 0 (an extra piece of length 0).
+- **Processing operations that are themselves storage removals** (c_l ∈ Q(ν) ∩ X_W(ν)): by the concept
+  (Nina, 2026-11-01) the piece before them is their waiting time, so it includes the time until and in
+  storage. Option `zero_wait_at_removal=True` gives the earlier behaviour instead: that piece is storage
+  time and the operation gets a waiting time of 0. Removals by other events reset the clock in both modes.
 - waiting + storage + remaining time = d, the visit duration. With W = ∅ this is the earlier version (C.1).
 
 The steps, each a function of its own (eager and lazy polars frames alike):
@@ -119,16 +122,24 @@ def add_storage_removals(
     return visit_relations.with_columns(removal.alias(v.IS_STORAGE_REMOVAL))
 
 
-def time_pieces(visit_relations: Frame, visits: Frame, activity: str = c.ACTIVITY) -> Frame:
+def time_pieces(
+    visit_relations: Frame,
+    visits: Frame,
+    activity: str = c.ACTIVITY,
+    zero_wait_at_removal: bool = False,
+) -> Frame:
     """One row per piece of a visit between two consecutive clock events, labelled by the event ending it.
 
     How it works:
     - the clock events of a visit are its entry, its processing positions and its storage removals (rows of
       `visit_relations`), followed by its exit e_out (a row from `visits`), in trace order;
-    - each clock event after the entry ends a piece from the previous clock event; the label is "storage"
-      for a removal, "waiting" for a processing operation, "remaining" for the exit;
-    - a processing operation at the entry, or one that is itself a removal, also gets a waiting piece of
-      length 0 (so every processing operation has exactly one waiting time);
+    - each clock event after the entry ends a piece from the previous clock event; the label is "waiting"
+      for a processing operation, "storage" for a removal that is no processing operation, "remaining"
+      for the exit;
+    - a processing operation at the entry gets a waiting piece of length 0 (so every processing operation
+      has exactly one waiting time);
+    - with `zero_wait_at_removal`, a processing operation that is itself a removal ends a "storage" piece
+      and gets an extra waiting piece of length 0 (the earlier behaviour);
     - the activities of the start and end event are looked up by (hu, event) in `visit_relations` (the
       exit event is always there, since every relation lies in its own maximal visit), so waiting times
       can be grouped by the activity of their processing operation (Nina, 2026-10-31).
@@ -139,6 +150,9 @@ def time_pieces(visit_relations: Frame, visits: Frame, activity: str = c.ACTIVIT
             exit_time, ends_trace (e.g. `maximal.maximal_visits`).
         activity: Column of the activity in `visit_relations`; if the column is missing, the activity
             columns are left out.
+        zero_wait_at_removal: False (default, the concept since 2026-11-01): a processing operation that
+            takes the handling unit out of a storage unit waits from the previous clock event, including
+            the storage time. True: the time before it is storage time and its waiting time is 0.
 
     Returns:
         Frame: Columns visit_id, hu, visit_high_level, piece, start_position, end_position, start_event,
@@ -183,7 +197,7 @@ def time_pieces(visit_relations: Frame, visits: Frame, activity: str = c.ACTIVIT
     label = (
         pl.when(pl.col("_order") == 1)
         .then(pl.lit(REMAINING))
-        .when(pl.col("_removal"))
+        .when(pl.col("_removal") & (~pl.col("_processing") | pl.lit(zero_wait_at_removal)))
         .then(pl.lit(STORAGE))
         .otherwise(pl.lit(WAITING))
     )
@@ -191,10 +205,9 @@ def time_pieces(visit_relations: Frame, visits: Frame, activity: str = c.ACTIVIT
     ending = marks.filter(~pl.col("_entry") | (pl.col("_order") == 1)).with_columns(
         label.alias(LABEL)
     )
-    # Zero waiting pieces for processing at the entry or at a removal.
-    zero = marks.filter(
-        (pl.col("_order") == 0) & pl.col("_processing") & (pl.col("_entry") | pl.col("_removal"))
-    ).with_columns(
+    # Zero waiting pieces for processing at the entry (and at a removal with `zero_wait_at_removal`).
+    zero_at = pl.col("_entry") | (pl.col("_removal") & pl.lit(zero_wait_at_removal))
+    zero = marks.filter((pl.col("_order") == 0) & pl.col("_processing") & zero_at).with_columns(
         pl.col(v.POSITION).alias(START_POSITION),
         pl.col(c.EVENT).alias(START_EVENT),
         pl.col(c.TIME).alias(START_TIME),
@@ -262,7 +275,7 @@ def waiting_summary(visits: Frame, pieces: Frame) -> Frame:
         pieces: Output of `time_pieces`.
 
     Returns:
-        Frame: Columns visit_id, n_processing, n_storage_removals, total_waiting_time, total_storage_time,
+        Frame: Columns visit_id, n_processing, n_storage_removals (removals that end a storage piece), total_waiting_time, total_storage_time,
         remaining_time; sorted by visit_id.
     """
     zero = pl.col(v.EXIT_TIME) - pl.col(v.EXIT_TIME)  # zero duration in the frame's time unit

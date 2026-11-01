@@ -45,7 +45,8 @@ Decisions taken in the implementation (all from the concept, listed for referenc
 - A processing movement counts at the location after the event ($loc$): it is the exit event of the visit it leaves and the entry ($w_1 = 0$) of the visit it enters.
 - Processing operations on a vehicle mapped into $hl$ count; those during an excursion count for the visit to their own high-level location.
 - Storage removals count anywhere in the visit, also outside $hl$ during an excursion (Nina, 2026-10-31); a move between two storage units is no removal; a removal at the exit event (outside the visit) does not count for that visit.
-- A processing operation at the entry, or one that is itself a storage removal, gets a waiting time of 0 (an extra piece of length 0 after the storage piece).
+- A processing operation at the entry gets a waiting time of 0 (an extra piece of length 0).
+- A processing operation that is itself a storage removal: by the concept (Nina, 2026-11-01) its waiting time counts from the previous clock event and so includes the time until and in storage. Option `zero_wait_at_removal=True` (in `time_pieces` and `analyse_visits`) gives the earlier behaviour: the time before it is a storage piece and its waiting time is 0. Removals by other events reset the clock in both modes.
 - If no $P$ is given, $P = T$ (column `is_transformation`).
 
 ## 3. Example
@@ -66,6 +67,7 @@ None (not on a page yet).
 - `ignore_vehicles` (Nina, 2026-10-31; default `False`): if `True`, relations on a vehicle ($loc \in V$) do not count as part of deviating infixes, even if the vehicle maps to another high-level location, so a vehicle trip does not use up the tolerance. Visits to ⊥ are not affected. Example: κ = 1, c1's visit to A stays e3–e11 (the excursion ⟨e7 at B1, e8 on T⟩ counts 1), while by default it is cut into e3–e5 and e9–e11.
 - `agg`, `vehicles`: the location context; until they are inputs of the tool, read with `context.location_context` from a table (e.g. `data/running_example/inputs/locations.csv`).
 - `processing`: $P$ as event ids; default $T$.
+- `zero_wait_at_removal` (default `False`): see section 2; with `True`, processing operations that take the handling unit out of storage get a waiting time of 0.
 - `storage_units`: the set $W$ (read with `context.location_context`, column is_storage); default empty, which gives waiting and remaining time only.
 
 ## 6. Where it lives in the code

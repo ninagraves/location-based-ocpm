@@ -49,6 +49,7 @@ def analyse_visits(
     processing: Collection[str] | None = None,
     ignore_vehicles: bool = False,
     storage_units: Collection[str] = (),
+    zero_wait_at_removal: bool = False,
 ) -> VisitAnalysis:
     """Maximal visits with their shifts and waiting times, in one call.
 
@@ -64,6 +65,9 @@ def analyse_visits(
             vehicle maps to another high-level location (`maximal.add_gaps`); default False.
         storage_units: The set W; a removal from a storage unit restarts the clock of the waiting times
             (`waiting.add_storage_removals`); empty = no removals.
+        zero_wait_at_removal: False (default, concept): a processing operation that is itself a storage
+            removal waits from the previous clock event, incl. the storage time; True: its waiting time is
+            0 and the time before it is storage time (`waiting.time_pieces`).
 
     Returns:
         VisitAnalysis: All frames, collected.
@@ -74,7 +78,7 @@ def analyse_visits(
     vrel = add_processing(vrel, processing)
     vrel = add_storage_removals(vrel, storage_units, location)
     transfer_frame = transfers(vrel, location)
-    pieces = time_pieces(vrel, visits)
+    pieces = time_pieces(vrel, visits, zero_wait_at_removal=zero_wait_at_removal)
     summary = visits.join(shift_summary(vrel, transfer_frame, location), on=v.VISIT_ID).join(
         waiting_summary(visits, pieces), on=v.VISIT_ID
     )

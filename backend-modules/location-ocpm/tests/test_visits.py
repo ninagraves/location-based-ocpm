@@ -174,15 +174,35 @@ def test_storage_example_of_the_working_doc(derivation):
 
 
 def test_edge_storage(edge):
-    """h6: S1 -> S2 is no removal; removal e44; processing removal e48 (waiting 0); removal e50 outside A."""
+    """h6: S1 -> S2 is no removal; removal e44; processing removal e48 waits 4 h incl. storage (concept
+    since 2026-11-01); removal e50 outside A."""
     a = visit(edge, "h6", "A", "e42")
     pieces = edge.pieces.filter(pl.col("visit_id") == a["visit_id"])
+    assert pieces.select("label", "end_event").rows() == [
+        ("storage", "e44"), ("waiting", "e46"), ("waiting", "e48"),
+        ("storage", "e50"), ("waiting", "e51"), ("remaining", "e52"),
+    ]
+    assert hours(pieces, "piece_duration") == [5, 3, 4, 3, 1, 2]
+    assert (a["n_processing"], a["n_storage_removals"]) == (3, 2)
+
+
+def test_edge_storage_zero_wait_at_removal():
+    """zero_wait_at_removal=True: e48 ends a storage piece (4 h) and gets a waiting time of 0."""
+    relations = pl.read_csv(EDGE / "relations.csv", schema=MAPPING_SCHEMA)
+    analysis = analyse_visits(
+        relations, "loc", EDGE_CONTEXT.agg, EDGE_CONTEXT.vehicles, kappa=1, processing=EDGE_P,
+        storage_units=EDGE_CONTEXT.storage_units, zero_wait_at_removal=True,
+    )
+    a = visit(analysis, "h6", "A", "e42")
+    pieces = analysis.pieces.filter(pl.col("visit_id") == a["visit_id"])
     assert pieces.select("label", "end_event").rows() == [
         ("storage", "e44"), ("waiting", "e46"), ("storage", "e48"), ("waiting", "e48"),
         ("storage", "e50"), ("waiting", "e51"), ("remaining", "e52"),
     ]
     assert hours(pieces, "piece_duration") == [5, 3, 4, 0, 3, 1, 2]
     assert (a["n_processing"], a["n_storage_removals"]) == (3, 3)
+    total = a["total_waiting_time"] + a["total_storage_time"] + a["remaining_time"]
+    assert total == a["duration"]
 
 
 def test_no_storage_units_is_the_earlier_version(derivation, running):
