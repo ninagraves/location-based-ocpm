@@ -27,6 +27,9 @@ x = k if the trace ends with σ), and loc_j = loc((e_j, hu)). Visits at ⊥ have
   removing movement comes first, so the processing operation waits 0. Option
   `skip_simultaneous_removal=True` skips such a removal instead (it is no clock event), so the processing
   operation waits from the clock event before it, including the storage time.
+- **Timestamps are completion times** (DD-W3, Nina 2026-11-01): a waiting time contains the processing time
+  of its own operation. A later processing-duration attribute would deduct the duration of that operation
+  (not of the previous one) and flag negative waiting times.
 - waiting + storage + remaining time = d, the visit duration. With W = ∅ this is the earlier version (C.1).
 
 The steps, each a function of its own (eager and lazy polars frames alike):
