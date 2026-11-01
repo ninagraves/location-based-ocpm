@@ -7,7 +7,8 @@ import polars as pl
 import pytest
 from ocelescope_module_location_based_ocpm.derivation.level_files import MAPPING_SCHEMA
 from ocelescope_module_location_based_ocpm.visits.context import location_context
-from ocelescope_module_location_based_ocpm.visits.maximal import derive_maximal_visits
+from ocelescope_module_location_based_ocpm.visits.maximal import add_trace_positions, derive_maximal_visits
+from ocelescope_module_location_based_ocpm.visits.order import add_tie_rank
 from ocelescope_module_location_based_ocpm.visits.pipeline import VisitAnalysis, analyse_visits
 from ocelescope_module_location_based_ocpm.visits.visit_files import load_visits, save_visits
 
@@ -326,6 +327,8 @@ def test_ignore_vehicles_keeps_bottom_strict():
             "hu": ["x"] * 3,
             "event": ["a", "b", "c"],
             "time": [dt.datetime(2026, 1, 1, h) for h in (1, 2, 3)],
+            "is_movement": [False, True, False],
+            "is_transformation": [False] * 3,
             "loc": [None, "T", None],
         }
     )
@@ -337,8 +340,57 @@ def test_waiting_times_carry_activities(edge):
     """Every piece has the activities of its start and end event; waiting times group by the processing activity."""
     assert edge.pieces["end_activity"].null_count() == 0 and edge.pieces["start_activity"].null_count() == 0
     roll = edge.waiting_times.filter(pl.col("end_activity") == "roll")
-    assert roll.select("hu", "end_event", "start_activity").rows() == [("h5", "e35", "crane move"), ("h6", "e46", "crane pick")]
-    assert hours(roll, "piece_duration") == [3, 3]
+    assert roll.select("hu", "end_event", "start_activity").rows() == [
+        ("h5", "e35", "crane move"), ("h6", "e46", "crane pick"), ("h7", "e57", "grind")
+    ]
+    assert hours(roll, "piece_duration") == [3, 3, 2]
+
+
+def test_tie_rank_as4():
+    """AS4 groups: movements (also if processing) 0, processing operations 1, others 2; lazy alike."""
+    frame = pl.DataFrame(
+        {
+            "event": ["a", "b", "c", "d"],
+            "is_movement": [True, True, False, None],
+            "is_transformation": [False, True, True, False],
+        }
+    )
+    assert add_tie_rank(frame)["tie_rank"].to_list() == [0, 0, 1, 2]
+    assert add_tie_rank(frame, processing={"d"})["tie_rank"].to_list() == [0, 0, 2, 1]
+    assert add_tie_rank(frame.lazy()).collect().equals(add_tie_rank(frame))
+
+
+def test_edge_ties_follow_as4(edge):
+    """h7: equal timestamps are ordered movements, processing operations, rest (against the event ids)."""
+    h7 = edge.relations.filter(pl.col("hu") == "h7").sort("position")
+    assert h7["event"].to_list() == ["e53", "e55", "e54", "e57", "e56", "e58"]
+    a = visit(edge, "h7", "A", "e53")
+    pieces = edge.pieces.filter(pl.col("visit_id") == a["visit_id"])
+    assert pieces.select("start_event", "end_event", "label").rows() == [
+        ("e53", "e55", "storage"),
+        ("e55", "e54", "waiting"),
+        ("e54", "e57", "waiting"),
+        ("e57", "e58", "remaining"),
+    ]
+    assert hours(pieces, "piece_duration") == [3, 0, 2, 1]
+
+
+def test_trace_order_uses_processing_input():
+    """The tie-break uses the given P, not T: with P = {b}, b comes before the other event a."""
+    import datetime as dt
+
+    t = dt.datetime(2026, 1, 1)
+    relations = pl.DataFrame(
+        {
+            "hu": ["x", "x"],
+            "event": ["a", "b"],
+            "time": [t, t],
+            "is_movement": [False, False],
+            "is_transformation": [False, False],
+        }
+    )
+    assert add_trace_positions(relations)["event"].to_list() == ["a", "b"]
+    assert add_trace_positions(relations, processing={"b"})["event"].to_list() == ["b", "a"]
 
 
 

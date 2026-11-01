@@ -27,21 +27,29 @@ import polars as pl
 from ..derivation import columns as c
 from . import columns as v
 from .context import Frame, add_high_level_locations
+from .order import sort_by_seq
 
 
-def add_trace_positions(relations: Frame) -> Frame:
+def add_trace_positions(
+    relations: Frame, processing: Collection[str] | None = None, movement: str = c.IS_MOVEMENT
+) -> Frame:
     """Add the position of every relation in otrace(hu), starting at 1.
 
-    otrace(hu) orders the events of hu by time and then by event id (`seq` in the concept), so events
-    with the same timestamp are ordered by their id.
+    otrace(hu) orders the events of hu by time (`seq` in the concept); events with the same timestamp
+    are ordered by AS4 (`order.py`): movements first, then processing operations, then the others, each
+    group by event id.
 
     Args:
-        relations: One row per hu-event relation with columns hu, time, event.
+        relations: One row per hu-event relation with columns hu, time, event, `movement` (and
+            is_transformation if `processing` is None).
+        processing: The processing operations P as event ids, used for the tie-break; None = the
+            transformation events T. Use the same P as for the waiting times.
+        movement: Boolean column marking the movement events M.
 
     Returns:
-        Frame: `relations` sorted by hu, time, event, with the column position.
+        Frame: `relations` sorted by hu, time, tie_rank, event, with the columns tie_rank and position.
     """
-    return relations.sort(c.HU, c.TIME, c.EVENT).with_columns(
+    return sort_by_seq(relations, c.HU, processing=processing, movement=movement).with_columns(
         (pl.int_range(pl.len()).over(c.HU) + 1).alias(v.POSITION)
     )
 
@@ -283,11 +291,13 @@ def derive_maximal_visits(
     kappa: int = 0,
     vehicles: Collection[str] = (),
     ignore_vehicles: bool = False,
+    processing: Collection[str] | None = None,
 ) -> tuple[Frame, Frame]:
     """All maximal visits V_max in one call (steps 1 to 6).
 
     Args:
-        relations: One row per hu-event relation with columns hu, event, time and `location`, e.g. a saved
+        relations: One row per hu-event relation with columns hu, event, time, is_movement and `location`
+            (and is_transformation if `processing` is None), e.g. a saved
             level mapping (`derivation.level_files.load_level_mapping`) or `Derivation.relations`.
         location: Column of the current location loc (null = ⊥), e.g. "loc" or "loc_3".
         agg: Location mapping L -> HL (partial, completed by identity); None = identity.
@@ -295,12 +305,14 @@ def derive_maximal_visits(
         vehicles: The set V (only used with `ignore_vehicles`).
         ignore_vehicles: True = relations on a vehicle do not count towards the tolerance (see
             `add_gaps`); default False.
+        processing: The processing operations P as event ids, only used to order events with the same
+            timestamp (AS4, `add_trace_positions`); None = the transformation events T.
 
     Returns:
-        tuple[Frame, Frame]: The relations with the columns high_level, position, kappa, gap,
+        tuple[Frame, Frame]: The relations with the columns tie_rank, high_level, position, kappa, gap,
         starts_visit and visit_id; and the maximal visits (see `maximal_visits`).
     """
-    rel = add_trace_positions(relations)
+    rel = add_trace_positions(relations, processing)
     rel = add_high_level_locations(rel, location, agg)
     rel = add_kappa(rel, kappa)
     rel = add_gaps(rel, location=location, vehicles=vehicles, ignore_vehicles=ignore_vehicles)

@@ -22,8 +22,9 @@ import plotly.graph_objects as go
 import polars as pl
 
 from ..derivation import columns as c
-from .columns import HIGH_LEVEL, POSITION
+from .columns import HIGH_LEVEL, POSITION, TIE_RANK
 from .context import add_high_level_locations
+from .order import sort_by_seq
 
 #: Axis options: position in the handling unit's own trace (as in the visit definition), order of all
 #: shown events (shared events line up vertically), or real time.
@@ -145,29 +146,36 @@ def add_location_kinds(
 
 
 def add_x_positions(
-    relations: pl.DataFrame, axis: Axis = "event order"
+    relations: pl.DataFrame,
+    axis: Axis = "event order",
+    processing: Collection[str] | None = None,
 ) -> pl.DataFrame:
     """Add the trace position of every relation and its x value for the chosen axis.
 
-    The trace position is the index in otrace(hu), ordered by time and then event id (as `seq`).
+    The trace position is the index in otrace(hu), ordered as `seq`: by time, ties by AS4 (movements,
+    then processing operations, then the rest, each by event id; `order.py`). The event order uses
+    the same order over all shown events.
 
     Args:
         relations: Relations frame with columns hu, event, time (only the handling units to show), and
             optionally hu_order (order of the handling units; else they are sorted by id).
         axis: "trace position" (x = trace position), "event order" (x = rank of the event among all
             shown events, so an event shared by several handling units has one x), or "time".
+        processing: The processing operations P as event ids, for the AS4 tie-break; None = the
+            transformation events T.
 
     Returns:
-        pl.DataFrame: `relations` sorted by handling unit, time, event, with columns position and x.
+        pl.DataFrame: `relations` sorted by handling unit, time, tie_rank, event, with columns tie_rank,
+        position and x.
     """
     order = HU_ORDER if HU_ORDER in relations.columns else c.HU
-    out = relations.sort(order, c.TIME, c.EVENT).with_columns(
+    out = sort_by_seq(relations, order, processing=processing).with_columns(
         (pl.int_range(pl.len()).over(c.HU) + 1).alias(POSITION)
     )
     if axis == "trace position":
         x = pl.col(POSITION)
     elif axis == "event order":
-        x = pl.struct(c.TIME, c.EVENT).rank("dense")
+        x = pl.struct(c.TIME, TIE_RANK, c.EVENT).rank("dense")
     else:
         return add_tie_offsets(out)
     return out.with_columns(x.alias(X))
@@ -180,11 +188,11 @@ def add_tie_offsets(
 
     Without the spread, events at the same timestamp would be drawn on top of each other.
     The tied events of a timestamp (all shown events, so a shared event keeps one x) are placed side
-    by side in event id order (as `seq`), centred on the timestamp, together spanning at most `spread`
+    by side in `seq` order (tie_rank of AS4, then event id), centred on the timestamp, together spanning at most `spread`
     times the smallest gap between two distinct timestamps.
 
     Args:
-        relations: Relations frame with columns event and time.
+        relations: Relations frame with columns event, time and tie_rank (`order.add_tie_rank`).
         spread: Share of the smallest gap between timestamps that the tied events of one timestamp span.
 
     Returns:
@@ -194,10 +202,10 @@ def add_tie_offsets(
     gaps = times.diff().drop_nulls()
     gap = gaps.min() if len(gaps) else timedelta(hours=1)
     ties = (
-        relations.select(c.TIME, c.EVENT)
+        relations.select(c.TIME, TIE_RANK, c.EVENT)
         .unique()
         .with_columns(
-            (pl.col(c.EVENT).rank("dense").over(c.TIME) - 1).alias("_i"),
+            (pl.struct(TIE_RANK, c.EVENT).rank("dense").over(c.TIME) - 1).alias("_i"),
             pl.col(c.EVENT).n_unique().over(c.TIME).alias("_n"),
         )
     )
@@ -219,6 +227,7 @@ def relations_for_figure(
     vehicles: Collection[str] = (),
     storage_units: Collection[str] = (),
     axis: Axis = "event order",
+    processing: Collection[str] | None = None,
 ) -> pl.DataFrame:
     """Prepare the relations of some handling units for `trace_figure` (steps 1 to 3).
 
@@ -232,10 +241,12 @@ def relations_for_figure(
         vehicles: The set V.
         storage_units: The set W.
         axis: See `add_x_positions`.
+        processing: The processing operations P as event ids, for the AS4 order of events with the same
+            timestamp; None = the transformation events T.
 
     Returns:
         pl.DataFrame: Columns hu, hu_order, object_type, event, time, activity, is_movement, is_transformation, loc,
-        high_level, location_kind, position, x.
+        high_level, location_kind, tie_rank, position, x.
     """
     if handling_units is not None:
         order = {hu: i for i, hu in enumerate(handling_units)}
@@ -259,7 +270,7 @@ def relations_for_figure(
     )
     relations = add_high_level_locations(relations, "loc", agg)
     relations = add_location_kinds(relations, "loc", vehicles, storage_units)
-    return add_x_positions(relations, axis)
+    return add_x_positions(relations, axis, processing)
 
 
 def location_colours(

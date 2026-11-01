@@ -55,13 +55,15 @@ def analyse_visits(
     """Maximal visits with their shifts and waiting times, in one call.
 
     Args:
-        relations: One row per hu-event relation with columns hu, event, time, is_transformation (needed
-            if `processing` is None) and `location`, e.g. a saved level mapping or `Derivation.relations`.
+        relations: One row per hu-event relation with columns hu, event, time, is_movement,
+            is_transformation (needed if `processing` is None) and `location`, e.g. a saved level mapping or `Derivation.relations`.
         location: Column of the current location loc (null = ⊥).
         agg: Location mapping L -> HL (partial, completed by identity); None = identity.
         vehicles: The set V.
         kappa: κ_max, the excursion tolerance of every high-level location (κ(⊥) = 0).
-        processing: The processing operations P as event ids; None = the transformation events T.
+        processing: The processing operations P as event ids; None = the transformation events T. Also
+            orders events with the same timestamp (AS4: movements, then processing operations, then the
+            rest), so trace positions, visits and waiting times follow AS4.
         ignore_vehicles: True = relations on a vehicle do not count towards the tolerance κ, even if the
             vehicle maps to another high-level location (`maximal.add_gaps`); default False.
         storage_units: The set W; a removal from a storage unit restarts the clock of the waiting times
@@ -75,7 +77,9 @@ def analyse_visits(
     Returns:
         VisitAnalysis: All frames, collected.
     """
-    rel, visits = derive_maximal_visits(relations, location, agg, kappa, vehicles, ignore_vehicles)
+    rel, visits = derive_maximal_visits(
+        relations, location, agg, kappa, vehicles, ignore_vehicles, processing
+    )
     vrel = visit_relations(rel, visits)
     vrel = add_stops(vrel, vehicles, location)
     vrel = add_processing(vrel, processing)

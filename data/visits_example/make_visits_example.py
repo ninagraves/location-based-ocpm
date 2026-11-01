@@ -1,4 +1,4 @@
-"""Generate the small visits example: six handling units whose traces cover the edge cases of
+"""Generate the small visits example: seven handling units whose traces cover the edge cases of
 maximal visits, shifts and waiting times (`overview/Single Level Visit Mappings.md`).
 
 The single source of the files in this folder; never edit the outputs by hand. Run from the repository
@@ -7,7 +7,9 @@ root with `uv run python data/visits_example/make_visits_example.py`.
 Outputs:
 - `relations.csv`: one row per hu-event relation in the format of a saved level mapping
   (`derivation/level_files.py`, `MAPPING_COLUMNS`); loc is given directly (as if derived), ploc is the
-  location of the previous relation of the handling unit.
+  location of the previous relation of the handling unit in otrace(hu) (AS4 order for equal
+  timestamps, as listed in `TRACES`). The rows are sorted by hu, time, event id, so the file itself
+  does not show the AS4 order; the visit functions compute it.
 - `locations.csv`: the location context (agg, vehicles, storage units), same format as `running_example/inputs/locations.csv`.
 - `processing_events.csv`: the processing operations P (column event).
 
@@ -97,7 +99,7 @@ TRACES = {
         ("e41", 12, "store", False, False, False, "B1"),
     ],
     # h6: storage units restart the clock: a move between storage units (no removal), a removal, a
-    # processing operation that removes from storage (waiting 0), a removal outside A (during an excursion).
+    # processing operation that removes from storage (waits incl. storage time), a removal outside A (during an excursion).
     "h6": [
         ("e42", 0, "crane move", True, False, False, "S1"),
         ("e43", 2, "crane move", True, False, False, "S2"),
@@ -110,6 +112,18 @@ TRACES = {
         ("e50", 15, "crane move", True, False, False, "A2"),
         ("e51", 16, "grind", False, False, True, "A2"),
         ("e52", 18, "load truck", True, False, False, "T"),
+    ],
+    # h7: events with the same timestamp, ordered by AS4 (movements, then processing operations, then
+    # the rest; each by event id), listed here in that order. The ids are chosen against AS4: at t = 3
+    # the removal e55 comes before the processing operation e54, at t = 5 the processing operation e57
+    # before the other event e56.
+    "h7": [
+        ("e53", 0, "crane move", True, False, False, "S1"),
+        ("e55", 3, "crane move", True, False, False, "A1"),
+        ("e54", 3, "grind", False, False, True, "A1"),
+        ("e57", 5, "roll", False, False, True, "A1"),
+        ("e56", 5, "label", False, False, False, "A1"),
+        ("e58", 6, "load truck", True, False, False, "T"),
     ],
 }
 

@@ -41,6 +41,7 @@ import polars as pl
 from ..derivation import columns as c
 from . import columns as v
 from .context import Frame
+from .order import processing_flag
 
 #: Piece labels.
 WAITING = "waiting"
@@ -81,11 +82,7 @@ def add_processing(
     Returns:
         Frame: `visit_relations` with the columns is_processing_event and is_processing (false at ⊥ visits).
     """
-    if processing is None:
-        in_p = pl.col(c.IS_TRANSFORMATION).fill_null(False)
-    else:
-        in_p = pl.col(c.EVENT).is_in(list(processing))
-    return visit_relations.with_columns(in_p.alias(v.IS_PROCESSING_EVENT)).with_columns(
+    return visit_relations.with_columns(processing_flag(processing).alias(v.IS_PROCESSING_EVENT)).with_columns(
         (
             pl.col(v.IS_PROCESSING_EVENT)
             & pl.col(v.AT_LOCATION)

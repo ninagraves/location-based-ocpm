@@ -282,3 +282,25 @@ def test_visit_ids_shown_in_bars(derivation):
     assert ids(trace_figure(rel, visits)) == {"<b>m1</b>", "<b>m2</b>"}
     assert ids(trace_figure(rel, visits, show_visit_ids=False)) == set()
     assert ids(trace_figure(rel, visits.drop("visit_id"))) == set()
+
+
+def test_ties_follow_as4_on_every_axis():
+    """Events with the same timestamp: movement, then processing operation, then the rest (AS4), against the ids."""
+    import datetime as dt
+
+    t = dt.datetime(2026, 1, 1)
+    relations = pl.DataFrame(
+        {
+            "hu": ["x"] * 4,
+            "object_type": ["coil"] * 4,
+            "event": ["a", "b", "c", "d"],
+            "time": [t, t, t, t + dt.timedelta(hours=1)],
+            "activity": ["label", "grind", "crane move", "crane move"],
+            "is_movement": [False, False, True, True],
+            "is_transformation": [False, True, False, False],
+            "loc": ["A1"] * 4,
+        }
+    )
+    for axis in ("trace position", "event order", "time"):
+        rel = relations_for_figure(relations, axis=axis)
+        assert rel.sort("x")["event"].to_list() == ["c", "b", "a", "d"], axis

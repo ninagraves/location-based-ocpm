@@ -7,7 +7,10 @@ The columns of the relations frame itself (event, hu, time, ...) are in `derivat
 # --- relations frame (one row per hu-event relation) ---
 #: High-level location hat-hl((e, hu)) of a relation; null = ⊥.
 HIGH_LEVEL = "high_level"
-#: Position of the relation in otrace(hu), starting at 1.
+#: AS4 group of the relation's event for ties in time: 0 = movement, 1 = processing operation, 2 = other
+#: (`order.tie_rank`).
+TIE_RANK = "tie_rank"
+#: Position of the relation in otrace(hu), starting at 1 (time, then tie_rank, then event id).
 POSITION = "position"
 #: Excursion tolerance κ(hat-hl) of the relation's own high-level location (0 for ⊥).
 KAPPA = "kappa"

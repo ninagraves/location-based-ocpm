@@ -28,10 +28,10 @@ Low-level and high-level locations share one colour map (ranked by frequency in 
 
 ## How it is calculated
 $\widehat{hl}((e,hu)) = agg(loc((e,hu)))$, ⊥ if $loc((e,hu)) = \bot$; $agg$ may be partial and is completed by the identity.
-The trace position is the index in $otrace(hu)$ (time, then event id).
+The trace position is the index in $otrace(hu)$ (time, then the AS4 group: movements, processing operations, rest; then event id; `order.py`). `relations_for_figure` and `add_x_positions` take `processing` ($P$, default $T$) for this order.
 
 ## Settings
-- `axis`: "event order" (default; rank of the event among all shown events, so shared events line up), "trace position" (index in $otrace(hu)$, as in the visit definition), or "time" (events with the same timestamp are spread side by side around it in event id order, over at most `TIE_SPREAD` = half the smallest gap between timestamps; `add_tie_offsets`).
+- `axis`: "event order" (default; rank of the event among all shown events, so shared events line up), "trace position" (index in $otrace(hu)$, as in the visit definition), or "time" (events with the same timestamp are spread side by side around it in AS4 order, over at most `TIE_SPREAD` = half the smallest gap between timestamps; `add_tie_offsets`).
 - `agg`, `vehicles` ($V$), `storage_units` ($W$): until they are inputs of the tool, passed as arguments (in the notebook read from `data/running_example/inputs/locations.csv` with `location_context`).
 - `visits`: a table with columns hu, high_level (null = ⊥), first_event, last_event, group, and optionally visit_id (Nina 2026-10-30: shown in the middle of the bar and in the hover, to talk about single visits; `show_visit_ids=False` hides it). `notebooks/trace_figure.ipynb` passes a hand-written table (maximal visits at κ = 2, resolved visits) for illustration; computed maximal visits (`docs/resources/visits.md`) can be passed directly after adding a `group` column, as in `notebooks/visits.ipynb`.
 
