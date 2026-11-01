@@ -17,6 +17,12 @@ KAPPA = "kappa"
 #: Gap g_j before the relation: number of events of the handling unit since its previous relation at the
 #: same high-level location (null if there is none).
 GAP = "gap"
+#: Number of distinct timestamps of the deviating infix before the relation (the events strictly between
+#: p_{j-1} and p_j); 0 if it is empty, null for the first relation at a high-level location (DD-V1).
+GAP_TIMESTAMPS = "gap_timestamps"
+#: Duration of the deviating infix before the relation: time(p_j) - time(p_{j-1} + 1), i.e. from its first
+#: event until the first event back at the high-level location; 0 if it is empty, null as above (DD-V1).
+GAP_DURATION = "gap_duration"
 #: True if the relation starts a new maximal visit at its high-level location.
 STARTS_VISIT = "starts_visit"
 #: Visit id of the maximal visit at the relation's own high-level location.

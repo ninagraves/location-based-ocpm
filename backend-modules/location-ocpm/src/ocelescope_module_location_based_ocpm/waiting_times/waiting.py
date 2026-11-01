@@ -1,16 +1,17 @@
-"""Processing operations, storage removals and the timed pieces of visits: waiting, storage and remaining time
-(working doc `claude_notes/excursions-and-visit-sequences.md`, Part C with C.6, decided by Nina on 2026-10-31;
-section "Waiting Times" of `overview/Single Level Visit Mappings.md`).
+"""Processing operations, storage removals and the timed pieces of a scope: waiting, storage and remaining time
+(section "Waiting Times" of `overview/Single Level Visit Mappings.md`, design decisions DD-W1 to DD-W7).
 
 Inputs: processing operations P ⊆ E (a separate input in the concept; here the transformation events T are
 used if no P is given; P ∩ M ≠ ∅ is allowed) and storage units W ⊆ L (optional; none = no storage removals).
 
-Let ν = (hu, hl, σ) be a visit with hl ∈ HL, σ = otrace(hu)[i:k], x the position of e_out(ν) (x = k + 1, or
-x = k if the trace ends with σ), and loc_j = loc((e_j, hu)). Visits at ⊥ have no pieces.
+The **scope** ν = (hu, hl, σ) the waiting times are measured in is either a visit with hl ∈ HL, or, if no
+visits are given (DD-W6), the whole trace of a handling unit (σ = otrace(hu), no hl; `scopes.py`).
+Let σ = otrace(hu)[i:k] (ordered by seq, AS4), x the position of e_out(ν) (x = k + 1, or x = k if the trace
+ends with σ; for a whole trace x = k), and loc_j = loc((e_j, hu)). Visits at ⊥ are no scopes (DD-W7).
 - **Processing positions** Q(ν) = {j ∈ {i, ..., k} | e_j ∈ P and hat-hl((e_j, hu)) = hl}: only processing at hl
   counts (one during an excursion counts for the visit to its own location). Since loc is the location
   after the event, a processing movement from hl to hl' is at hl'. Processing on a vehicle mapped into hl
-  counts.
+  counts. For a whole trace, every located processing operation counts (loc_j ≠ ⊥, as DD-W7).
 - **Storage removals** X_W(ν) = {j ∈ {i+1, ..., k} | loc_{j-1} ∈ W and loc_j ∉ W}: the events that take hu
   out of a storage unit, anywhere (also outside hl, during an excursion; Nina 2026-10-31). Option
   `outside_storage_resets=False` counts only storage units inside hl (agg(loc_{j-1}) = hl). A move between
@@ -30,9 +31,11 @@ x = k if the trace ends with σ), and loc_j = loc((e_j, hu)). Visits at ⊥ have
 - **Timestamps are completion times** (DD-W3, Nina 2026-11-01): a waiting time contains the processing time
   of its own operation. A later processing-duration attribute would deduct the duration of that operation
   (not of the previous one) and flag negative waiting times.
-- waiting + storage + remaining time = d, the visit duration. With W = ∅ this is the earlier version (C.1).
+- waiting + storage + remaining time = d, the duration of the scope. With W = ∅ (or without removals as clock
+  events, DD-W5) there are only waiting and remaining pieces.
 
 The steps, each a function of its own (eager and lazy polars frames alike):
+0. `scopes.py`: the scopes and their relations (`visit_scopes` or `trace_scopes`, then `scope_relations`).
 1. `add_processing`: is_processing_event (e ∈ P) and is_processing (e ∈ P at the visit's hl).
 2. `add_storage_removals`: is_storage_removal.
 3. `time_pieces`: one row per piece with its label and duration.
@@ -48,9 +51,9 @@ from collections.abc import Collection
 import polars as pl
 
 from ..derivation import columns as c
-from . import columns as v
-from .context import Frame
-from .order import processing_flag
+from ..visits import columns as v
+from ..visits.context import Frame
+from ..visits.order import processing_flag
 
 #: Piece labels.
 WAITING = "waiting"
@@ -75,6 +78,8 @@ N_STORAGE_REMOVALS = "n_storage_removals"
 TOTAL_WAITING_TIME = "total_waiting_time"
 TOTAL_STORAGE_TIME = "total_storage_time"
 REMAINING_TIME = "remaining_time"
+#: Processing visit: Q(ν) ≠ ∅.
+IS_PROCESSING_VISIT = "is_processing_visit"
 
 #: Columns of the flag frame of `simultaneous_processing`.
 EVENTS = "events"
@@ -87,20 +92,17 @@ def add_processing(
     """Add is_processing_event (e ∈ P) and is_processing (e ∈ P and at the visit's high-level location).
 
     Args:
-        visit_relations: Output of `maximal.visit_relations` (columns event, visit_high_level, at_location;
-            and is_transformation if `processing` is None).
+        visit_relations: Output of `scopes.scope_relations` (columns event, at_location; and
+            is_transformation if `processing` is None).
         processing: The processing operations P as event ids; None = the transformation events T (column
             is_transformation), the implementation default decided by Nina (2026-10-31).
 
     Returns:
-        Frame: `visit_relations` with the columns is_processing_event and is_processing (false at ⊥ visits).
+        Frame: `visit_relations` with the columns is_processing_event and is_processing (e ∈ P and the
+        relation at the scope's hl; for a whole trace: located).
     """
     return visit_relations.with_columns(processing_flag(processing).alias(v.IS_PROCESSING_EVENT)).with_columns(
-        (
-            pl.col(v.IS_PROCESSING_EVENT)
-            & pl.col(v.AT_LOCATION)
-            & pl.col(v.VISIT_HIGH_LEVEL).is_not_null()
-        ).alias(v.IS_PROCESSING)
+        (pl.col(v.IS_PROCESSING_EVENT) & pl.col(v.AT_LOCATION)).alias(v.IS_PROCESSING)
     )
 
 
@@ -116,10 +118,10 @@ def add_storage_removals(
     relation of the handling unit is in a storage unit and this one is not: loc_{j-1} ∈ W and loc_j ∉ W.
     By default (Nina's concept, 2026-10-31) the storage unit may lie outside the visit's high-level location
     (during an excursion). With `outside_storage_resets=False`, only storage units inside hl count, i.e.
-    additionally agg(loc_{j-1}) = hl. False at ⊥ visits.
+    additionally agg(loc_{j-1}) = hl (DD-W2); for a whole trace (no hl) this option has no effect.
 
     Args:
-        visit_relations: Output of `maximal.visit_relations` (columns visit_id, position, first_position,
+        visit_relations: Output of `scopes.scope_relations` (columns visit_id, position, first_position,
             visit_high_level and `location`).
         storage_units: The set W; empty = no removals.
         location: Column of loc (null = ⊥, which is not a storage unit).
@@ -135,11 +137,11 @@ def add_storage_removals(
         (pl.col(v.POSITION) > pl.col(v.FIRST_POSITION))
         & previous_in_w.fill_null(False)
         & ~in_w
-        & pl.col(v.VISIT_HIGH_LEVEL).is_not_null()
     )
     if not outside_storage_resets:
         previous_hl = pl.col(v.HIGH_LEVEL).shift(1).over(v.VISIT_ID, order_by=v.POSITION)
-        removal = removal & (previous_hl == pl.col(v.VISIT_HIGH_LEVEL)).fill_null(False)
+        inside = pl.col(v.VISIT_HIGH_LEVEL).is_null() | (previous_hl == pl.col(v.VISIT_HIGH_LEVEL)).fill_null(False)
+        removal = removal & inside
     return visit_relations.with_columns(removal.alias(v.IS_STORAGE_REMOVAL))
 
 
@@ -149,6 +151,7 @@ def time_pieces(
     activity: str = c.ACTIVITY,
     zero_wait_at_removal: bool = False,
     skip_simultaneous_removal: bool = False,
+    relations: Frame | None = None,
 ) -> Frame:
     """One row per piece of a visit between two consecutive clock events, labelled by the event ending it.
 
@@ -162,14 +165,16 @@ def time_pieces(
       has exactly one waiting time);
     - with `zero_wait_at_removal`, a processing operation that is itself a removal ends a "storage" piece
       and gets an extra waiting piece of length 0 (the earlier behaviour);
-    - the activities of the start and end event are looked up by (hu, event) in `visit_relations` (the
-      exit event is always there, since every relation lies in its own maximal visit), so waiting times
-      can be grouped by the activity of their processing operation (Nina, 2026-10-31).
+    - the activities of the start and end event are looked up by (hu, event) in `relations` (or, if not
+      given, in `visit_relations`, where an exit event outside every scope, e.g. into ⊥, has no activity),
+      so waiting times can be grouped by the activity of their processing operation (Nina, 2026-10-31).
 
     Args:
         visit_relations: Output of `add_processing` and `add_storage_removals`.
-        visits: One row per visit with columns visit_id, hu, high_level, last_position, exit_event,
-            exit_time, ends_trace (e.g. `maximal.maximal_visits`).
+        visits: The scopes: one row per visit with columns visit_id, hu, high_level, last_position,
+            exit_event, exit_time, ends_trace (`scopes.visit_scopes` or `scopes.trace_scopes`).
+        relations: All relations (one row per hu-event relation) to look up the activities; None = use
+            `visit_relations`.
         activity: Column of the activity in `visit_relations`; if the column is missing, the activity
             columns are left out.
         zero_wait_at_removal: False (default, the concept since 2026-11-01): a processing operation that
@@ -183,14 +188,11 @@ def time_pieces(
 
     Returns:
         Frame: Columns visit_id, hu, visit_high_level, piece, start_position, end_position, start_event,
-        end_event, start_activity, end_activity, start_time, end_time, label, piece_duration; sorted by visit_id and piece. Visits at ⊥
-        have no rows.
+        end_event, start_activity, end_activity, start_time, end_time, label, piece_duration; sorted by visit_id
+        and piece.
     """
     is_entry = pl.col(v.POSITION) == pl.col(v.FIRST_POSITION)
-    clock = visit_relations.filter(
-        pl.col(v.VISIT_HIGH_LEVEL).is_not_null()
-        & (is_entry | pl.col(v.IS_PROCESSING) | pl.col(v.IS_STORAGE_REMOVAL))
-    ).select(
+    clock = visit_relations.filter(is_entry | pl.col(v.IS_PROCESSING) | pl.col(v.IS_STORAGE_REMOVAL)).select(
         v.VISIT_ID,
         c.HU,
         v.VISIT_HIGH_LEVEL,
@@ -202,7 +204,7 @@ def time_pieces(
         pl.col(v.IS_STORAGE_REMOVAL).alias("_removal"),
         pl.lit(0, dtype=pl.Int64).alias("_order"),
     )
-    exits = visits.filter(pl.col(v.HIGH_LEVEL).is_not_null()).select(
+    exits = visits.select(
         v.VISIT_ID,
         c.HU,
         pl.col(v.HIGH_LEVEL).alias(v.VISIT_HIGH_LEVEL),
@@ -274,8 +276,9 @@ def time_pieces(
             PIECE_DURATION,
         )
     )
-    if activity in visit_relations.collect_schema().names():
-        activities = visit_relations.select(c.HU, c.EVENT, activity).unique()
+    lookup = visit_relations if relations is None else relations
+    if activity in lookup.collect_schema().names():
+        activities = lookup.select(c.HU, c.EVENT, activity).unique()
         for event_column, activity_column in ((START_EVENT, START_ACTIVITY), (END_EVENT, END_ACTIVITY)):
             out = out.join(
                 activities.rename({c.EVENT: event_column, activity: activity_column}),
@@ -302,16 +305,18 @@ def waiting_times(pieces: Frame) -> Frame:
 
 
 def waiting_summary(visits: Frame, pieces: Frame) -> Frame:
-    """Per visit: number of processing operations and storage removals, total waiting time, total storage
-    time and remaining time; they add up to the visit duration. All null for visits at ⊥.
+    """Per scope: number of processing operations and storage removals, total waiting time, total storage
+    time and remaining time (they add up to the duration), and whether it is a processing visit (Q(ν) ≠ ∅).
+
+    Joined to all maximal visits (`visits.join(summary, on="visit_id", how="left")`), visits at ⊥ get null.
 
     Args:
-        visits: One row per visit with columns visit_id, high_level, entry_time, exit_time.
+        visits: The scopes, with columns visit_id and exit_time.
         pieces: Output of `time_pieces`.
 
     Returns:
-        Frame: Columns visit_id, n_processing, n_storage_removals (removals that end a storage piece), total_waiting_time, total_storage_time,
-        remaining_time; sorted by visit_id.
+        Frame: Columns visit_id, n_processing, n_storage_removals (removals that end a storage piece),
+        total_waiting_time, total_storage_time, remaining_time, is_processing_visit; sorted by visit_id.
     """
     zero = pl.col(v.EXIT_TIME) - pl.col(v.EXIT_TIME)  # zero duration in the frame's time unit
 
@@ -328,15 +333,14 @@ def waiting_summary(visits: Frame, pieces: Frame) -> Frame:
     )
     columns = (N_PROCESSING, N_STORAGE_REMOVALS, TOTAL_WAITING_TIME, TOTAL_STORAGE_TIME, REMAINING_TIME)
     return (
-        visits.select(v.VISIT_ID, v.HIGH_LEVEL, v.EXIT_TIME)
+        visits.select(v.VISIT_ID, v.EXIT_TIME)
         .join(per_visit, on=v.VISIT_ID, how="left")
         .with_columns(
-            pl.when(pl.col(v.HIGH_LEVEL).is_not_null())
-            .then(pl.col(col).fill_null(0) if col.startswith("n_") else pl.col(col).fill_null(zero))
-            .alias(col)
+            (pl.col(col).fill_null(0) if col.startswith("n_") else pl.col(col).fill_null(zero)).alias(col)
             for col in columns
         )
-        .select(v.VISIT_ID, *columns)
+        .with_columns((pl.col(N_PROCESSING) > 0).alias(IS_PROCESSING_VISIT))
+        .select(v.VISIT_ID, *columns, IS_PROCESSING_VISIT)
         .sort(v.VISIT_ID)
     )
 

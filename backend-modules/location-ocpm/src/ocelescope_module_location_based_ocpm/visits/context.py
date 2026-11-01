@@ -1,13 +1,14 @@
 """Location context for visits: the location mapping agg, the vehicles V and the storage units W
 (`overview/Single Level Visit Mappings.md`, "Specific new notations").
 
-Also `add_high_level_locations`, which applies agg to the relations (hat-hl).
+Also `add_high_level_locations`, which applies agg to the relations (hat-hl), and `naming_clashes`, the flag
+for auto-completed locations whose name is also a provided high-level location.
 
 Draft: the input format is not decided yet. Until then, the context is read from a table with one row per
 location (e.g. `data/running_example/inputs/locations.csv`).
 """
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from typing import TypeVar
 
@@ -97,3 +98,35 @@ def add_high_level_locations(
     if agg:
         expr = expr.replace(dict(agg))
     return relations.with_columns(expr.alias(high_level))
+
+
+def naming_clashes(locations: Collection[str], agg: Mapping[str, str] | None = None) -> pl.DataFrame:
+    """Flag (concept, section "implementation"): auto-completed locations whose name clashes with a
+    provided high-level location.
+
+    agg may be partial and is completed by the identity. If an unmapped low-level location has the same
+    name as a high-level location that other locations are mapped to (e.g. B unmapped and B1 -> B), both
+    end up at B, one intentionally and one not. Not a blocking error.
+
+    Args:
+        locations: All low-level locations L that occur (e.g. the distinct non-null values of loc).
+        agg: The provided (partial) mapping; None = identity, which has no clashes.
+
+    Returns:
+        pl.DataFrame: Columns location (the unmapped location), mapped_locations (sorted list of the
+        locations agg maps to the same name); one row per clash, sorted by location.
+    """
+    agg = dict(agg or {})
+    targets: dict[str, list[str]] = {}
+    for low, high in agg.items():
+        targets.setdefault(high, []).append(low)
+    rows = [
+        (name, sorted(targets[name]))
+        for name in sorted(set(locations))
+        if name not in agg and name in targets
+    ]
+    return pl.DataFrame(
+        rows,
+        schema={"location": pl.String, "mapped_locations": pl.List(pl.String)},
+        orient="row",
+    )

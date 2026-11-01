@@ -1,4 +1,4 @@
-"""Tests of maximal visits, shifts and waiting times on the running example (values of the concept note and
+"""Tests of maximal visits and shifts on the running example (values of the concept note and
 the working doc) and on the small edge-case example in data/visits_example/."""
 
 from pathlib import Path
@@ -18,7 +18,7 @@ EDGE = DATA / "visits_example"
 CONTEXT = location_context(pl.read_csv(EXAMPLE / "inputs" / "locations.csv"))
 EDGE_CONTEXT = location_context(pl.read_csv(EDGE / "locations.csv"))
 EDGE_P = pl.read_csv(EDGE / "processing_events.csv")["event"].to_list()
-FRAMES = ("relations", "visits", "visit_relations", "transfers", "pieces", "waiting_times", "simultaneous_processing")
+FRAMES = ("relations", "visits", "visit_relations", "transfers", "naming_clashes")
 
 
 def hours(frame: pl.DataFrame, column: str) -> list[float | None]:
@@ -47,7 +47,6 @@ def running(derivation) -> VisitAnalysis:
     """Running example, Level 3, κ = 2, P = T, W = {B1}."""
     return analyse_visits(
         derivation.relations, derivation.loc, CONTEXT.agg, CONTEXT.vehicles, kappa=2,
-        storage_units=CONTEXT.storage_units,
     )
 
 
@@ -57,7 +56,6 @@ def edge() -> VisitAnalysis:
     relations = pl.read_csv(EDGE / "relations.csv", schema=MAPPING_SCHEMA)
     return analyse_visits(
         relations, "loc", EDGE_CONTEXT.agg, EDGE_CONTEXT.vehicles, kappa=1, processing=EDGE_P,
-        storage_units=EDGE_CONTEXT.storage_units,
     )
 
 
@@ -125,92 +123,7 @@ def test_vehicle_and_transferring_visits_of_the_note(running):
     transferring = running.visits.filter(pl.col("is_transferring_visit")).select("hu", "first_event").rows()
     assert transferring == [("c1", "e8")]
     bottom = visit(running, "c5", None, "e16")
-    assert bottom["n_stops"] is None and bottom["is_vehicle_visit"] is None and bottom["remaining_time"] is None
-
-
-def test_waiting_times_of_the_working_doc(derivation):
-    """Part C.2 with P = {e1, e3, e4, e15} and no storage units."""
-    analysis = analyse_visits(
-        derivation.relations, derivation.loc, CONTEXT.agg, CONTEXT.vehicles, kappa=2, processing=["e1", "e3", "e4", "e15"]
-    )
-    expected = {  # (hu, hl, first event): (waiting times, remaining time) in hours
-        ("c2", "A", "e3"): ([0, 1], 8),
-        ("s1", "A", "e1"): ([0, 2], 0),
-        ("c2", "B", "e12"): ([3], 0),
-        ("c1", "A", "e3"): ([0, 1], 9),
-        ("c3", "B", "e10"): ([], 4),
-    }
-    for key, (waits, remaining) in expected.items():
-        row = visit(analysis, *key)
-        got = analysis.waiting_times.filter(pl.col("visit_id") == row["visit_id"])
-        assert hours(got, "piece_duration") == waits, key
-        assert row["remaining_time"].total_seconds() / 3600 == remaining, key
-
-
-def test_default_processing_is_t(running):
-    """Without P, the transformation events are used: c2's A visit has only e3 (roll)."""
-    m5 = visit(running, "c2", "A", "e3")
-    assert (m5["n_processing"], m5["remaining_time"].total_seconds() / 3600) == (1, 9)
-
-
-@pytest.mark.parametrize("name", ["running", "edge"])
-def test_pieces_add_up_to_duration(name, request):
-    """Waiting + storage + remaining time = d for every visit at hl ∈ HL."""
-    visits = request.getfixturevalue(name).visits.filter(pl.col("high_level").is_not_null())
-    total = visits["total_waiting_time"] + visits["total_storage_time"] + visits["remaining_time"]
-    assert total.equals(visits["duration"], check_names=False)
-
-
-def test_storage_example_of_the_working_doc(derivation):
-    """C.6: m2 with W = {B1} and P = {e1, e3, e4, e15}: waiting 0, 1, storage 4 (removal e8 outside A), remaining 5."""
-    analysis = analyse_visits(
-        derivation.relations, derivation.loc, CONTEXT.agg, CONTEXT.vehicles, kappa=2,
-        processing=["e1", "e3", "e4", "e15"], storage_units={"B1"},
-    )
-    m2 = visit(analysis, "c1", "A", "e3")
-    pieces = analysis.pieces.filter(pl.col("visit_id") == m2["visit_id"])
-    assert pieces["label"].to_list() == ["waiting", "waiting", "storage", "remaining"]
-    assert hours(pieces, "piece_duration") == [0, 1, 4, 5]
-    assert pieces["end_event"].to_list() == ["e3", "e4", "e8", "e13"]
-
-
-def test_edge_storage(edge):
-    """h6: S1 -> S2 is no removal; removal e44; processing removal e48 waits 4 h incl. storage (concept
-    since 2026-11-01); removal e50 outside A."""
-    a = visit(edge, "h6", "A", "e42")
-    pieces = edge.pieces.filter(pl.col("visit_id") == a["visit_id"])
-    assert pieces.select("label", "end_event").rows() == [
-        ("storage", "e44"), ("waiting", "e46"), ("waiting", "e48"),
-        ("storage", "e50"), ("waiting", "e51"), ("remaining", "e52"),
-    ]
-    assert hours(pieces, "piece_duration") == [5, 3, 4, 3, 1, 2]
-    assert (a["n_processing"], a["n_storage_removals"]) == (3, 2)
-
-
-def test_edge_storage_zero_wait_at_removal():
-    """zero_wait_at_removal=True: e48 ends a storage piece (4 h) and gets a waiting time of 0."""
-    relations = pl.read_csv(EDGE / "relations.csv", schema=MAPPING_SCHEMA)
-    analysis = analyse_visits(
-        relations, "loc", EDGE_CONTEXT.agg, EDGE_CONTEXT.vehicles, kappa=1, processing=EDGE_P,
-        storage_units=EDGE_CONTEXT.storage_units, zero_wait_at_removal=True,
-    )
-    a = visit(analysis, "h6", "A", "e42")
-    pieces = analysis.pieces.filter(pl.col("visit_id") == a["visit_id"])
-    assert pieces.select("label", "end_event").rows() == [
-        ("storage", "e44"), ("waiting", "e46"), ("storage", "e48"), ("waiting", "e48"),
-        ("storage", "e50"), ("waiting", "e51"), ("remaining", "e52"),
-    ]
-    assert hours(pieces, "piece_duration") == [5, 3, 4, 0, 3, 1, 2]
-    assert (a["n_processing"], a["n_storage_removals"]) == (3, 3)
-    total = a["total_waiting_time"] + a["total_storage_time"] + a["remaining_time"]
-    assert total == a["duration"]
-
-
-def test_no_storage_units_is_the_earlier_version(derivation, running):
-    """Without W, every piece is waiting or remaining, and Σ w + w_rem = d (C.1)."""
-    analysis = analyse_visits(derivation.relations, derivation.loc, CONTEXT.agg, CONTEXT.vehicles, kappa=2)
-    assert set(analysis.pieces["label"]) <= {"waiting", "remaining"}
-    assert analysis.visits["n_storage_removals"].drop_nulls().sum() == 0
+    assert bottom["n_stops"] is None and bottom["is_vehicle_visit"] is None
 
 
 @pytest.mark.parametrize("name", ["running", "edge"])
@@ -225,7 +138,6 @@ def test_lazy_gives_the_same_frames(derivation, running):
     """The functions work on lazy frames with the same results."""
     lazy = analyse_visits(
         derivation.relations.lazy(), derivation.loc, CONTEXT.agg, CONTEXT.vehicles, kappa=2,
-        storage_units=CONTEXT.storage_units,
     )
     for name in FRAMES:
         assert getattr(lazy, name).equals(getattr(running, name)), name
@@ -268,20 +180,6 @@ def test_edge_transferring_visit(edge):
     """h4 at T (e26-e29) has an excursion to A1 but no stops: transferring, not a vehicle visit."""
     h4 = visit(edge, "h4", "T", "e26")
     assert (h4["n_stops"], h4["is_vehicle_visit"], h4["is_transferring_visit"]) == (0, False, True)
-
-
-def test_edge_waiting_times(edge):
-    """h5: processing on C1 counts for A, paint at B (excursion) counts for B, processing movements."""
-    a = visit(edge, "h5", "A", "e33")
-    got = edge.waiting_times.filter(pl.col("visit_id") == a["visit_id"])
-    assert got["end_event"].to_list() == ["e35", "e36"] and hours(got, "piece_duration") == [3, 1]
-    assert (a["exit_event"], a["remaining_time"].total_seconds() / 3600) == ("e40", 6)
-    for first in ("e37", "e40"):  # processing movements into B: entry by processing, w_1 = 0
-        b = visit(edge, "h5", "B", first)
-        got = edge.waiting_times.filter(pl.col("visit_id") == b["visit_id"])
-        assert got["end_event"].to_list() == [first] and hours(got, "piece_duration") == [0]
-    h1 = visit(edge, "h1", "A", "e1")
-    assert hours(edge.waiting_times.filter(pl.col("visit_id") == h1["visit_id"]), "piece_duration") == [0, 12]
 
 
 def test_visit_files_round_trip(running, tmp_path):
@@ -336,16 +234,6 @@ def test_ignore_vehicles_keeps_bottom_strict():
     assert visits.filter(pl.col("high_level").is_null()).height == 2
 
 
-def test_waiting_times_carry_activities(edge):
-    """Every piece has the activities of its start and end event; waiting times group by the processing activity."""
-    assert edge.pieces["end_activity"].null_count() == 0 and edge.pieces["start_activity"].null_count() == 0
-    roll = edge.waiting_times.filter(pl.col("end_activity") == "roll")
-    assert roll.select("hu", "end_event", "start_activity").rows() == [
-        ("h5", "e35", "crane move"), ("h6", "e46", "crane pick"), ("h7", "e57", "grind"), ("h8", "e61", "grind")
-    ]
-    assert hours(roll, "piece_duration") == [3, 3, 2, 0]
-
-
 def test_tie_rank_as4():
     """AS4 groups: movements (also if processing) 0, processing operations 1, others 2; lazy alike."""
     frame = pl.DataFrame(
@@ -364,15 +252,6 @@ def test_edge_ties_follow_as4(edge):
     """h7: equal timestamps are ordered movements, processing operations, rest (against the event ids)."""
     h7 = edge.relations.filter(pl.col("hu") == "h7").sort("position")
     assert h7["event"].to_list() == ["e53", "e55", "e54", "e57", "e56", "e58"]
-    a = visit(edge, "h7", "A", "e53")
-    pieces = edge.pieces.filter(pl.col("visit_id") == a["visit_id"])
-    assert pieces.select("start_event", "end_event", "label").rows() == [
-        ("e53", "e55", "storage"),
-        ("e55", "e54", "waiting"),
-        ("e54", "e57", "waiting"),
-        ("e57", "e58", "remaining"),
-    ]
-    assert hours(pieces, "piece_duration") == [3, 0, 2, 1]
 
 
 def test_trace_order_uses_processing_input():
@@ -394,65 +273,94 @@ def test_trace_order_uses_processing_input():
 
 
 
-def test_outside_storage_resets_option(derivation):
-    """C.6 example m2: by default the removal e8 from B1 (outside A) resets the clock; with
-    outside_storage_resets=False it does not, so after e4 only remaining time follows (9 h)."""
-    kwargs = dict(kappa=2, processing=["e1", "e3", "e4", "e15"], storage_units={"B1"})
-    for outside, labels, durations in (
-        (True, ["waiting", "waiting", "storage", "remaining"], [0, 1, 4, 5]),
-        (False, ["waiting", "waiting", "remaining"], [0, 1, 9]),
-    ):
-        analysis = analyse_visits(
-            derivation.relations, derivation.loc, CONTEXT.agg, CONTEXT.vehicles,
-            outside_storage_resets=outside, **kwargs,
-        )
-        m2 = visit(analysis, "c1", "A", "e3")
-        pieces = analysis.pieces.filter(pl.col("visit_id") == m2["visit_id"])
-        assert pieces["label"].to_list() == labels
-        assert hours(pieces, "piece_duration") == durations
 
 
-def test_outside_storage_resets_edge():
-    """h6 with outside_storage_resets=False: the removal e50 from B2 (in B) no longer resets the clock,
-    so the grind e51 waits 4 h from e48; the inside removal e44 still counts."""
-    relations = pl.read_csv(EDGE / "relations.csv", schema=MAPPING_SCHEMA)
+def test_excursion_measures_and_further_conditions(derivation):
+    """DD-V1: c1's A visit has the deviating infix ⟨e7, e8⟩ (2 events, 2 timestamps, 2 h from e7 to e9).
+    Without a limit on events (kappa=None), it is cut by max_timestamps=1 or max_excursion_duration=1 h,
+    but not by max_excursion_duration=2 h; conditions combine (any violation cuts)."""
+    from datetime import timedelta
+
+    rel, _ = derive_maximal_visits(derivation.relations, derivation.loc, CONTEXT.agg, None)
+    e9 = rel.filter((pl.col("hu") == "c1") & (pl.col("event") == "e9")).row(0, named=True)
+    assert (e9["gap"], e9["gap_timestamps"], e9["gap_duration"]) == (2, 2, timedelta(hours=2))
+
+    def c1_a(**kwargs) -> list[tuple]:
+        """c1's visits to A as (first, last event)."""
+        _, visits = derive_maximal_visits(derivation.relations, derivation.loc, CONTEXT.agg, **kwargs)
+        return visits.filter((pl.col("hu") == "c1") & (pl.col("high_level") == "A")).select(
+            "first_event", "last_event"
+        ).rows()
+
+    cut, whole = [("e3", "e5"), ("e9", "e11")], [("e3", "e11")]
+    assert c1_a(kappa=None) == whole
+    assert c1_a(kappa=None, max_timestamps=1) == cut
+    assert c1_a(kappa=None, max_timestamps=2) == whole
+    assert c1_a(kappa=None, max_excursion_duration=timedelta(hours=1)) == cut
+    assert c1_a(kappa=None, max_excursion_duration=timedelta(hours=2)) == whole
+    assert c1_a(kappa=2, max_excursion_duration=timedelta(hours=1)) == cut
+
+
+def test_bottom_tolerance_stays_zero_without_kappa():
+    """DD-V3: with kappa=None, ⊥ still allows no excursions (⊥, A1, ⊥ gives two ⊥ visits)."""
+    import datetime as dt
+
+    relations = pl.DataFrame(
+        {
+            "hu": ["x"] * 3,
+            "event": ["a", "b", "c"],
+            "time": [dt.datetime(2026, 1, 1, h) for h in (1, 2, 3)],
+            "is_movement": [False] * 3,
+            "is_transformation": [False] * 3,
+            "loc": [None, "A1", None],
+        }
+    )
+    _, visits = derive_maximal_visits(relations, "loc", None, None)
+    assert visits.filter(pl.col("high_level").is_null()).height == 2
+
+
+def test_naming_clashes():
+    """An unmapped location named like a provided high-level location is flagged."""
+    from ocelescope_module_location_based_ocpm.visits.context import naming_clashes
+
+    clashes = naming_clashes(["A1", "B", "B1", "T"], {"A1": "A", "B1": "B"})
+    assert clashes.rows() == [("B", ["B1"])]
+    assert naming_clashes(["A1", "T"], {"A1": "A"}).height == 0
+
+
+def test_no_naming_clashes_in_the_examples(running, edge):
+    """Neither example has a naming clash."""
+    assert running.naming_clashes.height == 0 and edge.naming_clashes.height == 0
+
+
+def test_transfer_durations(running):
+    """d(μ): m5's vehicle shift via ⟨e8⟩ takes 1 h (e8 to e9), m2's external shift via ⟨e7, e8⟩ 2 h; empty
+    transfers take 0."""
+    m5 = visit(running, "c2", "A", "e3")
+    t5 = running.transfers.filter(pl.col("visit_id") == m5["visit_id"])
+    assert hours(t5, "transfer_duration") == [0, 0, 1, 0]
+    m2 = visit(running, "c1", "A", "e3")
+    t2 = running.transfers.filter(pl.col("visit_id") == m2["visit_id"])
+    assert hours(t2, "transfer_duration") == [0, 0, 2, 0]
+    assert m2["external_shift_time"].total_seconds() == 2 * 3600 and m2["internal_shift_time"].total_seconds() == 0
+    assert m5["internal_shift_time"].total_seconds() == 3600
+
+
+def test_vehicles_outside_external(derivation):
+    """DD-S1: with vehicles_outside_external, m5's trip on the truck T (outside A) is an external shift;
+    on the edge example, h1's trip via the crane C1 (in A) stays a vehicle shift, the one via T does not."""
     analysis = analyse_visits(
-        relations, "loc", EDGE_CONTEXT.agg, EDGE_CONTEXT.vehicles, kappa=1, processing=EDGE_P,
-        storage_units=EDGE_CONTEXT.storage_units, outside_storage_resets=False,
+        derivation.relations, derivation.loc, CONTEXT.agg, CONTEXT.vehicles, kappa=2,
+        vehicles_outside_external=True,
     )
-    a = visit(analysis, "h6", "A", "e42")
-    pieces = analysis.pieces.filter(pl.col("visit_id") == a["visit_id"])
-    assert pieces.select("label", "end_event").rows() == [
-        ("storage", "e44"), ("waiting", "e46"), ("waiting", "e48"), ("waiting", "e51"), ("remaining", "e52"),
-    ]
-    assert hours(pieces, "piece_duration") == [5, 3, 4, 4, 2]
-
-
-def test_skip_simultaneous_removal(edge):
-    """h7: by default (DD-W4) the grind e54 waits 0 after the removal e55 at the same time; with
-    skip_simultaneous_removal the removal is skipped and the grind waits 3 h from the entry."""
-    a = visit(edge, "h7", "A", "e53")
-    default = edge.pieces.filter(pl.col("visit_id") == a["visit_id"])
-    assert hours(default.filter(pl.col("end_event") == "e54"), "piece_duration") == [0]
+    m5 = visit(analysis, "c2", "A", "e3")
+    assert categories(analysis, m5["visit_id"]) == ["stay", "direct shift", "external shift", "stay"]
     relations = pl.read_csv(EDGE / "relations.csv", schema=MAPPING_SCHEMA)
-    skip = analyse_visits(
+    edge_option = analyse_visits(
         relations, "loc", EDGE_CONTEXT.agg, EDGE_CONTEXT.vehicles, kappa=1, processing=EDGE_P,
-        storage_units=EDGE_CONTEXT.storage_units, skip_simultaneous_removal=True,
+        vehicles_outside_external=True,
     )
-    pieces = skip.pieces.filter(pl.col("visit_id") == a["visit_id"])
-    assert pieces.select("start_event", "end_event", "label").rows() == [
-        ("e53", "e54", "waiting"), ("e54", "e57", "waiting"), ("e57", "e58", "remaining")
+    h1 = visit(edge_option, "h1", "A", "e1")
+    assert categories(edge_option, h1["visit_id"]) == [
+        "stay", "direct shift", "vehicle shift", "external shift", "external shift", "stay"
     ]
-    assert hours(pieces, "piece_duration") == [3, 2, 1]
-    # Only h7 has such a removal: all other pieces are unchanged.
-    others = pl.col("hu") != "h7"
-    assert skip.pieces.filter(others).equals(edge.pieces.filter(others))
-
-
-def test_simultaneous_processing_flag(edge):
-    """RQ5 flag: h8 has two processing operations at the same timestamp; AS4 orders them by id."""
-    flag = edge.simultaneous_processing
-    assert flag.select("hu", "events", "n_events").rows() == [("h8", ["e60", "e61"], 2)]
-    h8 = edge.waiting_times.filter(pl.col("hu") == "h8")
-    assert h8.select("start_event", "end_event").rows() == [("e59", "e60"), ("e60", "e61")]
-    assert hours(h8, "piece_duration") == [2, 0]

@@ -10,6 +10,11 @@ Let ν = (hu, hl, σ) be a visit with hl ∈ HL (visits at ⊥ have no stops, tr
   - "vehicle shift": μ_j ≠ ⟨⟩ and every relation of μ_j is on a vehicle (whatever the two stops' loc);
   - "external shift": μ_j ≠ ⟨⟩ and some relation of μ_j is not on a vehicle (⊥ counts as not on a vehicle).
   Direct and vehicle shifts are internal shifts.
+  DD-S1: by default a trip on a vehicle outside hl (e.g. a truck not mapped to hl) is a vehicle shift.
+  Option `vehicles_outside_external=True`: a transfer with at least one relation outside hl (on a vehicle
+  or not) is an external shift, so only trips on vehicles mapped into hl stay vehicle shifts.
+- The **duration** of a transfer is d(μ_j) = time(σ[a_{j+1}]) - time(σ[a_j + 1]) (leaving the stop with the
+  first event of μ_j until arriving at the next stop), and 0 for ⟨⟩.
 Vehicle relations before the first and after the last stop are entry and exit movements, not shifts.
 
 The steps, each a function of its own (eager and lazy polars frames alike):
@@ -44,6 +49,10 @@ TRANSFER_EVENTS = "transfer_events"
 TRANSFER_LENGTH = "transfer_length"
 #: True if every relation of μ_j is on a vehicle (true for ⟨⟩).
 ALL_ON_VEHICLE = "all_on_vehicle"
+#: True if every relation of μ_j is at the visit's hl (true for ⟨⟩); used for DD-S1.
+ALL_AT_LOCATION = "all_at_location"
+#: Duration d(μ_j) of the transfer.
+TRANSFER_DURATION = "transfer_duration"
 CATEGORY = "category"
 
 #: Columns of the shift summary (one row per visit).
@@ -53,6 +62,9 @@ N_DIRECT_SHIFTS = "n_direct_shifts"
 N_VEHICLE_SHIFTS = "n_vehicle_shifts"
 N_EXTERNAL_SHIFTS = "n_external_shifts"
 N_INTERNAL_SHIFTS = "n_internal_shifts"
+#: Total duration of the internal (direct and vehicle) and of the external shifts of a visit.
+INTERNAL_SHIFT_TIME = "internal_shift_time"
+EXTERNAL_SHIFT_TIME = "external_shift_time"
 #: L(ν): low-level locations of the visit (⊥ left out); L_hl(ν): those at hl; L_stop(ν) = L_hl(ν) \ V;
 #: L_¬v(ν) = L(ν) \ V. Sorted lists.
 LOCATIONS = "locations"
@@ -97,25 +109,36 @@ def add_stops(
     )
 
 
-def transfer_category() -> pl.Expr:
-    """The category of a transfer from its length, ALL_ON_VEHICLE and the two stops' locations.
+def transfer_category(vehicles_outside_external: bool = False) -> pl.Expr:
+    """The category of a transfer from its length, ALL_ON_VEHICLE (and ALL_AT_LOCATION) and the two
+    stops' locations.
+
+    Args:
+        vehicles_outside_external: DD-S1. False (default): a transfer only on vehicles is a vehicle shift,
+            wherever the vehicles are. True: it is a vehicle shift only if all its relations are at hl
+            (vehicles mapped into hl); otherwise it is an external shift.
 
     Returns:
         pl.Expr: "stay", "direct shift", "vehicle shift" or "external shift".
     """
     empty = pl.col(TRANSFER_LENGTH) == 0
+    vehicle_only = pl.col(ALL_ON_VEHICLE)
+    if vehicles_outside_external:
+        vehicle_only = vehicle_only & pl.col(ALL_AT_LOCATION)
     return (
         pl.when(empty & (pl.col(FROM_LOC) == pl.col(TO_LOC)))
         .then(pl.lit(STAY))
         .when(empty)
         .then(pl.lit(DIRECT_SHIFT))
-        .when(pl.col(ALL_ON_VEHICLE))
+        .when(vehicle_only)
         .then(pl.lit(VEHICLE_SHIFT))
         .otherwise(pl.lit(EXTERNAL_SHIFT))
     )
 
 
-def transfers(visit_relations: Frame, location: str = "loc") -> Frame:
+def transfers(
+    visit_relations: Frame, location: str = "loc", vehicles_outside_external: bool = False
+) -> Frame:
     """One row per transfer μ_j between two consecutive stops of a visit, with its category.
 
     How it works:
@@ -130,11 +153,13 @@ def transfers(visit_relations: Frame, location: str = "loc") -> Frame:
     Args:
         visit_relations: Output of `add_stops`.
         location: Column of loc.
+        vehicles_outside_external: DD-S1 option, see `transfer_category` (default False).
 
     Returns:
         Frame: Columns visit_id, hu, visit_high_level, j, from_position, to_position, from_event, to_event,
-        from_loc, to_loc, transfer_events (list), transfer_length, all_on_vehicle, category; sorted by
-        visit_id and j. Visits with fewer than two stops have no rows.
+        from_loc, to_loc, transfer_events (list), transfer_length, all_on_vehicle, all_at_location,
+        transfer_duration, category; sorted by visit_id and j. Visits with fewer than two stops have no
+        rows.
     """
     ordered = visit_relations.sort(v.VISIT_ID, v.POSITION)
     stops = (
@@ -151,6 +176,7 @@ def transfers(visit_relations: Frame, location: str = "loc") -> Frame:
             pl.col(c.EVENT).shift(-1).over(v.VISIT_ID).alias(TO_EVENT),
             pl.col(location).alias(FROM_LOC),
             pl.col(location).shift(-1).over(v.VISIT_ID).alias(TO_LOC),
+            pl.col(c.TIME).shift(-1).over(v.VISIT_ID).alias("_to_time"),
         )
         .filter(pl.col(TO_POSITION).is_not_null())
     )
@@ -163,6 +189,8 @@ def transfers(visit_relations: Frame, location: str = "loc") -> Frame:
         .agg(
             pl.col(c.EVENT).sort_by(v.POSITION).alias(TRANSFER_EVENTS),
             pl.col(v.ON_VEHICLE).all().alias(ALL_ON_VEHICLE),
+            pl.col(v.AT_LOCATION).all().alias(ALL_AT_LOCATION),
+            pl.col(c.TIME).sort_by(v.POSITION).first().alias("_leave_time"),
         )
     )
     return (
@@ -170,9 +198,11 @@ def transfers(visit_relations: Frame, location: str = "loc") -> Frame:
         .with_columns(
             pl.col(TRANSFER_EVENTS).fill_null(pl.lit([], dtype=pl.List(pl.String))),
             pl.col(ALL_ON_VEHICLE).fill_null(True),
+            pl.col(ALL_AT_LOCATION).fill_null(True),
             (pl.col(TO_POSITION) - pl.col(FROM_POSITION) - 1).alias(TRANSFER_LENGTH),
+            (pl.col("_to_time") - pl.col("_leave_time").fill_null(pl.col("_to_time"))).alias(TRANSFER_DURATION),
         )
-        .with_columns(transfer_category().alias(CATEGORY))
+        .with_columns(transfer_category(vehicles_outside_external).alias(CATEGORY))
         .select(
             v.VISIT_ID,
             c.HU,
@@ -187,6 +217,8 @@ def transfers(visit_relations: Frame, location: str = "loc") -> Frame:
             TRANSFER_EVENTS,
             TRANSFER_LENGTH,
             ALL_ON_VEHICLE,
+            ALL_AT_LOCATION,
+            TRANSFER_DURATION,
             CATEGORY,
         )
         .sort(v.VISIT_ID, J)
@@ -210,7 +242,7 @@ def shift_summary(
 
     Returns:
         Frame: One row per visit: visit_id, n_stops, n_stays, n_direct_shifts, n_vehicle_shifts,
-        n_external_shifts, n_internal_shifts, locations, locations_at_hl, stop_locations,
+        n_external_shifts, n_internal_shifts, internal_shift_time, external_shift_time, locations, locations_at_hl, stop_locations,
         non_vehicle_locations, is_vehicle_visit, is_transferring_visit; sorted by visit_id.
     """
     loc = pl.col(location)
@@ -226,10 +258,16 @@ def shift_summary(
         location_set(pl.col(v.AT_LOCATION)).alias(LOCATIONS_AT_HL),
         location_set(pl.col(v.IS_STOP)).alias(STOP_LOCATIONS),
         location_set(~pl.col(v.ON_VEHICLE)).alias(NON_VEHICLE_LOCATIONS),
+        (pl.col(c.TIME) - pl.col(c.TIME)).first().alias("_zero"),
     )
+    internal = pl.col(CATEGORY).is_in([DIRECT_SHIFT, VEHICLE_SHIFT])
     counts = transfers_frame.group_by(v.VISIT_ID).agg(
-        (pl.col(CATEGORY) == category).sum().cast(pl.Int64).alias(column)
-        for category, column in CATEGORY_COUNTS.items()
+        *[
+            (pl.col(CATEGORY) == category).sum().cast(pl.Int64).alias(column)
+            for category, column in CATEGORY_COUNTS.items()
+        ],
+        pl.col(TRANSFER_DURATION).filter(internal).sum().alias(INTERNAL_SHIFT_TIME),
+        pl.col(TRANSFER_DURATION).filter(pl.col(CATEGORY) == EXTERNAL_SHIFT).sum().alias(EXTERNAL_SHIFT_TIME),
     )
     count_columns = list(CATEGORY_COUNTS.values())
     has_location = pl.col(v.VISIT_HIGH_LEVEL).is_not_null()
@@ -239,9 +277,11 @@ def shift_summary(
         """`expr` for visits at hl ∈ HL, null for visits at ⊥."""
         return pl.when(has_location).then(expr)
 
+    zero = pl.col("_zero")  # zero duration in the frame's time unit
+    times = (INTERNAL_SHIFT_TIME, EXTERNAL_SHIFT_TIME)
     return (
         per_visit.join(counts, on=v.VISIT_ID, how="left")
-        .with_columns(pl.col(count_columns).fill_null(0))
+        .with_columns(pl.col(count_columns).fill_null(0), *(pl.col(t).fill_null(zero) for t in times))
         .with_columns(
             (pl.col(N_DIRECT_SHIFTS) + pl.col(N_VEHICLE_SHIFTS)).alias(N_INTERNAL_SHIFTS),
             no_non_vehicle.alias(IS_VEHICLE_VISIT),
@@ -253,6 +293,7 @@ def shift_summary(
                 N_STOPS,
                 *count_columns,
                 N_INTERNAL_SHIFTS,
+                *times,
                 STOP_LOCATIONS,
                 IS_VEHICLE_VISIT,
                 IS_TRANSFERRING_VISIT,
@@ -263,6 +304,8 @@ def shift_summary(
             N_STOPS,
             *count_columns,
             N_INTERNAL_SHIFTS,
+            INTERNAL_SHIFT_TIME,
+            EXTERNAL_SHIFT_TIME,
             LOCATIONS,
             LOCATIONS_AT_HL,
             STOP_LOCATIONS,

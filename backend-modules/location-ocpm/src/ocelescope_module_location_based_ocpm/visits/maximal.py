@@ -12,7 +12,8 @@ The steps, each a function of its own (all work on eager and lazy polars frames 
 2. `context.add_high_level_locations`: hat-hl of every relation (agg, completed by identity).
 3. `add_kappa`: κ(hat-hl) of every relation.
 4. `add_gaps`: the gap g_j to the previous relation of hu at the same high-level location (optionally
-   without relations on vehicles).
+   without relations on vehicles), and `add_gap_measures`: the number of distinct timestamps and the
+   duration of the deviating infix in between (DD-V1, for the optional further conditions).
 5. `add_visit_ids`: whether a relation starts a new maximal visit, and the visit it belongs to at its
    own high-level location.
 6. `maximal_visits`: one row per maximal visit (first, last and exit event, duration, ...).
@@ -21,6 +22,7 @@ The steps, each a function of its own (all work on eager and lazy polars frames 
 """
 
 from collections.abc import Collection, Mapping
+from datetime import timedelta
 
 import polars as pl
 
@@ -54,7 +56,7 @@ def add_trace_positions(
     )
 
 
-def add_kappa(relations: Frame, kappa: int, high_level: str = v.HIGH_LEVEL) -> Frame:
+def add_kappa(relations: Frame, kappa: int | None, high_level: str = v.HIGH_LEVEL) -> Frame:
     """Add κ(hat-hl), the excursion tolerance of the relation's own high-level location.
 
     The concept defines one tolerance κ_max for every hl ∈ HL and κ(⊥) = 0.
@@ -63,18 +65,20 @@ def add_kappa(relations: Frame, kappa: int, high_level: str = v.HIGH_LEVEL) -> F
 
     Args:
         relations: Relations frame with the column `high_level` (null = ⊥).
-        kappa: κ_max ≥ 0, the tolerance of every high-level location; ⊥ always gets 0.
+        kappa: κ_max ≥ 0, the tolerance of every high-level location; ⊥ always gets 0 (DD-V3). None = no
+            limit on the number of events of a deviating infix (DD-V1: only the other selected conditions
+            apply); κ(⊥) stays 0.
         high_level: Column of hat-hl.
 
     Returns:
-        Frame: `relations` with the column kappa (Int64).
+        Frame: `relations` with the column kappa (Int64; null at hl ∈ HL if `kappa` is None).
     """
-    if kappa < 0:
+    if kappa is not None and kappa < 0:
         raise ValueError(f"The excursion tolerance must be at least 0, got {kappa}.")
     return relations.with_columns(
         pl.when(pl.col(high_level).is_null())
         .then(0)
-        .otherwise(kappa)
+        .otherwise(pl.lit(kappa, dtype=pl.Int64))
         .cast(pl.Int64)
         .alias(v.KAPPA)
     )
@@ -133,11 +137,62 @@ def add_gaps(
     return out.with_columns(gap.alias(v.GAP)).drop("_w", "_c")
 
 
-def add_visit_ids(relations: Frame, high_level: str = v.HIGH_LEVEL) -> Frame:
+def add_gap_measures(relations: Frame, high_level: str = v.HIGH_LEVEL) -> Frame:
+    """Add the number of distinct timestamps and the duration of the deviating infix before every relation.
+
+    The deviating infix before p_j is otrace(hu)[p_{j-1} + 1 : p_j - 1] (all its events are not at hl).
+    - gap_timestamps: its number of distinct timestamps (0 if it is empty);
+    - gap_duration: time(e_{p_j}) - time(e_{p_{j-1}+1}), from its first event until the first event back at
+      hl (DD-V1: "time of first event until first event back in the visit"); 0 if it is empty.
+    Both are null for the first relation of a handling unit at a high-level location. Relations on
+    vehicles always count here (`ignore_vehicles` only concerns the number of events).
+
+    How it works: with t the dense rank of the timestamps per handling unit (the trace is sorted by time),
+    the distinct timestamps of positions a..b are t(b) - t(a) + 1; t and time of the next relation in the
+    trace are taken at p_{j-1} and shifted per (hu, hl), those of the previous relation at p_j directly.
+
+    Args:
+        relations: Output of `add_trace_positions` with the column `high_level`.
+        high_level: Column of hat-hl.
+
+    Returns:
+        Frame: `relations` with the columns gap_timestamps (Int64) and gap_duration (duration).
+    """
+    trace = (c.HU,)
+    group = (c.HU, high_level)
+    out = relations.with_columns(
+        pl.col(c.TIME).rank("dense").over(*trace).cast(pl.Int64).alias("_t")
+    ).with_columns(
+        pl.col("_t").shift(1).over(*trace, order_by=v.POSITION).alias("_t_before"),
+        pl.col("_t").shift(-1).over(*trace, order_by=v.POSITION).alias("_t_after"),
+        pl.col(c.TIME).shift(-1).over(*trace, order_by=v.POSITION).alias("_time_after"),
+    )
+    previous_p = pl.col(v.POSITION).shift(1).over(*group, order_by=v.POSITION)
+    first_t = pl.col("_t_after").shift(1).over(*group, order_by=v.POSITION)
+    first_time = pl.col("_time_after").shift(1).over(*group, order_by=v.POSITION)
+    empty = (pl.col(v.POSITION) - previous_p - 1) == 0
+    zero = pl.col(c.TIME) - pl.col(c.TIME)
+    return out.with_columns(
+        pl.when(empty).then(0).otherwise(pl.col("_t_before") - first_t + 1).cast(pl.Int64).alias(v.GAP_TIMESTAMPS),
+        pl.when(empty).then(zero).otherwise(pl.col(c.TIME) - first_time).alias(v.GAP_DURATION),
+    ).drop("_t", "_t_before", "_t_after", "_time_after")
+
+
+def add_visit_ids(
+    relations: Frame,
+    high_level: str = v.HIGH_LEVEL,
+    max_timestamps: int | None = None,
+    max_excursion_duration: timedelta | None = None,
+) -> Frame:
     """Number the maximal visits and assign every relation to the one at its own high-level location.
 
     A relation starts a new maximal visit iff it is the first one of its handling unit at its high-level
-    location (gap null) or its gap is longer than κ (gap > kappa).
+    location (gap null) or the deviating infix before it violates one of the selected conditions (DD-V1;
+    all selected conditions must hold, so violating one is enough to cut):
+    - more counted events than κ (gap > kappa; no limit if kappa is null);
+    - more distinct timestamps than `max_timestamps` (gap_timestamps, `add_gap_measures`);
+    - longer than `max_excursion_duration` (gap_duration, `add_gap_measures`).
+    At ⊥ the tolerance is always 0 (DD-V3): any relation in between cuts.
     Counting these starts per handling unit and high-level location numbers the visits; the visit ids
     are then numbered 1, 2, ... over all visits, ordered by handling unit and first position.
 
@@ -146,13 +201,22 @@ def add_visit_ids(relations: Frame, high_level: str = v.HIGH_LEVEL) -> Frame:
     (see `visit_relations`).
 
     Args:
-        relations: Output of `add_gaps` with the columns kappa and `high_level`.
+        relations: Output of `add_gaps` with the columns kappa and `high_level` (and of `add_gap_measures`
+            if `max_timestamps` or `max_excursion_duration` is given).
         high_level: Column of hat-hl.
+        max_timestamps: Maximum number of distinct timestamps of a deviating infix at hl ∈ HL; None = no
+            limit.
+        max_excursion_duration: Maximum duration of a deviating infix at hl ∈ HL; None = no limit.
 
     Returns:
         Frame: `relations` with the columns starts_visit (bool) and visit_id (Int64).
     """
-    starts = pl.col(v.GAP).is_null() | (pl.col(v.GAP) > pl.col(v.KAPPA))
+    located = pl.col(high_level).is_not_null()
+    starts = pl.col(v.GAP).is_null() | (pl.col(v.GAP) > pl.col(v.KAPPA)).fill_null(False)
+    if max_timestamps is not None:
+        starts = starts | (located & (pl.col(v.GAP_TIMESTAMPS) > max_timestamps)).fill_null(False)
+    if max_excursion_duration is not None:
+        starts = starts | (located & (pl.col(v.GAP_DURATION) > max_excursion_duration)).fill_null(False)
     number = starts.cum_sum().over(c.HU, high_level, order_by=v.POSITION)
     # First position of the visit of each relation, then a dense rank over (hu, first position).
     first = pl.col(v.POSITION).min().over(c.HU, high_level, number)
@@ -288,10 +352,12 @@ def derive_maximal_visits(
     relations: Frame,
     location: str = "loc",
     agg: Mapping[str, str] | None = None,
-    kappa: int = 0,
+    kappa: int | None = 0,
     vehicles: Collection[str] = (),
     ignore_vehicles: bool = False,
     processing: Collection[str] | None = None,
+    max_timestamps: int | None = None,
+    max_excursion_duration: timedelta | None = None,
 ) -> tuple[Frame, Frame]:
     """All maximal visits V_max in one call (steps 1 to 6).
 
@@ -301,12 +367,17 @@ def derive_maximal_visits(
             level mapping (`derivation.level_files.load_level_mapping`) or `Derivation.relations`.
         location: Column of the current location loc (null = ⊥), e.g. "loc" or "loc_3".
         agg: Location mapping L -> HL (partial, completed by identity); None = identity.
-        kappa: κ_max, the excursion tolerance of every high-level location (κ(⊥) = 0).
+        kappa: κ_max, the maximum number of events of a deviating infix at every high-level location
+            (κ(⊥) = 0); None = no limit on the number of events (DD-V1).
         vehicles: The set V (only used with `ignore_vehicles`).
         ignore_vehicles: True = relations on a vehicle do not count towards the tolerance (see
             `add_gaps`); default False.
         processing: The processing operations P as event ids, only used to order events with the same
             timestamp (AS4, `add_trace_positions`); None = the transformation events T.
+        max_timestamps: Optional further condition (DD-V1): maximum number of distinct timestamps of a
+            deviating infix; None = off.
+        max_excursion_duration: Optional further condition (DD-V1): maximum duration of a deviating infix
+            (first event of the infix until the first event back at hl); None = off.
 
     Returns:
         tuple[Frame, Frame]: The relations with the columns tie_rank, high_level, position, kappa, gap,
@@ -316,5 +387,6 @@ def derive_maximal_visits(
     rel = add_high_level_locations(rel, location, agg)
     rel = add_kappa(rel, kappa)
     rel = add_gaps(rel, location=location, vehicles=vehicles, ignore_vehicles=ignore_vehicles)
-    rel = add_visit_ids(rel)
+    rel = add_gap_measures(rel)
+    rel = add_visit_ids(rel, max_timestamps=max_timestamps, max_excursion_duration=max_excursion_duration)
     return rel, maximal_visits(rel)
