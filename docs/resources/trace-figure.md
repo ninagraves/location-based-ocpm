@@ -8,6 +8,7 @@ The object traces of several handling units, one block per handling unit (top to
 - **Low-level row**: one marker per hu-event relation, coloured by its current location $loc$ at the selected level.
   Circles for ordinary locations, open circles for vehicles ($V$), diamonds for storage units ($W$), a grey × for ⊥.
   A line joins the relations of the trace; the event id is written at an angle above each marker.
+  Processing operations ($e \in P$, column is_processing; Nina 2026-10-31) are stars instead, in the same colour: a star for ordinary locations and storage units (processing overwrites the diamond, Nina 2026-10-31), an open star on vehicles, an asterisk for ⊥; a legend entry "processing operation" explains the shape, the location legend keeps the plain symbols.
 - **High-level locations** $\widehat{hl}$, in one of four styles (`high_level_style`; under discussion):
   - "squares": a row of squares below the low-level row, one per relation (grey × for ⊥);
   - "ribbon" (default; Nina's choice, 2026-10-29): a row below with one thick bar per run of consecutive relations with the same high-level location, labelled with its name;
@@ -33,6 +34,7 @@ The trace position is the index in $otrace(hu)$ (time, then event id).
 ## Settings
 - `axis`: "event order" (default; rank of the event among all shown events, so shared events line up), "trace position" (index in $otrace(hu)$, as in the visit definition), or "time" (events with the same timestamp are spread side by side around it in event id order, over at most `TIE_SPREAD` = half the smallest gap between timestamps; `add_tie_offsets`).
 - `agg`, `vehicles` ($V$), `storage_units` ($W$): until they are inputs of the tool, passed as arguments (in the notebook read from `data/running_example/inputs/locations.csv` with `location_context`).
+- `processing`: event ids of the processing operations $P$ (`relations_for_figure` / `add_processing`). If none are given, the transformation events $T$ are used (Nina 2026-10-31: in the concept $P$ is a separate input, the implementation falls back to $T$); an empty collection marks none.
 - `visits`: a table with columns hu, high_level (null = ⊥), first_event, last_event, group, and optionally visit_id (Nina 2026-10-30: shown in the middle of the bar and in the hover, to talk about single visits; `show_visit_ids=False` hides it). Visits are not computed yet; `notebooks/trace_figure.ipynb` passes a hand-written table (maximal visits at κ = 2), for illustration only.
 
 ## Example
@@ -45,17 +47,18 @@ None (draft outside the tool).
 `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/visits/trace_figure.py`, one function per step:
 1. `add_high_level_locations(relations, location, agg)`: column high_level.
 2. `add_location_kinds(relations, location, vehicles, storage_units)`: column location_kind (vehicle wins if a location is in both).
-3. `add_x_positions(relations, axis)`: columns position and x.
-4. `location_colours(names)`: location → colour (module palette, light scheme).
-5. `high_level_runs(relations)`: runs of equal high-level location per handling unit (for "ribbon" and "shading").
-6. `visit_lanes(visits)`: column lane (greedy interval packing per handling unit and group; containing visits above contained ones).
-7. `trace_figure(relations, visits, filled_groups, dashed_groups, high_level_style, show_event_labels, link_shared_events, mark_ties, show_visit_ids, title)`: the plotly figure.
-`relations_for_figure(relations, location, handling_units, agg, vehicles, storage_units, axis)` runs steps 1 to 3 on a relations frame (a saved level mapping or `Derivation.relations`).
+3. `add_processing(relations, processing)`: column is_processing ($e \in P$; default: is_transformation).
+4. `add_x_positions(relations, axis)`: columns position and x.
+5. `location_colours(names)`: location → colour (module palette, light scheme).
+6. `high_level_runs(relations)`: runs of equal high-level location per handling unit (for "ribbon" and "shading").
+7. `visit_lanes(visits)`: column lane (greedy interval packing per handling unit and group; containing visits above contained ones).
+8. `trace_figure(relations, visits, filled_groups, dashed_groups, high_level_style, show_event_labels, link_shared_events, mark_ties, show_visit_ids, title)`: the plotly figure.
+`relations_for_figure(relations, location, handling_units, agg, vehicles, storage_units, axis, processing)` runs steps 1 to 4 on a relations frame (a saved level mapping or `Derivation.relations`).
 `visits/context.py`: `location_context(table)` reads $agg$, $V$, $W$ from a table with one row per location (columns location, high_level, is_vehicle, is_storage; draft format), e.g. `data/running_example/inputs/locations.csv`.
 Tests: `tests/test_trace_figure.py`.
 
 ## How to change it
-- Marker shapes: `LOW_SYMBOL`, `HIGH_SYMBOL`, `BOTTOM_SYMBOL`; vertical spacing: `HIGH_OFFSET`, `LANE`, `BAR`, `GAP`, `LABEL_OFFSET`, `RIBBON`, `SHADE`; trace line: `TRACE`, `TRACE_WIDTH`.
+- Marker shapes: `LOW_SYMBOL`, `HIGH_SYMBOL`, `BOTTOM_SYMBOL`; processing operations: `PROCESSING_SYMBOL`, `BOTTOM_PROCESSING_SYMBOL`, `PROCESSING_SIZE`; vertical spacing: `HIGH_OFFSET`, `LANE`, `BAR`, `GAP`, `LABEL_OFFSET`, `RIBBON`, `SHADE`; trace line: `TRACE`, `TRACE_WIDTH`.
 - Colours: `CATEGORICAL` is a copy of the light slots of `frontend-modules/location-ocpm/src/lib/palette.ts`.
 - In the tool, the figure will be drawn in the frontend (Plotly.js, like the other charts); the Python steps 1 to 5 then become the backend's data preparation.
 
