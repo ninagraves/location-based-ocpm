@@ -1,4 +1,4 @@
-"""Generate the small visits example: seven handling units whose traces cover the edge cases of
+"""Generate the small visits example: eight handling units whose traces cover the edge cases of
 maximal visits, shifts and waiting times (`overview/Single Level Visit Mappings.md`).
 
 The single source of the files in this folder; never edit the outputs by hand. Run from the repository
@@ -116,8 +116,7 @@ TRACES = {
     # h7: events with the same timestamp, ordered by AS4 (movements, then processing operations, then
     # the rest; each by event id), listed here in that order. The ids are chosen against AS4: at t = 3
     # the removal e55 comes before the processing operation e54, at t = 5 the processing operation e57
-    # before the other event e56. The waiting times use the waiting order (processing before
-    # movements), where the grind e54 comes first and is itself the removal from S1.
+    # before the other event e56.
     "h7": [
         ("e53", 0, "crane move", True, False, False, "S1"),
         ("e55", 3, "crane move", True, False, False, "A1"),
@@ -125,6 +124,14 @@ TRACES = {
         ("e57", 5, "roll", False, False, True, "A1"),
         ("e56", 5, "label", False, False, False, "A1"),
         ("e58", 6, "load truck", True, False, False, "T"),
+    ],
+    # h8: two processing operations at the same timestamp (violates RQ5; flagged, not blocking): AS4
+    # orders them by event id, so the roll e61 waits 0 after the grind e60.
+    "h8": [
+        ("e59", 0, "crane move", True, False, False, "A1"),
+        ("e60", 2, "grind", False, False, True, "A1"),
+        ("e61", 2, "roll", False, False, True, "A1"),
+        ("e62", 3, "load truck", True, False, False, "T"),
     ],
 }
 

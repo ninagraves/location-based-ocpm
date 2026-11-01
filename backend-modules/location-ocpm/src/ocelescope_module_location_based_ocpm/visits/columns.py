@@ -12,9 +12,6 @@ HIGH_LEVEL = "high_level"
 TIE_RANK = "tie_rank"
 #: Position of the relation in otrace(hu), starting at 1 (time, then tie_rank, then event id).
 POSITION = "position"
-#: Position of the relation in the waiting-time order of otrace(hu): as position, but processing operations
-#: before movements at equal timestamps (`order.add_waiting_positions`; Nina, 2026-11-01).
-WAITING_POSITION = "waiting_position"
 #: Excursion tolerance κ(hat-hl) of the relation's own high-level location (0 for ⊥).
 KAPPA = "kappa"
 #: Gap g_j before the relation: number of events of the handling unit since its previous relation at the

@@ -15,11 +15,6 @@ x = k if the trace ends with σ), and loc_j = loc((e_j, hu)). Visits at ⊥ have
   out of a storage unit, anywhere (also outside hl, during an excursion; Nina 2026-10-31). Option
   `outside_storage_resets=False` counts only storage units inside hl (agg(loc_{j-1}) = hl). A move between
   two storage units is no removal; ⊥ after a storage unit counts as a removal (loc_j ∉ W).
-- **Order** (Nina, 2026-11-01): within a visit, the relations are taken in the waiting-time order
-  (column waiting_position, `order.add_waiting_positions`): as otrace(hu), but at equal timestamps
-  processing operations come before movements. So a processing operation at the same time as the
-  movement that takes hu out of storage is itself the removal (see below), instead of waiting 0 after it.
-  The positions j below and in the pieces frame are waiting positions; `order=v.POSITION` uses AS4 instead.
 - **Clock events** c_0 = i < c_1 < ... < c_s: the positions in {i} ∪ Q(ν) ∪ X_W(ν), followed by c_{s+1} = x.
 - The **piece** ending at c_l (l = 1, ..., s + 1) lasts time(e_{c_l}) - time(e_{c_{l-1}}) and is labelled by its
   end: "waiting" if c_l ∈ Q(ν), "storage" if c_l ∈ X_W(ν) \\ Q(ν), "remaining" if l = s + 1.
@@ -28,6 +23,10 @@ x = k if the trace ends with σ), and loc_j = loc((e_j, hu)). Visits at ⊥ have
   (Nina, 2026-11-01) the piece before them is their waiting time, so it includes the time until and in
   storage. Option `zero_wait_at_removal=True` gives the earlier behaviour instead: that piece is storage
   time and the operation gets a waiting time of 0. Removals by other events reset the clock in both modes.
+- **Removal at the same timestamp as a processing operation** (DD-W4, Nina 2026-11-01): by AS4 the
+  removing movement comes first, so the processing operation waits 0. Option
+  `skip_simultaneous_removal=True` skips such a removal instead (it is no clock event), so the processing
+  operation waits from the clock event before it, including the storage time.
 - waiting + storage + remaining time = d, the visit duration. With W = ∅ this is the earlier version (C.1).
 
 The steps, each a function of its own (eager and lazy polars frames alike):
@@ -37,6 +36,8 @@ The steps, each a function of its own (eager and lazy polars frames alike):
 4. `waiting_times`: the waiting pieces only (one per processing operation).
 5. `waiting_summary`: per visit the number of processing operations and storage removals, and the total
    waiting, storage and remaining time.
+6. `simultaneous_processing`: flag (RQ5) for two processing operations of one handling unit at the same
+   timestamp.
 """
 
 from collections.abc import Collection
@@ -72,6 +73,10 @@ TOTAL_WAITING_TIME = "total_waiting_time"
 TOTAL_STORAGE_TIME = "total_storage_time"
 REMAINING_TIME = "remaining_time"
 
+#: Columns of the flag frame of `simultaneous_processing`.
+EVENTS = "events"
+N_EVENTS = "n_events"
+
 
 def add_processing(
     visit_relations: Frame, processing: Collection[str] | None = None
@@ -101,40 +106,36 @@ def add_storage_removals(
     storage_units: Collection[str] = (),
     location: str = "loc",
     outside_storage_resets: bool = True,
-    order: str = v.WAITING_POSITION,
 ) -> Frame:
     """Add is_storage_removal: the relation takes the handling unit out of a storage unit.
 
     A relation at position j > i (not the first one of the visit) is a storage removal iff the previous
     relation of the handling unit is in a storage unit and this one is not: loc_{j-1} ∈ W and loc_j ∉ W.
-    Positions are taken in the column `order` (default: the waiting-time order).
     By default (Nina's concept, 2026-10-31) the storage unit may lie outside the visit's high-level location
     (during an excursion). With `outside_storage_resets=False`, only storage units inside hl count, i.e.
     additionally agg(loc_{j-1}) = hl. False at ⊥ visits.
 
     Args:
-        visit_relations: Output of `maximal.visit_relations` (columns visit_id, `order`, visit_high_level
-            and `location`).
+        visit_relations: Output of `maximal.visit_relations` (columns visit_id, position, first_position,
+            visit_high_level and `location`).
         storage_units: The set W; empty = no removals.
         location: Column of loc (null = ⊥, which is not a storage unit).
         outside_storage_resets: True (default, concept): removals from any storage unit count; False: only
             removals from storage units at the visit's high-level location (needs the column high_level).
-        order: Column giving the order of the relations: waiting_position (default; processing operations
-            before movements at equal timestamps) or position (AS4).
 
     Returns:
         Frame: `visit_relations` with the column is_storage_removal.
     """
     in_w = pl.col(location).is_in(list(storage_units)).fill_null(False)
-    previous_in_w = in_w.shift(1).over(v.VISIT_ID, order_by=order)
+    previous_in_w = in_w.shift(1).over(v.VISIT_ID, order_by=v.POSITION)
     removal = (
-        (pl.col(order) > pl.col(order).min().over(v.VISIT_ID))
+        (pl.col(v.POSITION) > pl.col(v.FIRST_POSITION))
         & previous_in_w.fill_null(False)
         & ~in_w
         & pl.col(v.VISIT_HIGH_LEVEL).is_not_null()
     )
     if not outside_storage_resets:
-        previous_hl = pl.col(v.HIGH_LEVEL).shift(1).over(v.VISIT_ID, order_by=order)
+        previous_hl = pl.col(v.HIGH_LEVEL).shift(1).over(v.VISIT_ID, order_by=v.POSITION)
         removal = removal & (previous_hl == pl.col(v.VISIT_HIGH_LEVEL)).fill_null(False)
     return visit_relations.with_columns(removal.alias(v.IS_STORAGE_REMOVAL))
 
@@ -144,14 +145,13 @@ def time_pieces(
     visits: Frame,
     activity: str = c.ACTIVITY,
     zero_wait_at_removal: bool = False,
-    order: str = v.WAITING_POSITION,
+    skip_simultaneous_removal: bool = False,
 ) -> Frame:
     """One row per piece of a visit between two consecutive clock events, labelled by the event ending it.
 
     How it works:
     - the clock events of a visit are its entry, its processing positions and its storage removals (rows of
-      `visit_relations`), followed by its exit e_out (a row from `visits`), in the order `order` (default:
-      the waiting-time order, processing operations before movements at equal timestamps);
+      `visit_relations`), followed by its exit e_out (a row from `visits`), in trace order;
     - each clock event after the entry ends a piece from the previous clock event; the label is "waiting"
       for a processing operation, "storage" for a removal that is no processing operation, "remaining"
       for the exit;
@@ -172,41 +172,38 @@ def time_pieces(
         zero_wait_at_removal: False (default, the concept since 2026-11-01): a processing operation that
             takes the handling unit out of a storage unit waits from the previous clock event, including
             the storage time. True: the time before it is storage time and its waiting time is 0.
-        order: Column giving the order of the relations: waiting_position (default) or position (AS4);
-            start_position and end_position are taken from it. Use the same as in `add_storage_removals`.
+        skip_simultaneous_removal: False (default, DD-W4, Nina 2026-11-01): a removal by another event at
+            the same timestamp as the next processing operation resets the clock, so that operation waits
+            0 (by AS4 the removing movement comes first). True: such a removal is skipped, i.e. it is no
+            clock event, and the processing operation waits from the clock event before it (the time in
+            storage becomes part of its waiting time).
 
     Returns:
         Frame: Columns visit_id, hu, visit_high_level, piece, start_position, end_position, start_event,
         end_event, start_activity, end_activity, start_time, end_time, label, piece_duration; sorted by visit_id and piece. Visits at ⊥
         have no rows.
     """
-    is_entry = pl.col(order) == pl.col(order).min().over(v.VISIT_ID)
-    clock = visit_relations.with_columns(is_entry.alias("_entry")).filter(
+    is_entry = pl.col(v.POSITION) == pl.col(v.FIRST_POSITION)
+    clock = visit_relations.filter(
         pl.col(v.VISIT_HIGH_LEVEL).is_not_null()
-        & (pl.col("_entry") | pl.col(v.IS_PROCESSING) | pl.col(v.IS_STORAGE_REMOVAL))
+        & (is_entry | pl.col(v.IS_PROCESSING) | pl.col(v.IS_STORAGE_REMOVAL))
     ).select(
         v.VISIT_ID,
         c.HU,
         v.VISIT_HIGH_LEVEL,
-        pl.col(order).cast(pl.Int64).alias(v.POSITION),
+        v.POSITION,
         c.EVENT,
         c.TIME,
-        "_entry",
+        is_entry.alias("_entry"),
         pl.col(v.IS_PROCESSING).alias("_processing"),
         pl.col(v.IS_STORAGE_REMOVAL).alias("_removal"),
         pl.lit(0, dtype=pl.Int64).alias("_order"),
     )
-    # Position of the exit event in `order` (every relation lies in its own maximal visit).
-    exit_positions = visit_relations.select(
-        c.HU, pl.col(c.EVENT).alias(v.EXIT_EVENT), pl.col(order).cast(pl.Int64).alias(v.POSITION)
-    ).unique()
-    exits = visits.filter(pl.col(v.HIGH_LEVEL).is_not_null()).join(
-        exit_positions, on=[c.HU, v.EXIT_EVENT], how="left"
-    ).select(
+    exits = visits.filter(pl.col(v.HIGH_LEVEL).is_not_null()).select(
         v.VISIT_ID,
         c.HU,
         pl.col(v.HIGH_LEVEL).alias(v.VISIT_HIGH_LEVEL),
-        v.POSITION,
+        (pl.col(v.LAST_POSITION) + (~pl.col(v.ENDS_TRACE)).cast(pl.Int64)).alias(v.POSITION),
         pl.col(v.EXIT_EVENT).alias(c.EVENT),
         pl.col(v.EXIT_TIME).alias(c.TIME),
         pl.lit(False).alias("_entry"),
@@ -216,7 +213,15 @@ def time_pieces(
         pl.lit(1, dtype=pl.Int64).alias("_order"),
     )
     marks = pl.concat([clock, exits.with_columns(pl.col(v.POSITION).cast(pl.Int64))], how="vertical_relaxed")
-    marks = marks.sort(v.VISIT_ID, v.POSITION, "_order").with_columns(
+    marks = marks.sort(v.VISIT_ID, v.POSITION, "_order")
+    if skip_simultaneous_removal:
+        # A removal (not itself processing, not the entry) directly followed by a processing operation at the
+        # same timestamp is no clock event.
+        next_processing = pl.col("_processing").shift(-1).over(v.VISIT_ID).fill_null(False)
+        same_time = (pl.col(c.TIME).shift(-1).over(v.VISIT_ID) == pl.col(c.TIME)).fill_null(False)
+        skipped = pl.col("_removal") & ~pl.col("_processing") & ~pl.col("_entry") & next_processing & same_time
+        marks = marks.filter(~skipped)
+    marks = marks.with_columns(
         pl.col(v.POSITION).shift(1).over(v.VISIT_ID).alias(START_POSITION),
         pl.col(c.EVENT).shift(1).over(v.VISIT_ID).alias(START_EVENT),
         pl.col(c.TIME).shift(1).over(v.VISIT_ID).alias(START_TIME),
@@ -330,4 +335,32 @@ def waiting_summary(visits: Frame, pieces: Frame) -> Frame:
         )
         .select(v.VISIT_ID, *columns)
         .sort(v.VISIT_ID)
+    )
+
+
+def simultaneous_processing(
+    relations: Frame, processing: Collection[str] | None = None
+) -> Frame:
+    """Flag (RQ5, not a blocking error): two or more processing operations of one handling unit at the same
+    timestamp.
+
+    RQ5 assumes there are none; if there are, AS4 orders them by event id, so the later one waits 0 after
+    the earlier one. The flag lists them so they can be checked.
+
+    Args:
+        relations: One row per hu-event relation with columns hu, event, time (and is_transformation if
+            `processing` is None).
+        processing: The processing operations P as event ids; None = the transformation events T.
+
+    Returns:
+        Frame: Columns hu, time, events (list of the processing operations, sorted), n_events; one row per
+        handling unit and timestamp with at least two processing operations; sorted by hu and time.
+    """
+    return (
+        relations.filter(processing_flag(processing))
+        .group_by(c.HU, c.TIME)
+        .agg(pl.col(c.EVENT).unique().sort().alias(EVENTS))
+        .with_columns(pl.col(EVENTS).list.len().cast(pl.Int64).alias(N_EVENTS))
+        .filter(pl.col(N_EVENTS) > 1)
+        .sort(c.HU, c.TIME)
     )

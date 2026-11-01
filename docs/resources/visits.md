@@ -29,13 +29,13 @@ Per visit at $hl \in HL$:
 | Stops | `shifts.py`, `add_stops` | on_vehicle, is_stop |
 | Transfers | `shifts.py`, `transfers` | one row per $\mu_j$ with its category |
 | Shift summary | `shifts.py`, `shift_summary` | counts per category, $L(\nu)$, $L_{hl}(\nu)$, $L_{stop}(\nu)$, $L_{\neg v}(\nu)$, vehicle / transferring visit |
-| Waiting order | `order.py`, `add_waiting_positions` | waiting_position: like position, but processing operations before movements at equal timestamps |
 | Processing | `waiting.py`, `add_processing` | $e \in P$; $e \in P$ at the visit's $hl$ |
 | Storage removals | `waiting.py`, `add_storage_removals` | $loc_{j-1} \in W$, $loc_j \notin W$ (not at the first relation of the visit) |
 | Pieces | `waiting.py`, `time_pieces` | one row per piece between two clock events, labelled waiting / storage / remaining, with the activities of its start and end event (`start_activity`, `end_activity`; for a waiting time, `end_activity` is the processing activity, so waiting times group by activity directly) |
 | Waiting times | `waiting.py`, `waiting_times` | the waiting pieces, one per processing operation |
+| Flag RQ5 | `waiting.py`, `simultaneous_processing` | handling units with two or more processing operations at one timestamp |
 | Waiting summary | `waiting.py`, `waiting_summary` | number of processing operations and removals, total waiting, storage and remaining time |
-| All | `pipeline.py`, `analyse_visits` | `VisitAnalysis` (relations, visits, visit_relations, transfers, pieces, waiting_times) |
+| All | `pipeline.py`, `analyse_visits` | `VisitAnalysis` (relations, visits, visit_relations, transfers, pieces, waiting_times, simultaneous_processing) |
 
 Column names are in `columns.py` (relations, visits and visit relations) and at the top of `shifts.py` and `waiting.py` (their own frames).
 All functions take and return polars frames, eager or lazy alike; nothing iterates over rows.
@@ -50,15 +50,15 @@ Decisions taken in the implementation (all from the concept, listed for referenc
 - A processing operation at the entry gets a waiting time of 0 (an extra piece of length 0).
 - A processing operation that is itself a storage removal: by the concept (Nina, 2026-11-01) its waiting time counts from the previous clock event and so includes the time until and in storage. Option `zero_wait_at_removal=True` (in `time_pieces` and `analyse_visits`) gives the earlier behaviour: the time before it is a storage piece and its waiting time is 0. Removals by other events reset the clock in both modes.
 - If no $P$ is given, $P = T$ (column `is_transformation`).
-- Events with the same timestamp are ordered by AS4 (Nina, 2026-11-01): movements, then processing operations, then the rest, each group by event id; an event in $M \cap P$ counts as a movement. The same $P$ is used for the order and for the waiting times. The trace figure uses the same order on every axis.
-- **Waiting times use their own order** (Nina, 2026-11-01): processing operations *before* movements at equal timestamps (column `waiting_position`; `add_storage_removals` and `time_pieces` take `order="waiting_position"` by default, `order="position"` gives AS4). A removal from storage is usually a movement; in the waiting order, a processing operation at the same timestamp comes first, is itself the removal and waits from the previous clock event, including the storage time (DD-W1), instead of 0. Example h7: crane move e55 out of S1 and grind e54, both at t = 3: the grind waits 3 h (with AS4 it would be 3 h storage and 0 h waiting). The relations of a visit are the same in both orders; only the order inside the visit changes.
+- Events with the same timestamp are ordered by AS4 (Nina, 2026-11-01): movements, then processing operations, then the rest, each group by event id; an event in $M \cap P$ counts as a movement. The same $P$ is used for the order and for the waiting times. So a removal from storage by a movement and a processing operation at the same timestamp give a storage piece ending at the removal and a waiting time of 0 for the processing operation (DD-W4, accepted by Nina 2026-11-01; h7 of the edge-case example). Option `skip_simultaneous_removal=True` (in `time_pieces` and `analyse_visits`) skips such a removal: the processing operation then waits from the clock event before it, including the storage time.
+- Two processing operations of one handling unit at the same timestamp (excluded by RQ5) are a flag, not a blocking error: `simultaneous_processing` (in `VisitAnalysis.simultaneous_processing`); AS4 orders them by event id, so the second waits 0 (h8). The trace figure uses the same order on every axis.
 
 ## 3. Example
 
 Running example (Level 3, $\kappa_{max} = 2$, $V = \{T\}$): the maximal visits are $m_1$ to $m_{11}$ of the note (14, 13, 11 visits for κ = 0, 1, 2, including the ⊥ visit of c5); c2's A visit ($m_5$) has the transfers stay, direct shift, vehicle shift, stay; c1's ($m_2$) stay, direct, external, stay; $m_6$ and $m_8$ are vehicle visits, $m_4$ is transferring.
 With $P = \{e1, e3, e4, e15\}$ the waiting times of the working doc (C.2) come out, e.g. $m_5$: $w = (0, 1)$ h, $w_{rem} = 8$ h; with $W = \{B1\}$ (C.6), $m_2$ is cut into waiting 0, waiting 1 h, storage 4 h (removal e8, outside A), remaining 5 h.
 
-Edge-case example `data/visits_example/` (generated by `make_visits_example.py`, $\kappa_{max} = 1$, crane C1 mapped into A, truck T unmapped, both vehicles, storage units S1, S2 in A and B2 in B, explicit $P$ incl. three processing movements): seven handling units covering all transfer categories, vehicles inside and outside $hl$, vehicle relations at the start and end of a visit, vehicle and transferring visits, ⊥ visits and ⊥ in a transfer, cuts by κ, processing on a vehicle, during an excursion and as movements, entry by processing, trace end, and storage units (move between storage units, removal, processing that removes from storage, removal outside $hl$), and events with the same timestamp ordered by AS4 (h7).
+Edge-case example `data/visits_example/` (generated by `make_visits_example.py`, $\kappa_{max} = 1$, crane C1 mapped into A, truck T unmapped, both vehicles, storage units S1, S2 in A and B2 in B, explicit $P$ incl. three processing movements): eight handling units covering all transfer categories, vehicles inside and outside $hl$, vehicle relations at the start and end of a visit, vehicle and transferring visits, ⊥ visits and ⊥ in a transfer, cuts by κ, processing on a vehicle, during an excursion and as movements, entry by processing, trace end, and storage units (move between storage units, removal, processing that removes from storage, removal outside $hl$), events with the same timestamp ordered by AS4 (h7), and two processing operations at one timestamp (h8, flagged).
 `notebooks/visits.ipynb`, section 6, goes through each case.
 
 ## 4. Filtering
@@ -72,6 +72,7 @@ None (not on a page yet).
 - `agg`, `vehicles`: the location context; until they are inputs of the tool, read with `context.location_context` from a table (e.g. `data/running_example/inputs/locations.csv`).
 - `processing`: $P$ as event ids; default $T$. Also used for the AS4 order of events with the same timestamp.
 - `outside_storage_resets` (default `True`, concept): removals from storage units outside $hl$ also reset the clock; `False`: only storage units with $agg(loc_{j-1}) = hl$.
+- `skip_simultaneous_removal` (default `False`, DD-W4): with `True`, a removal by another event at the same timestamp as the next processing operation is no clock event.
 - `zero_wait_at_removal` (default `False`): see section 2; with `True`, processing operations that take the handling unit out of storage get a waiting time of 0.
 - `storage_units`: the set $W$ (read with `context.location_context`, column is_storage); default empty, which gives waiting and remaining time only.
 
@@ -87,7 +88,7 @@ See the table in section 2; every function has a docstring with its parameters a
 - **Other transfer categories**: change `shifts.transfer_category` and `CATEGORIES` / `CATEGORY_COUNTS`; the summary counts follow `CATEGORY_COUNTS`.
 - **Counting processing movements where they start** (at $ploc$ instead of $loc$): change the `is_processing` condition in `waiting.add_processing` (needs the high-level location of `ploc`).
 - **Visits other than the maximal ones** (e.g. later a visit sequence): `visit_relations`, `add_stops`, `transfers`, `shift_summary`, `add_processing`, `add_storage_removals`, `time_pieces`, `waiting_times` and `waiting_summary` work for any visits table with visit_id, hu, high_level, first_position, last_position (plus exit_event, exit_time, ends_trace for `time_pieces`).
-- **Another tie-break for equal timestamps**: change `order.tie_rank` only (its `processing_first` switch gives the waiting order); trace positions, visits and the trace figure follow AS4, the waiting times the waiting order.
+- **Another tie-break for equal timestamps** (e.g. processing operations before movements): change `order.tie_rank` only; trace positions, visits, pieces and the trace figure follow.
 - **Time in storage on its own** (C.6 note): add storage entries ($loc_{j-1} \notin W$, $loc_j \in W$) as clock events in `time_pieces` with their own label.
 - After a change: run `uv run pytest`, re-run `notebooks/visits.ipynb`, and adapt `tests/test_visits.py` where expected values change.
 

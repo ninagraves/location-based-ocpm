@@ -7,8 +7,7 @@ import polars as pl
 import pytest
 from ocelescope_module_location_based_ocpm.derivation.level_files import MAPPING_SCHEMA
 from ocelescope_module_location_based_ocpm.visits.context import location_context
-from ocelescope_module_location_based_ocpm.visits.maximal import add_trace_positions, derive_maximal_visits, visit_relations
-from ocelescope_module_location_based_ocpm.visits.waiting import add_processing, add_storage_removals, time_pieces
+from ocelescope_module_location_based_ocpm.visits.maximal import add_trace_positions, derive_maximal_visits
 from ocelescope_module_location_based_ocpm.visits.order import add_tie_rank
 from ocelescope_module_location_based_ocpm.visits.pipeline import VisitAnalysis, analyse_visits
 from ocelescope_module_location_based_ocpm.visits.visit_files import load_visits, save_visits
@@ -19,7 +18,7 @@ EDGE = DATA / "visits_example"
 CONTEXT = location_context(pl.read_csv(EXAMPLE / "inputs" / "locations.csv"))
 EDGE_CONTEXT = location_context(pl.read_csv(EDGE / "locations.csv"))
 EDGE_P = pl.read_csv(EDGE / "processing_events.csv")["event"].to_list()
-FRAMES = ("relations", "visits", "visit_relations", "transfers", "pieces", "waiting_times")
+FRAMES = ("relations", "visits", "visit_relations", "transfers", "pieces", "waiting_times", "simultaneous_processing")
 
 
 def hours(frame: pl.DataFrame, column: str) -> list[float | None]:
@@ -342,9 +341,9 @@ def test_waiting_times_carry_activities(edge):
     assert edge.pieces["end_activity"].null_count() == 0 and edge.pieces["start_activity"].null_count() == 0
     roll = edge.waiting_times.filter(pl.col("end_activity") == "roll")
     assert roll.select("hu", "end_event", "start_activity").rows() == [
-        ("h5", "e35", "crane move"), ("h6", "e46", "crane pick"), ("h7", "e57", "grind")
+        ("h5", "e35", "crane move"), ("h6", "e46", "crane pick"), ("h7", "e57", "grind"), ("h8", "e61", "grind")
     ]
-    assert hours(roll, "piece_duration") == [3, 3, 2]
+    assert hours(roll, "piece_duration") == [3, 3, 2, 0]
 
 
 def test_tie_rank_as4():
@@ -362,41 +361,18 @@ def test_tie_rank_as4():
 
 
 def test_edge_ties_follow_as4(edge):
-    """h7: equal timestamps follow AS4 (movements, processing, rest) in otrace; waiting times use the
-    waiting order (processing before movements), so the grind e54 is itself the removal from S1."""
-    h7 = edge.relations.filter(pl.col("hu") == "h7")
-    assert h7.sort("position")["event"].to_list() == ["e53", "e55", "e54", "e57", "e56", "e58"]
-    assert h7.sort("waiting_position")["event"].to_list() == ["e53", "e54", "e55", "e57", "e56", "e58"]
+    """h7: equal timestamps are ordered movements, processing operations, rest (against the event ids)."""
+    h7 = edge.relations.filter(pl.col("hu") == "h7").sort("position")
+    assert h7["event"].to_list() == ["e53", "e55", "e54", "e57", "e56", "e58"]
     a = visit(edge, "h7", "A", "e53")
     pieces = edge.pieces.filter(pl.col("visit_id") == a["visit_id"])
     assert pieces.select("start_event", "end_event", "label").rows() == [
-        ("e53", "e54", "waiting"),
+        ("e53", "e55", "storage"),
+        ("e55", "e54", "waiting"),
         ("e54", "e57", "waiting"),
         ("e57", "e58", "remaining"),
     ]
-    assert hours(pieces, "piece_duration") == [3, 2, 1]
-
-
-def test_edge_ties_zero_wait_and_as4_order():
-    """h7 with zero_wait_at_removal: storage 3 h, grind waits 0; with the AS4 order for the waiting times
-    (order="position" in the waiting functions) the removal e55 comes first and the grind also waits 0."""
-    relations = pl.read_csv(EDGE / "relations.csv", schema=MAPPING_SCHEMA).filter(pl.col("hu") == "h7")
-    zero = analyse_visits(
-        relations, "loc", EDGE_CONTEXT.agg, EDGE_CONTEXT.vehicles, kappa=1, processing=EDGE_P,
-        storage_units=EDGE_CONTEXT.storage_units, zero_wait_at_removal=True,
-    )
-    a = zero.pieces.filter(pl.col("visit_high_level") == "A")
-    assert a.select("start_event", "end_event", "label").rows() == [
-        ("e53", "e54", "storage"), ("e54", "e54", "waiting"), ("e54", "e57", "waiting"), ("e57", "e58", "remaining")
-    ]
-    rel, visits = derive_maximal_visits(relations, "loc", EDGE_CONTEXT.agg, 1, processing=EDGE_P)
-    vrel = add_storage_removals(
-        add_processing(visit_relations(rel, visits), EDGE_P), EDGE_CONTEXT.storage_units, order="position"
-    )
-    pieces = time_pieces(vrel, visits, order="position").filter(pl.col("visit_high_level") == "A")
-    assert pieces.select("start_event", "end_event", "label").rows() == [
-        ("e53", "e55", "storage"), ("e55", "e54", "waiting"), ("e54", "e57", "waiting"), ("e57", "e58", "remaining")
-    ]
+    assert hours(pieces, "piece_duration") == [3, 0, 2, 1]
 
 
 def test_trace_order_uses_processing_input():
@@ -452,13 +428,31 @@ def test_outside_storage_resets_edge():
     assert hours(pieces, "piece_duration") == [5, 3, 4, 4, 2]
 
 
-def test_waiting_positions_same_on_relations_and_visit_relations(edge):
-    """A relation gets the same waiting position wherever it appears (relations or any visit)."""
-    from ocelescope_module_location_based_ocpm.visits.order import add_waiting_positions
+def test_skip_simultaneous_removal(edge):
+    """h7: by default (DD-W4) the grind e54 waits 0 after the removal e55 at the same time; with
+    skip_simultaneous_removal the removal is skipped and the grind waits 3 h from the entry."""
+    a = visit(edge, "h7", "A", "e53")
+    default = edge.pieces.filter(pl.col("visit_id") == a["visit_id"])
+    assert hours(default.filter(pl.col("end_event") == "e54"), "piece_duration") == [0]
+    relations = pl.read_csv(EDGE / "relations.csv", schema=MAPPING_SCHEMA)
+    skip = analyse_visits(
+        relations, "loc", EDGE_CONTEXT.agg, EDGE_CONTEXT.vehicles, kappa=1, processing=EDGE_P,
+        storage_units=EDGE_CONTEXT.storage_units, skip_simultaneous_removal=True,
+    )
+    pieces = skip.pieces.filter(pl.col("visit_id") == a["visit_id"])
+    assert pieces.select("start_event", "end_event", "label").rows() == [
+        ("e53", "e54", "waiting"), ("e54", "e57", "waiting"), ("e57", "e58", "remaining")
+    ]
+    assert hours(pieces, "piece_duration") == [3, 2, 1]
+    # Only h7 has such a removal: all other pieces are unchanged.
+    others = pl.col("hu") != "h7"
+    assert skip.pieces.filter(others).equals(edge.pieces.filter(others))
 
-    again = add_waiting_positions(edge.visit_relations.drop("waiting_position"), EDGE_P)
-    assert again["waiting_position"].equals(edge.visit_relations["waiting_position"])
-    pairs = edge.visit_relations.select("hu", "event", "waiting_position").unique()
-    assert pairs.join(edge.relations.select("hu", "event", "waiting_position"), on=["hu", "event"]).filter(
-        pl.col("waiting_position") != pl.col("waiting_position_right")
-    ).height == 0
+
+def test_simultaneous_processing_flag(edge):
+    """RQ5 flag: h8 has two processing operations at the same timestamp; AS4 orders them by id."""
+    flag = edge.simultaneous_processing
+    assert flag.select("hu", "events", "n_events").rows() == [("h8", ["e60", "e61"], 2)]
+    h8 = edge.waiting_times.filter(pl.col("hu") == "h8")
+    assert h8.select("start_event", "end_event").rows() == [("e59", "e60"), ("e60", "e61")]
+    assert hours(h8, "piece_duration") == [2, 0]

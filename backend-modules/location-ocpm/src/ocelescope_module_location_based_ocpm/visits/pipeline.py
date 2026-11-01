@@ -11,9 +11,15 @@ import polars as pl
 
 from . import columns as v
 from .maximal import derive_maximal_visits, visit_relations
-from .order import add_waiting_positions
 from .shifts import add_stops, shift_summary, transfers
-from .waiting import add_processing, add_storage_removals, time_pieces, waiting_summary, waiting_times
+from .waiting import (
+    add_processing,
+    add_storage_removals,
+    simultaneous_processing,
+    time_pieces,
+    waiting_summary,
+    waiting_times,
+)
 
 
 @dataclass
@@ -21,8 +27,8 @@ class VisitAnalysis:
     """The results of `analyse_visits` (eager frames).
 
     Attributes:
-        relations: One row per hu-event relation with tie_rank, position, waiting_position, high_level,
-            kappa, gap, starts_visit and visit_id (the maximal visit at the relation's own high-level location).
+        relations: One row per hu-event relation with high_level, position, kappa, gap, starts_visit and
+            visit_id (the maximal visit at the relation's own high-level location).
         visits: One row per maximal visit: the columns of `maximal.maximal_visits`, then those of
             `shifts.shift_summary` and `waiting.waiting_summary`.
         visit_relations: One row per visit and relation r ∈ R(ν), with at_location, on_vehicle, is_stop,
@@ -31,6 +37,8 @@ class VisitAnalysis:
         pieces: One row per timed piece of a visit, labelled waiting, storage or remaining
             (`waiting.time_pieces`).
         waiting_times: The waiting pieces, one per processing operation (`waiting.waiting_times`).
+        simultaneous_processing: Flag RQ5: processing operations of one handling unit at the same timestamp
+            (`waiting.simultaneous_processing`); empty if RQ5 holds.
     """
 
     relations: pl.DataFrame
@@ -39,6 +47,7 @@ class VisitAnalysis:
     transfers: pl.DataFrame
     pieces: pl.DataFrame
     waiting_times: pl.DataFrame
+    simultaneous_processing: pl.DataFrame
 
 
 def analyse_visits(
@@ -52,6 +61,7 @@ def analyse_visits(
     storage_units: Collection[str] = (),
     zero_wait_at_removal: bool = False,
     outside_storage_resets: bool = True,
+    skip_simultaneous_removal: bool = False,
 ) -> VisitAnalysis:
     """Maximal visits with their shifts and waiting times, in one call.
 
@@ -64,8 +74,7 @@ def analyse_visits(
         kappa: κ_max, the excursion tolerance of every high-level location (κ(⊥) = 0).
         processing: The processing operations P as event ids; None = the transformation events T. Also
             orders events with the same timestamp (AS4: movements, then processing operations, then the
-            rest), so trace positions and visits follow AS4; waiting times use the waiting-time order
-            (processing operations before movements, `order.add_waiting_positions`).
+            rest), so trace positions, visits and waiting times follow AS4.
         ignore_vehicles: True = relations on a vehicle do not count towards the tolerance κ, even if the
             vehicle maps to another high-level location (`maximal.add_gaps`); default False.
         storage_units: The set W; a removal from a storage unit restarts the clock of the waiting times
@@ -75,6 +84,9 @@ def analyse_visits(
             0 and the time before it is storage time (`waiting.time_pieces`).
         outside_storage_resets: True (default, concept): removals from storage units outside the visit's
             high-level location (during an excursion) also reset the clock; False: only those inside it.
+        skip_simultaneous_removal: False (default, DD-W4): a removal at the same timestamp as the next
+            processing operation resets the clock (waiting time 0); True: that removal is skipped and the
+            operation waits from the clock event before (`waiting.time_pieces`).
 
     Returns:
         VisitAnalysis: All frames, collected.
@@ -82,17 +94,29 @@ def analyse_visits(
     rel, visits = derive_maximal_visits(
         relations, location, agg, kappa, vehicles, ignore_vehicles, processing
     )
-    rel = add_waiting_positions(rel, processing)
     vrel = visit_relations(rel, visits)
     vrel = add_stops(vrel, vehicles, location)
     vrel = add_processing(vrel, processing)
     vrel = add_storage_removals(vrel, storage_units, location, outside_storage_resets)
     transfer_frame = transfers(vrel, location)
-    pieces = time_pieces(vrel, visits, zero_wait_at_removal=zero_wait_at_removal)
+    pieces = time_pieces(
+        vrel,
+        visits,
+        zero_wait_at_removal=zero_wait_at_removal,
+        skip_simultaneous_removal=skip_simultaneous_removal,
+    )
     summary = visits.join(shift_summary(vrel, transfer_frame, location), on=v.VISIT_ID).join(
         waiting_summary(visits, pieces), on=v.VISIT_ID
     )
-    frames = [rel, summary.sort(v.VISIT_ID), vrel, transfer_frame, pieces, waiting_times(pieces)]
+    frames = [
+        rel,
+        summary.sort(v.VISIT_ID),
+        vrel,
+        transfer_frame,
+        pieces,
+        waiting_times(pieces),
+        simultaneous_processing(rel, processing),
+    ]
     if isinstance(relations, pl.LazyFrame):
         frames = pl.collect_all(frames)
     return VisitAnalysis(*frames)
