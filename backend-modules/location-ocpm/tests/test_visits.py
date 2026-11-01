@@ -339,3 +339,38 @@ def test_waiting_times_carry_activities(edge):
     roll = edge.waiting_times.filter(pl.col("end_activity") == "roll")
     assert roll.select("hu", "end_event", "start_activity").rows() == [("h5", "e35", "crane move"), ("h6", "e46", "crane pick")]
     assert hours(roll, "piece_duration") == [3, 3]
+
+
+
+def test_outside_storage_resets_option(derivation):
+    """C.6 example m2: by default the removal e8 from B1 (outside A) resets the clock; with
+    outside_storage_resets=False it does not, so after e4 only remaining time follows (9 h)."""
+    kwargs = dict(kappa=2, processing=["e1", "e3", "e4", "e15"], storage_units={"B1"})
+    for outside, labels, durations in (
+        (True, ["waiting", "waiting", "storage", "remaining"], [0, 1, 4, 5]),
+        (False, ["waiting", "waiting", "remaining"], [0, 1, 9]),
+    ):
+        analysis = analyse_visits(
+            derivation.relations, derivation.loc, CONTEXT.agg, CONTEXT.vehicles,
+            outside_storage_resets=outside, **kwargs,
+        )
+        m2 = visit(analysis, "c1", "A", "e3")
+        pieces = analysis.pieces.filter(pl.col("visit_id") == m2["visit_id"])
+        assert pieces["label"].to_list() == labels
+        assert hours(pieces, "piece_duration") == durations
+
+
+def test_outside_storage_resets_edge():
+    """h6 with outside_storage_resets=False: the removal e50 from B2 (in B) no longer resets the clock,
+    so the grind e51 waits 4 h from e48; the inside removal e44 still counts."""
+    relations = pl.read_csv(EDGE / "relations.csv", schema=MAPPING_SCHEMA)
+    analysis = analyse_visits(
+        relations, "loc", EDGE_CONTEXT.agg, EDGE_CONTEXT.vehicles, kappa=1, processing=EDGE_P,
+        storage_units=EDGE_CONTEXT.storage_units, outside_storage_resets=False,
+    )
+    a = visit(analysis, "h6", "A", "e42")
+    pieces = analysis.pieces.filter(pl.col("visit_id") == a["visit_id"])
+    assert pieces.select("label", "end_event").rows() == [
+        ("storage", "e44"), ("waiting", "e46"), ("waiting", "e48"), ("waiting", "e51"), ("remaining", "e52"),
+    ]
+    assert hours(pieces, "piece_duration") == [5, 3, 4, 4, 2]

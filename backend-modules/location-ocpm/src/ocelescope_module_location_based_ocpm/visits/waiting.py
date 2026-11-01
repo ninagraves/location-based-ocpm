@@ -12,7 +12,8 @@ x = k if the trace ends with σ), and loc_j = loc((e_j, hu)). Visits at ⊥ have
   after the event, a processing movement from hl to hl' is at hl'. Processing on a vehicle mapped into hl
   counts.
 - **Storage removals** X_W(ν) = {j ∈ {i+1, ..., k} | loc_{j-1} ∈ W and loc_j ∉ W}: the events that take hu
-  out of a storage unit, anywhere (also outside hl, during an excursion; Nina 2026-10-31). A move between
+  out of a storage unit, anywhere (also outside hl, during an excursion; Nina 2026-10-31). Option
+  `outside_storage_resets=False` counts only storage units inside hl (agg(loc_{j-1}) = hl). A move between
   two storage units is no removal; ⊥ after a storage unit counts as a removal (loc_j ∉ W).
 - **Clock events** c_0 = i < c_1 < ... < c_s: the positions in {i} ∪ Q(ν) ∪ X_W(ν), followed by c_{s+1} = x.
 - The **piece** ending at c_l (l = 1, ..., s + 1) lasts time(e_{c_l}) - time(e_{c_{l-1}}) and is labelled by its
@@ -94,19 +95,26 @@ def add_processing(
 
 
 def add_storage_removals(
-    visit_relations: Frame, storage_units: Collection[str] = (), location: str = "loc"
+    visit_relations: Frame,
+    storage_units: Collection[str] = (),
+    location: str = "loc",
+    outside_storage_resets: bool = True,
 ) -> Frame:
     """Add is_storage_removal: the relation takes the handling unit out of a storage unit.
 
     A relation at position j > i (not the first one of the visit) is a storage removal iff the previous
     relation of the handling unit is in a storage unit and this one is not: loc_{j-1} ∈ W and loc_j ∉ W.
-    The storage unit may lie outside the visit's high-level location (during an excursion). False at ⊥ visits.
+    By default (Nina's concept, 2026-10-31) the storage unit may lie outside the visit's high-level location
+    (during an excursion). With `outside_storage_resets=False`, only storage units inside hl count, i.e.
+    additionally agg(loc_{j-1}) = hl. False at ⊥ visits.
 
     Args:
         visit_relations: Output of `maximal.visit_relations` (columns visit_id, position, first_position,
             visit_high_level and `location`).
         storage_units: The set W; empty = no removals.
         location: Column of loc (null = ⊥, which is not a storage unit).
+        outside_storage_resets: True (default, concept): removals from any storage unit count; False: only
+            removals from storage units at the visit's high-level location (needs the column high_level).
 
     Returns:
         Frame: `visit_relations` with the column is_storage_removal.
@@ -119,6 +127,9 @@ def add_storage_removals(
         & ~in_w
         & pl.col(v.VISIT_HIGH_LEVEL).is_not_null()
     )
+    if not outside_storage_resets:
+        previous_hl = pl.col(v.HIGH_LEVEL).shift(1).over(v.VISIT_ID, order_by=v.POSITION)
+        removal = removal & (previous_hl == pl.col(v.VISIT_HIGH_LEVEL)).fill_null(False)
     return visit_relations.with_columns(removal.alias(v.IS_STORAGE_REMOVAL))
 
 

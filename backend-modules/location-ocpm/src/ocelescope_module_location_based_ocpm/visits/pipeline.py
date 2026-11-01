@@ -50,6 +50,7 @@ def analyse_visits(
     ignore_vehicles: bool = False,
     storage_units: Collection[str] = (),
     zero_wait_at_removal: bool = False,
+    outside_storage_resets: bool = True,
 ) -> VisitAnalysis:
     """Maximal visits with their shifts and waiting times, in one call.
 
@@ -68,6 +69,8 @@ def analyse_visits(
         zero_wait_at_removal: False (default, concept): a processing operation that is itself a storage
             removal waits from the previous clock event, incl. the storage time; True: its waiting time is
             0 and the time before it is storage time (`waiting.time_pieces`).
+        outside_storage_resets: True (default, concept): removals from storage units outside the visit's
+            high-level location (during an excursion) also reset the clock; False: only those inside it.
 
     Returns:
         VisitAnalysis: All frames, collected.
@@ -76,7 +79,7 @@ def analyse_visits(
     vrel = visit_relations(rel, visits)
     vrel = add_stops(vrel, vehicles, location)
     vrel = add_processing(vrel, processing)
-    vrel = add_storage_removals(vrel, storage_units, location)
+    vrel = add_storage_removals(vrel, storage_units, location, outside_storage_resets)
     transfer_frame = transfers(vrel, location)
     pieces = time_pieces(vrel, visits, zero_wait_at_removal=zero_wait_at_removal)
     summary = visits.join(shift_summary(vrel, transfer_frame, location), on=v.VISIT_ID).join(
