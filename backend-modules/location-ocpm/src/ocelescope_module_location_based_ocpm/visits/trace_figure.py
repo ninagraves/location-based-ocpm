@@ -1,7 +1,7 @@
 """Trace figure: object traces of several handling units with their low-level and high-level locations,
 and optionally visits drawn as bars below each trace.
 
-Draft for the visit conceptualisation (`overview/Single Level Visit Mappings.md`); not used by any page yet.
+Draft for the visit conceptualisation (`overview/concepts/Visit Mappings.md`); not used by any page yet.
 Documented in `docs/resources/trace-figure.md`.
 
 The figure is built in small steps, each a function of its own:
@@ -15,7 +15,8 @@ The figure is built in small steps, each a function of its own:
 `relations_for_figure` runs steps 1 to 3 (including 2b) on a relations frame (a saved location mapping or `Derivation.relations`).
 """
 
-from collections.abc import Collection, Mapping
+import re
+from collections.abc import Collection, Mapping, Sequence
 from datetime import timedelta
 from typing import Literal
 
@@ -23,17 +24,17 @@ import plotly.graph_objects as go
 import polars as pl
 
 from ..derivation import columns as c
+from .columns import HIGH_LEVEL, POSITION, TIE_RANK
+from .context import add_high_level_locations
+from .order import add_tie_rank
+from .sequence import add_positions, runs
 
 #: Axis options: position in the handling unit's own trace (as in the visit definition), order of all
 #: shown events (shared events line up vertically), or real time.
 Axis = Literal["trace position", "event order", "time"]
 
-#: Column of the high-level location hat-hl((e, hu)); null = ⊥.
-HIGH_LEVEL = "high_level"
 #: Column of the location kind: "vehicle", "storage" or "other"; null if the location is ⊥.
 KIND = "location_kind"
-#: Column of the position of the relation in otrace(hu), starting at 1.
-POSITION = "position"
 #: Optional column giving the order of the handling units in the figure (top to bottom).
 HU_ORDER = "hu_order"
 #: Column of the x value of the relation in the figure.
@@ -74,6 +75,8 @@ GREY = "#adb5bd"
 GUIDE = "#ced4da"
 #: Label of ⊥ in legends and hovers.
 NOT_LOCATED = "⊥ (not located)"
+#: Label of ⊥ inside a visit bar.
+BOTTOM_LABEL = "⊥"
 
 #: Marker symbol of a low-level location by kind (vehicles open, storage units diamonds).
 LOW_SYMBOL = {"vehicle": "circle-open", "storage": "diamond", "other": "circle"}
@@ -109,6 +112,17 @@ WIDTH = 1200
 NON_PLOT_WIDTH = 110 + 20 + 160
 #: Estimated width of one character of a run label (bold, size 10) and the padding around it, in pixels.
 CHAR_PX = 7
+#: Font size, estimated character width and colour of the per-trace metric texts.
+METRIC_FONT_SIZE = 10
+METRIC_CHAR_PX = 6
+METRIC_COLOUR = "#495057"
+#: Line height of the metric texts, and the estimated heights of a legend entry and of a legend group's
+#: title and gap (to place the metrics of the whole set below the legend), in pixels.
+METRIC_LINE_PX = 14
+LEGEND_ITEM_PX = 20
+LEGEND_GROUP_PX = 32
+#: x position of the legend and of the metrics block, in paper units (1 = right end of the plot).
+LEGEND_X = 1.02
 LABEL_PADDING_PX = 6
 #: Time axis: share of the smallest gap between timestamps over which events with the same timestamp are spread.
 TIE_SPREAD = 0.5
@@ -116,36 +130,14 @@ TIE_SPREAD = 0.5
 PX_PER_UNIT = 70
 #: Fill of the background box behind events with the same timestamp (very light, very transparent grey).
 TIE_FILL = "rgba(134, 142, 150, 0.12)"
+#: Fill of the background band behind every other handling unit (very light grey; Nina 2026-11-02).
+ROW_FILL = "rgba(0, 0, 0, 0.035)"
+#: Height of a handling unit's band above its low-level row (covers the angled event labels), in y units.
+ROW_TOP = 0.6
 #: Optional column of the visits table with an id per visit, written in the middle of its bar.
 VISIT_ID = "visit_id"
 #: Dash pattern of the outline of visits in `dashed_groups` (dash length, gap; plotly also accepts "dash", "dot").
 VISIT_DASH = "4px,2px"
-
-
-def add_high_level_locations(
-    relations: pl.DataFrame,
-    location: str,
-    agg: Mapping[str, str] | None = None,
-    high_level: str = HIGH_LEVEL,
-) -> pl.DataFrame:
-    """Add hat-hl((e, hu)) = agg(loc((e, hu))) if loc((e, hu)) ≠ ⊥, else ⊥.
-
-    `agg` may be partial: locations it does not map are their own high-level location (identity),
-    as in the note's todo "auto-complete via identity function".
-
-    Args:
-        relations: One row per hu-event relation with the column `location` (null = ⊥).
-        location: Column of the low-level location, e.g. "loc^3".
-        agg: Low-level location -> high-level location; None = identity for all.
-        high_level: Name of the new column.
-
-    Returns:
-        pl.DataFrame: `relations` with the column `high_level` (null where `location` is null).
-    """
-    expr = pl.col(location)
-    if agg:
-        expr = expr.replace(dict(agg))
-    return relations.with_columns(expr.alias(high_level))
 
 
 def add_location_kinds(
@@ -210,29 +202,41 @@ def add_processing(
 
 
 def add_x_positions(
-    relations: pl.DataFrame, axis: Axis = "event order"
+    relations: pl.DataFrame,
+    axis: Axis = "event order",
+    processing: Collection[str] | None = None,
 ) -> pl.DataFrame:
     """Add the trace position of every relation and its x value for the chosen axis.
 
-    The trace position is the index in otrace(hu), ordered by time and then event id (as `seq`).
+    The trace position is the index in otrace(hu), ordered as `seq`: by time, ties by AS4 (movements,
+    then processing operations, then the rest, each by event id; `order.py`). The event order uses
+    the same order over all shown events.
 
     Args:
         relations: Relations frame with columns hu, event, time (only the handling units to show), and
             optionally hu_order (order of the handling units; else they are sorted by id).
         axis: "trace position" (x = trace position), "event order" (x = rank of the event among all
             shown events, so an event shared by several handling units has one x), or "time".
+        processing: The processing operations P as event ids, for the AS4 tie-break; None = the
+            transformation events T.
 
     Returns:
-        pl.DataFrame: `relations` sorted by handling unit, time, event, with columns position and x.
+        pl.DataFrame: `relations` sorted by handling unit, time, tie_rank, event, with columns tie_rank,
+        position and x.
     """
     order = HU_ORDER if HU_ORDER in relations.columns else c.HU
-    out = relations.sort(order, c.TIME, c.EVENT).with_columns(
-        (pl.int_range(pl.len()).over(c.HU) + 1).alias(POSITION)
+    ranked = add_tie_rank(relations, processing)
+    out = add_positions(
+        ranked.sort(order, c.TIME, TIE_RANK, c.EVENT),
+        c.HU,
+        [c.TIME, TIE_RANK, c.EVENT],
+        POSITION,
     )
+    out = out.sort(order, c.TIME, TIE_RANK, c.EVENT)
     if axis == "trace position":
         x = pl.col(POSITION)
     elif axis == "event order":
-        x = pl.struct(c.TIME, c.EVENT).rank("dense")
+        x = pl.struct(c.TIME, TIE_RANK, c.EVENT).rank("dense")
     else:
         return add_tie_offsets(out)
     return out.with_columns(x.alias(X))
@@ -245,11 +249,11 @@ def add_tie_offsets(
 
     Without the spread, events at the same timestamp would be drawn on top of each other.
     The tied events of a timestamp (all shown events, so a shared event keeps one x) are placed side
-    by side in event id order (as `seq`), centred on the timestamp, together spanning at most `spread`
+    by side in `seq` order (tie_rank of AS4, then event id), centred on the timestamp, together spanning at most `spread`
     times the smallest gap between two distinct timestamps.
 
     Args:
-        relations: Relations frame with columns event and time.
+        relations: Relations frame with columns event, time and tie_rank (`order.add_tie_rank`).
         spread: Share of the smallest gap between timestamps that the tied events of one timestamp span.
 
     Returns:
@@ -259,10 +263,10 @@ def add_tie_offsets(
     gaps = times.diff().drop_nulls()
     gap = gaps.min() if len(gaps) else timedelta(hours=1)
     ties = (
-        relations.select(c.TIME, c.EVENT)
+        relations.select(c.TIME, TIE_RANK, c.EVENT)
         .unique()
         .with_columns(
-            (pl.col(c.EVENT).rank("dense").over(c.TIME) - 1).alias("_i"),
+            (pl.struct(TIE_RANK, c.EVENT).rank("dense").over(c.TIME) - 1).alias("_i"),
             pl.col(c.EVENT).n_unique().over(c.TIME).alias("_n"),
         )
     )
@@ -298,12 +302,12 @@ def relations_for_figure(
         vehicles: The set V.
         storage_units: The set W.
         axis: See `add_x_positions`.
-        processing: Event ids of the processing operations P (see `add_processing`); None = the
-            transformation events.
+        processing: Event ids of the processing operations P (see `add_processing`), also used for the
+            AS4 order of events with the same timestamp; None = the transformation events T.
 
     Returns:
         pl.DataFrame: Columns hu, hu_order, object_type, event, time, activity, is_movement, is_transformation, loc,
-        high_level, location_kind, is_processing, position, x.
+        high_level, location_kind, is_processing, tie_rank, position, x.
     """
     if handling_units is not None:
         order = {hu: i for i, hu in enumerate(handling_units)}
@@ -328,7 +332,7 @@ def relations_for_figure(
     relations = add_high_level_locations(relations, "loc", agg)
     relations = add_location_kinds(relations, "loc", vehicles, storage_units)
     relations = add_processing(relations, processing)
-    return add_x_positions(relations, axis)
+    return add_x_positions(relations, axis, processing)
 
 
 def location_colours(
@@ -445,25 +449,19 @@ def high_level_runs(relations: pl.DataFrame) -> pl.DataFrame:
         pl.DataFrame: One row per run: hu, high_level, x0 (x of its first relation), x1 (x of its last relation).
     """
     return (
-        relations.with_columns(
-            (
-                pl.col(HIGH_LEVEL)
-                .ne_missing(pl.col(HIGH_LEVEL).shift(1))
-                .over(c.HU)
-                .fill_null(True)
-            )
-            .cum_sum()
-            .over(c.HU)
-            .alias("_run")
+        runs(
+            relations,
+            HIGH_LEVEL,
+            c.HU,
+            POSITION,
+            keep=lambda value: value.is_not_null(),
+            aggregations=[
+                pl.col(X).sort_by(POSITION).first().alias("x0"),
+                pl.col(X).sort_by(POSITION).last().alias("x1"),
+            ],
         )
-        .group_by(c.HU, "_run", maintain_order=True)
-        .agg(
-            pl.col(HIGH_LEVEL).first(),
-            pl.col(X).first().alias("x0"),
-            pl.col(X).last().alias("x1"),
-        )
-        .filter(pl.col(HIGH_LEVEL).is_not_null())
-        .drop("_run")
+        .rename({"value": HIGH_LEVEL})
+        .select(c.HU, HIGH_LEVEL, "x0", "x1")
     )
 
 
@@ -497,6 +495,53 @@ def _tint(colour: str, alpha: float) -> str:
 HighLevelStyle = Literal["squares", "ribbon", "shading", "outline"]
 
 
+def _metric_text(line: str | tuple[str, str]) -> str:
+    """The text of a metric line (a text, or a pair of text and explanation)."""
+    return line if isinstance(line, str) else line[0]
+
+
+def _visible_length(text: str) -> int:
+    """Number of shown characters of a text with HTML tags (e.g. N<sup>ν</sup><sub>triv</sub>: 6)."""
+    return len(re.sub(r"<[^>]+>", "", text))
+
+
+def _metric_annotation(
+    line: str | tuple[str, str],
+    x,
+    y,
+    xref: str,
+    yref: str,
+    size: int = METRIC_FONT_SIZE,
+) -> dict:
+    """An annotation for one metric line, with its explanation as mouse-over text if given.
+
+    Args:
+        line: The text, or (text, explanation).
+        x: x position (left end of the text).
+        y: y position (middle of the text).
+        xref: "x" (data) or "paper".
+        yref: "y" (data) or "paper".
+        size: Font size.
+
+    Returns:
+        dict: A plotly annotation.
+    """
+    annotation = {
+        "x": x,
+        "y": y,
+        "xref": xref,
+        "yref": yref,
+        "text": _metric_text(line),
+        "showarrow": False,
+        "xanchor": "left",
+        "yanchor": "middle",
+        "font": {"size": size, "color": METRIC_COLOUR},
+    }
+    if not isinstance(line, str):
+        annotation["hovertext"] = line[1]
+    return annotation
+
+
 def trace_figure(
     relations: pl.DataFrame,
     visits: pl.DataFrame | None = None,
@@ -507,8 +552,13 @@ def trace_figure(
     link_shared_events: bool = True,
     mark_ties: bool = True,
     show_visit_ids: bool = True,
+    show_visit_locations: bool = True,
+    shade_rows: bool = True,
     title: str | None = None,
     width: int = WIDTH,
+    legend_metrics: Sequence[str | tuple[str, str]] | None = None,
+    legend_metrics_title: str = "metrics",
+    trace_metrics: Mapping[str, Sequence[str | tuple[str, str]]] | None = None,
 ) -> go.Figure:
     """Draw the object traces of several handling units with their locations, and optionally visits.
 
@@ -528,6 +578,15 @@ def trace_figure(
     - below that, each visit group (e.g. "maximal", "resolved") in its own lanes: one bar per visit
       from its first to its last relation (a visit at ⊥, high_level null, is grey), outlined (or filled for `filled_groups`; outline dashed for
       `dashed_groups`), coloured by its location.
+    Every other handling unit gets a very light grey background band (`shade_rows`), so that event ids
+    far to the right can still be matched to their handling unit.
+    A legend group "shape" explains the marker shapes in use: processing operation (star), processing
+    operation without a location (open asterisk), vehicle (open circle), storage unit (diamond).
+    Optionally, evaluation metrics of the shown visits (e.g. of a resolved mapping set), each line with an
+    explanation on mouse-over: those of the whole set as a block right of the plot, below the legend
+    (`legend_metrics`), and those of each handling unit as a list at the right end of its row
+    (`trace_metrics`). The figure only shows the texts it is given; they are computed and formatted by
+    `visit_mapping.metrics` (`metric_lines`, `trace_metric_lines`).
     Dashed vertical lines join the relations of an event shared by several shown handling units.
     Events with the same timestamp get a light grey background box (`mark_ties`): across the whole figure
     on the "event order" and "time" axes; per handling unit on the "trace position" axis, where the tied
@@ -545,10 +604,20 @@ def trace_figure(
         link_shared_events: Draw the lines joining shared events (not for the "trace position" axis,
             where a shared event has different x values).
         show_visit_ids: Write the visit_id (if the column is given) in the middle of each visit bar.
+        show_visit_locations: In filled bars (`filled_groups`, e.g. resolved visits), also write the
+            high-level location (⊥ for ⊥ visits): "<visit_id> · <hl>" if it fits into the bar, otherwise only
+            the location, otherwise nothing (Nina, 2026-11-02). Outlined bars keep only their ids.
         mark_ties: Draw the background boxes behind events with the same timestamp (needs column time).
+        shade_rows: Shade every other handling unit (the first, third, ...) with ROW_FILL across the plot width.
         title: Figure title.
         width: Figure width in pixels. A run label ("ribbon", "shading") is only shown if it fits
             into its ribbon or box at this width; otherwise the legend and the hover name the location.
+        legend_metrics: Optional lines (text, or (text, explanation shown on mouse-over)) for the whole
+            set, written right of the plot below the legend (the figure gets taller if needed); None = none
+            (default).
+        legend_metrics_title: Title of that block.
+        trace_metrics: Optional lines per handling unit (as above), written one below the other at the right
+            end of its row (the x axis is extended to make room); None = none (default).
 
     Returns:
         go.Figure: The figure.
@@ -578,6 +647,21 @@ def trace_figure(
         pad = 0.4
     x_min, x_max = relations[X].min() - 2 * pad, relations[X].max() + 2 * pad
     px_per_x = (width - NON_PLOT_WIDTH) / _x_units(x_max - x_min)
+    metrics_x = x_max
+    if trace_metrics:
+        # Room for the texts right of the traces: extend the axis so that the widest text fits.
+        text_px = (
+            max(
+                _visible_length(_metric_text(m))
+                for ms in trace_metrics.values()
+                for m in ms
+            )
+            * METRIC_CHAR_PX
+        )
+        text_px += LABEL_PADDING_PX
+        plot_px = width - NON_PLOT_WIDTH
+        extra = _x_units(x_max - x_min) * text_px / max(plot_px - text_px, 1)
+        x_max = x_max + (timedelta(hours=extra) if is_time else extra)
 
     def fits(text: str, x0, x1) -> bool:
         """Whether `text` fits into a ribbon or box from x0 - pad to x1 + pad."""
@@ -701,12 +785,24 @@ def trace_figure(
                             ),
                         )
                     )
-                    if show_visit_ids and v.get(VISIT_ID):
+                    label = None
+                    if filled and show_visit_locations:
+                        # filled bars: "<visit_id> · <hl>" if it fits, else "<hl>", else nothing
+                        location = v[HIGH_LEVEL] or BOTTOM_LABEL
+                        options = [location]
+                        if show_visit_ids and v.get(VISIT_ID):
+                            options.insert(0, f"{v[VISIT_ID]} · {location}")
+                        label = next(
+                            (t for t in options if fits(t, v["x0"], v["x1"])), None
+                        )
+                    elif show_visit_ids and v.get(VISIT_ID):
+                        label = str(v[VISIT_ID])
+                    if label is not None:
                         annotations.append(
                             {
                                 "x": v["x0"] + (v["x1"] - v["x0"]) / 2,
                                 "y": centre,
-                                "text": f"<b>{v[VISIT_ID]}</b>",
+                                "text": f"<b>{label}</b>",
                                 "showarrow": False,
                                 "font": {
                                     "size": 9,
@@ -931,17 +1027,80 @@ def trace_figure(
                     hoverinfo="skip",
                 )
             )
-    if relations.get_column(IS_PROCESSING, default=pl.Series([False])).any():
-        fig.add_trace(
-            go.Scatter(
-                x=[None],
-                y=[None],
-                mode="markers",
-                marker={"symbol": "star", "size": PROCESSING_SIZE, "color": GREY},
-                name="processing operation",
-                hoverinfo="skip",
+    # Legend group "shape": what the marker shapes mean (only shapes that occur in the figure).
+    processing = relations.get_column(
+        IS_PROCESSING, default=pl.Series([False] * relations.height)
+    ).fill_null(False)
+    located = relations["loc"].is_not_null()
+    kinds = relations.get_column(
+        KIND, default=pl.Series([None] * relations.height, dtype=pl.String)
+    )
+    shape_entries = [
+        ("processing operation", "star", PROCESSING_SIZE, (processing & located).any()),
+        (
+            "processing operation, not located",
+            BOTTOM_PROCESSING_SYMBOL,
+            PROCESSING_SIZE,
+            (processing & ~located).any(),
+        ),
+        (
+            "vehicle",
+            LOW_SYMBOL["vehicle"],
+            13,
+            ((kinds == "vehicle") & ~processing).any(),
+        ),
+        (
+            "storage unit",
+            LOW_SYMBOL["storage"],
+            13,
+            ((kinds == "storage") & ~processing).any(),
+        ),
+    ]
+    for name, symbol, size, used in shape_entries:
+        if used:
+            fig.add_trace(
+                go.Scatter(
+                    x=[None],
+                    y=[None],
+                    mode="markers",
+                    marker={"symbol": symbol, "size": size, "color": GREY},
+                    name=name,
+                    legendgroup="shape",
+                    legendgrouptitle_text="shape",
+                    hoverinfo="skip",
+                )
             )
-        )
+
+    # Evaluation metrics per handling unit: one line per metric at the right end of its row.
+    line_y = METRIC_LINE_PX / PX_PER_UNIT
+    for hu, lines in (trace_metrics or {}).items():
+        if hu in row_y:
+            for i, line in enumerate(lines):
+                annotations.append(
+                    _metric_annotation(
+                        line, metrics_x, row_y[hu] + ROW_TOP / 2 - i * line_y, "x", "y"
+                    )
+                )
+
+    # Every other handling unit: a very light background band across the plot width.
+    if shade_rows:
+        for i, hu in enumerate(hus):
+            if i % 2:
+                continue
+            last = i == len(hus) - 1
+            shapes.append(
+                {
+                    "type": "rect",
+                    "xref": "paper",
+                    "x0": 0,
+                    "x1": 1,
+                    "y0": y + GAP / 2 if last else row_bottom[hu] - GAP + ROW_TOP,
+                    "y1": row_y[hu] + ROW_TOP,
+                    "line": {"width": 0},
+                    "fillcolor": ROW_FILL,
+                    "layer": "below",
+                }
+            )
 
     # Same timestamp: a light background box around the tied events.
     if mark_ties and c.TIME in relations.columns:
@@ -986,15 +1145,51 @@ def trace_figure(
             )
 
     span = -y
+    height = int(160 + span * PX_PER_UNIT)
+    margin = {"l": 110, "r": 20, "t": 70 if title else 40, "b": 40}
+    # Evaluation metrics of the whole set: a block right of the plot, below the (estimated) legend.
+    if legend_metrics:
+        groups = {
+            t.legendgroup for t in fig.data if t.showlegend is not False and t.name
+        }
+        entries = sum(1 for t in fig.data if t.showlegend is not False and t.name)
+        legend_px = entries * LEGEND_ITEM_PX + len(groups) * LEGEND_GROUP_PX
+        block_px = (len(legend_metrics) + 1) * METRIC_LINE_PX
+        height = max(height, margin["t"] + legend_px + block_px + margin["b"] + 40)
+        plot_px = height - margin["t"] - margin["b"]
+        top = 1 - (legend_px + 30) / plot_px
+        annotations.append(
+            _metric_annotation(
+                f"<b>{legend_metrics_title}</b>",
+                LEGEND_X,
+                top,
+                "paper",
+                "paper",
+                size=12,
+            )
+        )
+        for i, line in enumerate(legend_metrics, start=1):
+            annotations.append(
+                _metric_annotation(
+                    line, LEGEND_X, top - i * METRIC_LINE_PX / plot_px, "paper", "paper"
+                )
+            )
     fig.update_layout(
         title=title,
         width=width,
         shapes=shapes,
         annotations=annotations,
-        height=int(160 + span * PX_PER_UNIT),
+        height=height,
         template="plotly_white",
-        legend={"groupclick": "toggleitem", "tracegroupgap": 12},
-        margin={"l": 110, "r": 20, "t": 70 if title else 40, "b": 40},
+        legend={
+            "groupclick": "toggleitem",
+            "tracegroupgap": 12,
+            "x": LEGEND_X,
+            "xanchor": "left",
+            "y": 1,
+            "yanchor": "top",
+        },
+        margin=margin,
         hoverlabel={"align": "left"},
     )
     fig.update_yaxes(
@@ -1002,7 +1197,7 @@ def trace_figure(
         ticktext=ticktext,
         showgrid=False,
         zeroline=False,
-        range=[y + GAP / 2, 0.6],
+        range=[y + GAP / 2, ROW_TOP],
     )
     x_title = (
         "time" if is_time else "trace position" if is_trace_position else "event order"
@@ -1014,4 +1209,9 @@ def trace_figure(
         dtick=None if is_time else 1,
         range=[x_min, x_max],
     )
+    if trace_metrics and not is_time:
+        # no ticks in the room for the metric texts
+        fig.update_xaxes(
+            tickvals=list(range(int(relations[X].min()), int(relations[X].max()) + 1))
+        )
     return fig

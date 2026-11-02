@@ -12,7 +12,7 @@ from .locatedness import FULLY, PARTIALLY, UNLOCATED, hu_locatedness  # noqa: F4
 
 
 def event_agreement(relations: pl.DataFrame, events: pl.DataFrame, location: str) -> pl.DataFrame:
-    """Agreement and eloc of every event under a location function λ.
+    """Agreement and eloc of every event under a location function ℓ.
 
     An event is agreeing if no two of its handling units have different locations ≠ ⊥
     (⊥ does not count against agreement). eloc is its unique location ≠ ⊥ if there is exactly
@@ -22,7 +22,7 @@ def event_agreement(relations: pl.DataFrame, events: pl.DataFrame, location: str
         relations: Relations frame with columns event and `location`.
         events: All events (column event), so that events without handling units are included
             (as agreeing, eloc ⊥).
-        location: Column holding λ, e.g. "loc^2".
+        location: Column holding ℓ, e.g. "loc^2".
 
     Returns:
         pl.DataFrame: Columns event, n_locations (distinct locations ≠ ⊥), agreeing (bool), eloc,
@@ -45,12 +45,12 @@ def event_agreement(relations: pl.DataFrame, events: pl.DataFrame, location: str
 
 
 def event_locations(relations: pl.DataFrame, events: pl.DataFrame, location: str) -> pl.DataFrame:
-    """Locatedness, agreement and eloc of every event under λ (`event_locatedness` + `event_agreement`).
+    """Locatedness, agreement and eloc of every event under ℓ (`event_locatedness` + `event_agreement`).
 
     Args:
         relations: Relations frame with columns event and `location`.
         events: All events (column event).
-        location: Column holding λ, e.g. "loc^2".
+        location: Column holding ℓ, e.g. "loc^2".
 
     Returns:
         pl.DataFrame: Columns event, n_relations, n_located, agreeing (bool), eloc, located.

@@ -1,0 +1,9 @@
+location,high_level,is_vehicle,is_storage
+A1,A,false,false
+A2,A,false,false
+C1,A,true,false
+S1,A,false,true
+S2,A,false,true
+B1,B,false,false
+B2,B,false,true
+T,,true,false

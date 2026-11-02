@@ -86,7 +86,7 @@ Example: the running example satisfies all three; `test_requirements_on_frames` 
 | loc^2 (backward fill) | `add_loc_2`, `first_location` | loc^1, else l_0(hu): the uloc of the earliest located event if strictly before the first movement t_M, else the puloc of the first movement |
 | loc^3 (transformation locations) | `add_loc_3` | loc^2, else eloc_{loc^2} of the earliest transformation event before t_M with eloc ≠ ⊥ |
 
-How it is computed: Level 1 and before_λ work on "time steps" (`_per_time_step`: one row per handling unit and timestamp, holding the first non-null value). All relations of a handling unit at one timestamp therefore get the same loc^1, which implements the ≤ of the concept; before_λ shifts by one time step, which implements the <.
+How it is computed: Level 1 and before_ℓ work on "time steps" (`_per_time_step`: one row per handling unit and timestamp, holding the first non-null value). All relations of a handling unit at one timestamp therefore get the same loc^1, which implements the ≤ of the concept; before_ℓ shifts by one time step, which implements the <.
 Example: `data/running_example/expected/levels.csv` (the concept's table "Overview of all levels"); the level at which relations are first located: 15, 4, 3, 4, never 2 (`test_levels.py`).
 
 How to change: each level is one function; a new level k needs a function `add_loc_k`, an entry in `columns.LEVELS`, a call in `pipeline.derive_levels`, the `level` literal in `DerivationConfig`, and expected values in `levels.csv`.
@@ -103,7 +103,7 @@ Example: `data/running_example/expected/ploc_1.csv`; e.g. (c1, e13): before_{loc
 
 ## 5. Locatedness, agreement and eloc (concept boxes "Locatedness", "Location Agreement")
 
-Locatedness (`locatedness.py`), all for a location column λ such as "loc^3":
+Locatedness (`locatedness.py`), all for a location column ℓ such as "loc^3":
 - `relation_locatedness(relations, "loc^k")`: per hu-event relation, `located` = loc^k ≠ ⊥.
 - `event_locatedness(relations, events, "loc^k")`: per event `n_relations`, `n_located` and `located` (fully located / partially located / unlocated). Events without handling units are included and unlocated.
 - `hu_locatedness(relations, "loc^k")`: the same per handling unit.

@@ -1,0 +1,63 @@
+event,hu,object_type,time,activity,is_movement,is_transformation,loc,ploc
+e1,h1,coil,2026-01-01T00:00:00.000000,produce,false,true,A1,
+e2,h1,coil,2026-01-01T01:00:00.000000,label,false,false,A1,A1
+e3,h1,coil,2026-01-01T02:00:00.000000,crane move,true,false,A2,A1
+e4,h1,coil,2026-01-01T03:00:00.000000,crane pick,true,false,C1,A2
+e5,h1,coil,2026-01-01T04:00:00.000000,crane drop,true,false,A2,C1
+e6,h1,coil,2026-01-01T06:00:00.000000,load truck,true,false,T,A2
+e7,h1,coil,2026-01-01T07:00:00.000000,unload truck,true,false,A1,T
+e8,h1,coil,2026-01-01T09:00:00.000000,crane move,true,false,B1,A1
+e9,h1,coil,2026-01-01T10:00:00.000000,crane move,true,false,A2,B1
+e10,h1,coil,2026-01-01T12:00:00.000000,grind,false,false,A2,A2
+e11,h1,coil,2026-01-01T13:00:00.000000,load truck,true,false,T,A2
+e12,h2,coil,2026-01-01T00:00:00.000000,load truck,true,false,T,
+e13,h2,coil,2026-01-01T01:00:00.000000,crane pick,true,false,C1,T
+e14,h2,coil,2026-01-01T02:00:00.000000,crane drop,true,false,A1,C1
+e15,h2,coil,2026-01-01T05:00:00.000000,inspect,false,false,A1,A1
+e16,h2,coil,2026-01-01T06:00:00.000000,crane pick,true,false,C1,A1
+e17,h2,coil,2026-01-01T07:00:00.000000,load truck,true,false,T,C1
+e18,h2,coil,2026-01-01T09:00:00.000000,inspect,false,false,T,T
+e19,h3,coil,2026-01-01T00:00:00.000000,inspect,false,false,,
+e20,h3,coil,2026-01-01T01:00:00.000000,inspect,false,false,,
+e21,h3,coil,2026-01-01T02:00:00.000000,crane move,true,false,A1,
+e22,h3,coil,2026-01-01T03:00:00.000000,inspect,false,false,,A1
+e23,h3,coil,2026-01-01T04:00:00.000000,inspect,false,false,A1,
+e24,h3,coil,2026-01-01T05:00:00.000000,load truck,true,false,T,A1
+e25,h3,coil,2026-01-01T06:00:00.000000,unload truck,true,false,A2,T
+e26,h4,coil,2026-01-01T00:00:00.000000,load truck,true,false,T,
+e27,h4,coil,2026-01-01T01:00:00.000000,unload truck,true,false,A1,T
+e28,h4,coil,2026-01-01T02:00:00.000000,load truck,true,false,T,A1
+e29,h4,coil,2026-01-01T04:00:00.000000,inspect,false,false,T,T
+e30,h4,coil,2026-01-01T05:00:00.000000,unload truck,true,false,B1,T
+e31,h4,coil,2026-01-01T06:00:00.000000,store,false,false,B1,B1
+e32,h4,coil,2026-01-01T08:00:00.000000,crane move,true,false,A2,B1
+e33,h5,coil,2026-01-01T00:00:00.000000,crane move,true,false,A1,
+e34,h5,coil,2026-01-01T01:00:00.000000,inspect,false,false,A1,A1
+e35,h5,coil,2026-01-01T03:00:00.000000,roll,false,true,A1,A1
+e36,h5,coil,2026-01-01T04:00:00.000000,weigh on crane,true,false,C1,A1
+e37,h5,coil,2026-01-01T05:00:00.000000,paint and drop,true,false,B1,C1
+e38,h5,coil,2026-01-01T07:00:00.000000,crane move,true,false,A2,B1
+e39,h5,coil,2026-01-01T08:00:00.000000,label,false,false,A2,A2
+e40,h5,coil,2026-01-01T10:00:00.000000,pack and move,true,false,B1,A2
+e41,h5,coil,2026-01-01T12:00:00.000000,store,false,false,B1,B1
+e42,h6,coil,2026-01-01T00:00:00.000000,crane move,true,false,S1,
+e43,h6,coil,2026-01-01T02:00:00.000000,crane move,true,false,S2,S1
+e44,h6,coil,2026-01-01T05:00:00.000000,crane pick,true,false,C1,S2
+e45,h6,coil,2026-01-01T06:00:00.000000,crane drop,true,false,A1,C1
+e46,h6,coil,2026-01-01T08:00:00.000000,roll,false,false,A1,A1
+e47,h6,coil,2026-01-01T09:00:00.000000,crane move,true,false,S1,A1
+e48,h6,coil,2026-01-01T12:00:00.000000,unpack and move,true,false,A2,S1
+e49,h6,coil,2026-01-01T13:00:00.000000,crane move,true,false,B2,A2
+e50,h6,coil,2026-01-01T15:00:00.000000,crane move,true,false,A2,B2
+e51,h6,coil,2026-01-01T16:00:00.000000,grind,false,false,A2,A2
+e52,h6,coil,2026-01-01T18:00:00.000000,load truck,true,false,T,A2
+e53,h7,coil,2026-01-01T00:00:00.000000,crane move,true,false,S1,
+e54,h7,coil,2026-01-01T03:00:00.000000,grind,false,false,A1,A1
+e55,h7,coil,2026-01-01T03:00:00.000000,crane move,true,false,A1,S1
+e56,h7,coil,2026-01-01T05:00:00.000000,label,false,false,A1,A1
+e57,h7,coil,2026-01-01T05:00:00.000000,roll,false,false,A1,A1
+e58,h7,coil,2026-01-01T06:00:00.000000,load truck,true,false,T,A1
+e59,h8,coil,2026-01-01T00:00:00.000000,crane move,true,false,A1,
+e60,h8,coil,2026-01-01T02:00:00.000000,grind,false,false,A1,A1
+e61,h8,coil,2026-01-01T02:00:00.000000,roll,false,false,A1,A1
+e62,h8,coil,2026-01-01T03:00:00.000000,load truck,true,false,T,A1
