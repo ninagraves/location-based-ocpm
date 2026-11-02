@@ -15,7 +15,7 @@ from ocelescope_module_location_based_ocpm.derivation import columns as c
 from ocelescope_module_location_based_ocpm.derivation.locatedness import FULLY, PARTIALLY, UNLOCATED
 from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation
 from ocelescope_module_location_based_ocpm.overview import filters as f
-from ocelescope_module_location_based_ocpm.overview.filters import PageFilter, passing_relations
+from ocelescope_module_location_based_ocpm.overview.filters import PageFilter, event_table, passing_relations
 
 #: Ring values in display order.
 LOCATEDNESS = [FULLY, PARTIALLY, UNLOCATED]
@@ -137,21 +137,22 @@ def event_type_expr() -> pl.Expr:
     return pl.when(joined == "").then(pl.lit("other")).otherwise(joined)
 
 
-def event_categories(derivation: Derivation) -> pl.DataFrame:
+def event_categories(derivation: Derivation, high: bool = False) -> pl.DataFrame:
     """Locatedness, type and agreement of every event at the selected level.
 
     Args:
         derivation: The current derivation.
+        high: True for the agreement under hat-hl (high-level mode of the Overview section).
 
     Returns:
         pl.DataFrame: Columns event, located, type, agreement. Agreement is "not tested" if
         fewer than two handling units of the event are located (agreeing by definition); with high-level
-        locations, an event that only agrees under hat-hl is "agreeing at high level only".
+        locations, an event that only agrees under hat-hl is "agreeing at high level only" (low-level mode only;
+        in high-level mode it is "agreeing").
     """
-    hl_agreeing = (
-        derivation.hl_event_locations.select(c.EVENT, pl.col("agreeing").alias("hl_agreeing"))
-        if derivation.has_high_level
-        else derivation.event_locations[derivation.level].select(c.EVENT, pl.col("agreeing").alias("hl_agreeing"))
+    base = event_table(derivation, high)
+    hl_agreeing = event_table(derivation, derivation.has_high_level).select(
+        c.EVENT, pl.col("agreeing").alias("hl_agreeing")
     )
     agreement = (
         pl.when(pl.col("n_located") < 2)
@@ -163,8 +164,7 @@ def event_categories(derivation: Derivation) -> pl.DataFrame:
         .otherwise(pl.lit("not agreeing"))
     )
     return (
-        derivation.event_locations[derivation.level]
-        .join(hl_agreeing, on=c.EVENT, how="left")
+        base.join(hl_agreeing, on=c.EVENT, how="left")
         .join(derivation.events.select(c.EVENT, c.IS_MOVEMENT, c.IS_TRANSFORMATION, c.IS_PROCESSING), on=c.EVENT)
         .select(c.EVENT, "located", event_type_expr().alias("type"), agreement.alias("agreement"))
     )

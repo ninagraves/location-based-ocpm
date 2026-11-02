@@ -8,10 +8,14 @@ from ocelescope_module_location_based_ocpm.configuration_routes import CurrentDe
 from ocelescope_module_location_based_ocpm.overview.activity_profile import ActivityProfile, activity_profile
 from ocelescope_module_location_based_ocpm.overview.data_charts import DataCharts, data_charts
 from ocelescope_module_location_based_ocpm.overview.filters import (
+    FilterOption,
     FilterOptions,
+    IdKind,
+    LocationMode,
     LocationRole,
     PageFilter,
     filter_options,
+    search_ids,
 )
 from ocelescope_module_location_based_ocpm.overview.flag_badges import FlagCount, flag_counts
 from ocelescope_module_location_based_ocpm.overview.key_numbers import KeyNumbers, key_numbers
@@ -39,6 +43,7 @@ def get_page_filter(
     location_role: LocationRole = "either",
     object_types: Annotated[list[str] | None, Query()] = None,
     exclude_object_types: Annotated[list[str] | None, Query()] = None,
+    location_mode: LocationMode = "low",
 ) -> PageFilter:
     """The filter bar's state from query parameters (repeat a parameter for several values)."""
     return PageFilter(
@@ -49,6 +54,7 @@ def get_page_filter(
         location_role=location_role,
         object_types=object_types or [],
         exclude_object_types=exclude_object_types or [],
+        location_mode=location_mode,
     )
 
 
@@ -59,6 +65,12 @@ Filter = Annotated[PageFilter, Depends(get_page_filter)]
 def get_filter_options(derivation: CurrentDerivation) -> FilterOptions:
     """Values of the filter bar with their counts over the whole log."""
     return filter_options(derivation)
+
+
+@router.get("/{ocel_id}/overview/search-ids", operation_id="searchIds")
+def get_search_ids(derivation: CurrentDerivation, kind: IdKind, query: str = "") -> list[FilterOption]:
+    """Single handling units or events whose id contains `query` (from two characters, at most 20)."""
+    return search_ids(derivation, kind, query)
 
 
 @router.get("/{ocel_id}/overview/key-numbers", operation_id="getKeyNumbers")
