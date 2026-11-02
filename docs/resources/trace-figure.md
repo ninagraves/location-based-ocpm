@@ -23,6 +23,8 @@ The object traces of several handling units, one block per handling unit (top to
   Visits sharing relations are put in different lanes, so contained and overlapping visits are visible.
 - Dashed vertical lines join the relations of an event shared by several shown handling units (not for the "trace position" axis).
 - Events with the same timestamp get a very light, transparent grey background box (`mark_ties`, colour `TIE_FILL`; Nina 2026-10-30): over the whole figure height on the "event order" and "time" axes; on the "trace position" axis per handling unit only (around the tied relations of that unit, its rows and visit lanes), since tied events of different units do not line up there. A legend entry "same timestamp" explains it.
+- Every other handling unit (the first, third, ...) gets a very light grey background band across the plot width (`shade_rows`, colour `ROW_FILL`; Nina 2026-11-02), so that event ids far to the right can still be matched to their handling unit. `shade_rows=False` switches it off.
+- A legend group "shape" explains the marker shapes that occur in the figure (Nina 2026-11-02): processing operation (star), processing operation without a location (open asterisk, grey like ⊥), vehicle (open circle), storage unit (diamond). The "location" group keeps naming the locations with their colours.
 - Hover on a relation: event, activity, movement/transformation, handling unit, trace position, time, both locations; on a visit bar: location, group, first and last event and positions.
 
 Low-level and high-level locations share one colour map (ranked by frequency in the figure), so a location mapped to itself has one colour on both rows.
@@ -52,7 +54,7 @@ None (draft outside the tool).
 5. `location_colours(names)`: location → colour (module palette, light scheme).
 6. `high_level_runs(relations)`: runs of equal high-level location per handling unit (for "ribbon" and "shading").
 7. `visit_lanes(visits)`: column lane (greedy interval packing per handling unit and group; containing visits above contained ones).
-8. `trace_figure(relations, visits, filled_groups, dashed_groups, high_level_style, show_event_labels, link_shared_events, mark_ties, show_visit_ids, title)`: the plotly figure.
+8. `trace_figure(relations, visits, filled_groups, dashed_groups, high_level_style, show_event_labels, link_shared_events, mark_ties, show_visit_ids, shade_rows, title)`: the plotly figure.
 `relations_for_figure(relations, location, handling_units, agg, vehicles, storage_units, axis, processing)` runs steps 1 to 4 on a relations frame (a saved level mapping or `Derivation.relations`).
 `visits/context.py`: `location_context(table)` reads $agg$, $V$, $W$ from a table with one row per location (columns location, high_level, is_vehicle, is_storage; draft format), e.g. `data/running_example/inputs/locations.csv`.
 Tests: `tests/test_trace_figure.py`.

@@ -116,6 +116,10 @@ TIE_SPREAD = 0.5
 PX_PER_UNIT = 70
 #: Fill of the background box behind events with the same timestamp (very light, very transparent grey).
 TIE_FILL = "rgba(134, 142, 150, 0.12)"
+#: Fill of the background band behind every other handling unit (very light grey; Nina 2026-11-02).
+ROW_FILL = "rgba(0, 0, 0, 0.035)"
+#: Height of a handling unit's band above its low-level row (covers the angled event labels), in y units.
+ROW_TOP = 0.6
 #: Optional column of the visits table with an id per visit, written in the middle of its bar.
 VISIT_ID = "visit_id"
 #: Dash pattern of the outline of visits in `dashed_groups` (dash length, gap; plotly also accepts "dash", "dot").
@@ -507,6 +511,7 @@ def trace_figure(
     link_shared_events: bool = True,
     mark_ties: bool = True,
     show_visit_ids: bool = True,
+    shade_rows: bool = True,
     title: str | None = None,
     width: int = WIDTH,
 ) -> go.Figure:
@@ -528,6 +533,10 @@ def trace_figure(
     - below that, each visit group (e.g. "maximal", "resolved") in its own lanes: one bar per visit
       from its first to its last relation (a visit at ⊥, high_level null, is grey), outlined (or filled for `filled_groups`; outline dashed for
       `dashed_groups`), coloured by its location.
+    Every other handling unit gets a very light grey background band (`shade_rows`), so that event ids
+    far to the right can still be matched to their handling unit.
+    A legend group "shape" explains the marker shapes in use: processing operation (star), processing
+    operation without a location (open asterisk), vehicle (open circle), storage unit (diamond).
     Dashed vertical lines join the relations of an event shared by several shown handling units.
     Events with the same timestamp get a light grey background box (`mark_ties`): across the whole figure
     on the "event order" and "time" axes; per handling unit on the "trace position" axis, where the tied
@@ -546,6 +555,7 @@ def trace_figure(
             where a shared event has different x values).
         show_visit_ids: Write the visit_id (if the column is given) in the middle of each visit bar.
         mark_ties: Draw the background boxes behind events with the same timestamp (needs column time).
+        shade_rows: Shade every other handling unit (the first, third, ...) with ROW_FILL across the plot width.
         title: Figure title.
         width: Figure width in pixels. A run label ("ribbon", "shading") is only shown if it fits
             into its ribbon or box at this width; otherwise the legend and the hover name the location.
@@ -931,17 +941,50 @@ def trace_figure(
                     hoverinfo="skip",
                 )
             )
-    if relations.get_column(IS_PROCESSING, default=pl.Series([False])).any():
-        fig.add_trace(
-            go.Scatter(
-                x=[None],
-                y=[None],
-                mode="markers",
-                marker={"symbol": "star", "size": PROCESSING_SIZE, "color": GREY},
-                name="processing operation",
-                hoverinfo="skip",
+    # Legend group "shape": what the marker shapes mean (only shapes that occur in the figure).
+    processing = relations.get_column(IS_PROCESSING, default=pl.Series([False] * relations.height)).fill_null(False)
+    located = relations["loc"].is_not_null()
+    kinds = relations.get_column(KIND, default=pl.Series([None] * relations.height, dtype=pl.String))
+    shape_entries = [
+        ("processing operation", "star", PROCESSING_SIZE, (processing & located).any()),
+        ("processing operation, not located", BOTTOM_PROCESSING_SYMBOL, PROCESSING_SIZE, (processing & ~located).any()),
+        ("vehicle", LOW_SYMBOL["vehicle"], 13, ((kinds == "vehicle") & ~processing).any()),
+        ("storage unit", LOW_SYMBOL["storage"], 13, ((kinds == "storage") & ~processing).any()),
+    ]
+    for name, symbol, size, used in shape_entries:
+        if used:
+            fig.add_trace(
+                go.Scatter(
+                    x=[None],
+                    y=[None],
+                    mode="markers",
+                    marker={"symbol": symbol, "size": size, "color": GREY},
+                    name=name,
+                    legendgroup="shape",
+                    legendgrouptitle_text="shape",
+                    hoverinfo="skip",
+                )
             )
-        )
+
+    # Every other handling unit: a very light background band across the plot width.
+    if shade_rows:
+        for i, hu in enumerate(hus):
+            if i % 2:
+                continue
+            last = i == len(hus) - 1
+            shapes.append(
+                {
+                    "type": "rect",
+                    "xref": "paper",
+                    "x0": 0,
+                    "x1": 1,
+                    "y0": y + GAP / 2 if last else row_bottom[hu] - GAP + ROW_TOP,
+                    "y1": row_y[hu] + ROW_TOP,
+                    "line": {"width": 0},
+                    "fillcolor": ROW_FILL,
+                    "layer": "below",
+                }
+            )
 
     # Same timestamp: a light background box around the tied events.
     if mark_ties and c.TIME in relations.columns:
@@ -1002,7 +1045,7 @@ def trace_figure(
         ticktext=ticktext,
         showgrid=False,
         zeroline=False,
-        range=[y + GAP / 2, 0.6],
+        range=[y + GAP / 2, ROW_TOP],
     )
     x_title = (
         "time" if is_time else "trace position" if is_trace_position else "event order"
