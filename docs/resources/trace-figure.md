@@ -25,6 +25,7 @@ The object traces of several handling units, one block per handling unit (top to
 - Events with the same timestamp get a very light, transparent grey background box (`mark_ties`, colour `TIE_FILL`; Nina 2026-10-30): over the whole figure height on the "event order" and "time" axes; on the "trace position" axis per handling unit only (around the tied relations of that unit, its rows and visit lanes), since tied events of different units do not line up there. A legend entry "same timestamp" explains it.
 - Every other handling unit (the first, third, ...) gets a very light grey background band across the plot width (`shade_rows`, colour `ROW_FILL`; Nina 2026-11-02), so that event ids far to the right can still be matched to their handling unit. `shade_rows=False` switches it off.
 - A legend group "shape" explains the marker shapes that occur in the figure (Nina 2026-11-02): processing operation (star), processing operation without a location (open asterisk, grey like ⊥), vehicle (open circle), storage unit (diamond). The "location" group keeps naming the locations with their colours.
+- Evaluation metrics of the shown visits (optional, both off by default; Nina 2026-11-02), e.g. of a resolved mapping set (`docs/resources/visit-mapping.md`): the metrics of the whole set as a block right of the plot, below the legend (`legend_metrics`, title `legend_metrics_title`), and those of each handling unit as a list at the right end of its row (`trace_metrics`; the x axis is extended to make room, its ticks stay at the relations). Every metric shows its definition from Nina's note ("Evaluating mapping sets") on mouse-over. The figure only shows the texts it is given (text, or (text, explanation)); they come from `visit_mapping.metrics.metric_lines` and `trace_metric_lines`, so nothing is computed in the figure.
 - Hover on a relation: event, activity, movement/transformation, handling unit, trace position, time, both locations; on a visit bar: location, group, first and last event and positions.
 
 Low-level and high-level locations share one colour map (ranked by frequency in the figure), so a location mapped to itself has one colour on both rows.
@@ -50,17 +51,18 @@ None (draft outside the tool).
 1. `add_high_level_locations(relations, location, agg)` (in `visits/context.py`, imported here): column high_level.
 2. `add_location_kinds(relations, location, vehicles, storage_units)`: column location_kind (vehicle wins if a location is in both).
 3. `add_processing(relations, processing)`: column is_processing ($e \in P$; default: is_transformation).
-4. `add_x_positions(relations, axis)`: columns position and x.
+4. `add_x_positions(relations, axis, processing)`: columns tie_rank, position and x.
 5. `location_colours(names)`: location → colour (module palette, light scheme).
 6. `high_level_runs(relations)`: runs of equal high-level location per handling unit (for "ribbon" and "shading").
 7. `visit_lanes(visits)`: column lane (greedy interval packing per handling unit and group; containing visits above contained ones).
-8. `trace_figure(relations, visits, filled_groups, dashed_groups, high_level_style, show_event_labels, link_shared_events, mark_ties, show_visit_ids, shade_rows, title)`: the plotly figure.
+8. `trace_figure(relations, visits, filled_groups, dashed_groups, high_level_style, show_event_labels, link_shared_events, mark_ties, show_visit_ids, shade_rows, title, width, legend_metrics, legend_metrics_title, trace_metrics)`: the plotly figure.
 `relations_for_figure(relations, location, handling_units, agg, vehicles, storage_units, axis, processing)` runs steps 1 to 4 on a relations frame (a saved level mapping or `Derivation.relations`).
 `visits/context.py`: `location_context(table)` reads $agg$, $V$, $W$ from a table with one row per location (columns location, high_level, is_vehicle, is_storage; draft format), e.g. `data/running_example/inputs/locations.csv`.
 Tests: `tests/test_trace_figure.py`.
 
 ## How to change it
 - Marker shapes: `LOW_SYMBOL`, `HIGH_SYMBOL`, `BOTTOM_SYMBOL`; processing operations: `PROCESSING_SYMBOL`, `BOTTOM_PROCESSING_SYMBOL`, `PROCESSING_SIZE`; vertical spacing: `HIGH_OFFSET`, `LANE`, `BAR`, `GAP`, `LABEL_OFFSET`, `RIBBON`, `SHADE`; trace line: `TRACE`, `TRACE_WIDTH`.
+- Metric texts: `METRIC_FONT_SIZE`, `METRIC_CHAR_PX`, `METRIC_COLOUR`, `METRIC_LINE_PX`; the block of the whole set is placed below the legend by an estimate (`LEGEND_ITEM_PX`, `LEGEND_GROUP_PX`), since plotly in Python does not know the rendered legend height; the figure gets taller if the block would not fit.
 - Colours: `CATEGORICAL` is a copy of the light slots of `frontend-modules/location-ocpm/src/lib/palette.ts`.
 - In the tool, the figure will be drawn in the frontend (Plotly.js, like the other charts); the Python steps 1 to 5 then become the backend's data preparation.
 

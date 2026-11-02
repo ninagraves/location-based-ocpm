@@ -15,7 +15,7 @@ The figure is built in small steps, each a function of its own:
 `relations_for_figure` runs steps 1 to 3 (including 2b) on a relations frame (a saved location mapping or `Derivation.relations`).
 """
 
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from datetime import timedelta
 from typing import Literal
 
@@ -108,6 +108,17 @@ WIDTH = 1200
 NON_PLOT_WIDTH = 110 + 20 + 160
 #: Estimated width of one character of a run label (bold, size 10) and the padding around it, in pixels.
 CHAR_PX = 7
+#: Font size, estimated character width and colour of the per-trace metric texts.
+METRIC_FONT_SIZE = 10
+METRIC_CHAR_PX = 6
+METRIC_COLOUR = "#495057"
+#: Line height of the metric texts, and the estimated heights of a legend entry and of a legend group's
+#: title and gap (to place the metrics of the whole set below the legend), in pixels.
+METRIC_LINE_PX = 14
+LEGEND_ITEM_PX = 20
+LEGEND_GROUP_PX = 32
+#: x position of the legend and of the metrics block, in paper units (1 = right end of the plot).
+LEGEND_X = 1.02
 LABEL_PADDING_PX = 6
 #: Time axis: share of the smallest gap between timestamps over which events with the same timestamp are spread.
 TIE_SPREAD = 0.5
@@ -481,6 +492,41 @@ def _tint(colour: str, alpha: float) -> str:
 HighLevelStyle = Literal["squares", "ribbon", "shading", "outline"]
 
 
+def _metric_text(line: str | tuple[str, str]) -> str:
+    """The text of a metric line (a text, or a pair of text and explanation)."""
+    return line if isinstance(line, str) else line[0]
+
+
+def _metric_annotation(line: str | tuple[str, str], x, y, xref: str, yref: str, size: int = METRIC_FONT_SIZE) -> dict:
+    """An annotation for one metric line, with its explanation as mouse-over text if given.
+
+    Args:
+        line: The text, or (text, explanation).
+        x: x position (left end of the text).
+        y: y position (middle of the text).
+        xref: "x" (data) or "paper".
+        yref: "y" (data) or "paper".
+        size: Font size.
+
+    Returns:
+        dict: A plotly annotation.
+    """
+    annotation = {
+        "x": x,
+        "y": y,
+        "xref": xref,
+        "yref": yref,
+        "text": _metric_text(line),
+        "showarrow": False,
+        "xanchor": "left",
+        "yanchor": "middle",
+        "font": {"size": size, "color": METRIC_COLOUR},
+    }
+    if not isinstance(line, str):
+        annotation["hovertext"] = line[1]
+    return annotation
+
+
 def trace_figure(
     relations: pl.DataFrame,
     visits: pl.DataFrame | None = None,
@@ -494,6 +540,9 @@ def trace_figure(
     shade_rows: bool = True,
     title: str | None = None,
     width: int = WIDTH,
+    legend_metrics: Sequence[str | tuple[str, str]] | None = None,
+    legend_metrics_title: str = "metrics",
+    trace_metrics: Mapping[str, Sequence[str | tuple[str, str]]] | None = None,
 ) -> go.Figure:
     """Draw the object traces of several handling units with their locations, and optionally visits.
 
@@ -517,6 +566,11 @@ def trace_figure(
     far to the right can still be matched to their handling unit.
     A legend group "shape" explains the marker shapes in use: processing operation (star), processing
     operation without a location (open asterisk), vehicle (open circle), storage unit (diamond).
+    Optionally, evaluation metrics of the shown visits (e.g. of a resolved mapping set), each line with an
+    explanation on mouse-over: those of the whole set as a block right of the plot, below the legend
+    (`legend_metrics`), and those of each handling unit as a list at the right end of its row
+    (`trace_metrics`). The figure only shows the texts it is given; they are computed and formatted by
+    `visit_mapping.metrics` (`metric_lines`, `trace_metric_lines`).
     Dashed vertical lines join the relations of an event shared by several shown handling units.
     Events with the same timestamp get a light grey background box (`mark_ties`): across the whole figure
     on the "event order" and "time" axes; per handling unit on the "trace position" axis, where the tied
@@ -539,6 +593,12 @@ def trace_figure(
         title: Figure title.
         width: Figure width in pixels. A run label ("ribbon", "shading") is only shown if it fits
             into its ribbon or box at this width; otherwise the legend and the hover name the location.
+        legend_metrics: Optional lines (text, or (text, explanation shown on mouse-over)) for the whole
+            set, written right of the plot below the legend (the figure gets taller if needed); None = none
+            (default).
+        legend_metrics_title: Title of that block.
+        trace_metrics: Optional lines per handling unit (as above), written one below the other at the right
+            end of its row (the x axis is extended to make room); None = none (default).
 
     Returns:
         go.Figure: The figure.
@@ -568,6 +628,14 @@ def trace_figure(
         pad = 0.4
     x_min, x_max = relations[X].min() - 2 * pad, relations[X].max() + 2 * pad
     px_per_x = (width - NON_PLOT_WIDTH) / _x_units(x_max - x_min)
+    metrics_x = x_max
+    if trace_metrics:
+        # Room for the texts right of the traces: extend the axis so that the widest text fits.
+        text_px = max(len(_metric_text(m)) for ms in trace_metrics.values() for m in ms) * METRIC_CHAR_PX
+        text_px += LABEL_PADDING_PX
+        plot_px = width - NON_PLOT_WIDTH
+        extra = _x_units(x_max - x_min) * text_px / max(plot_px - text_px, 1)
+        x_max = x_max + (timedelta(hours=extra) if is_time else extra)
 
     def fits(text: str, x0, x1) -> bool:
         """Whether `text` fits into a ribbon or box from x0 - pad to x1 + pad."""
@@ -946,6 +1014,15 @@ def trace_figure(
                 )
             )
 
+    # Evaluation metrics per handling unit: one line per metric at the right end of its row.
+    line_y = METRIC_LINE_PX / PX_PER_UNIT
+    for hu, lines in (trace_metrics or {}).items():
+        if hu in row_y:
+            for i, line in enumerate(lines):
+                annotations.append(
+                    _metric_annotation(line, metrics_x, row_y[hu] + ROW_TOP / 2 - i * line_y, "x", "y")
+                )
+
     # Every other handling unit: a very light background band across the plot width.
     if shade_rows:
         for i, hu in enumerate(hus):
@@ -1009,15 +1086,33 @@ def trace_figure(
             )
 
     span = -y
+    height = int(160 + span * PX_PER_UNIT)
+    margin = {"l": 110, "r": 20, "t": 70 if title else 40, "b": 40}
+    # Evaluation metrics of the whole set: a block right of the plot, below the (estimated) legend.
+    if legend_metrics:
+        groups = {t.legendgroup for t in fig.data if t.showlegend is not False and t.name}
+        entries = sum(1 for t in fig.data if t.showlegend is not False and t.name)
+        legend_px = entries * LEGEND_ITEM_PX + len(groups) * LEGEND_GROUP_PX
+        block_px = (len(legend_metrics) + 1) * METRIC_LINE_PX
+        height = max(height, margin["t"] + legend_px + block_px + margin["b"] + 40)
+        plot_px = height - margin["t"] - margin["b"]
+        top = 1 - (legend_px + 30) / plot_px
+        annotations.append(
+            _metric_annotation(f"<b>{legend_metrics_title}</b>", LEGEND_X, top, "paper", "paper", size=12)
+        )
+        for i, line in enumerate(legend_metrics, start=1):
+            annotations.append(
+                _metric_annotation(line, LEGEND_X, top - i * METRIC_LINE_PX / plot_px, "paper", "paper")
+            )
     fig.update_layout(
         title=title,
         width=width,
         shapes=shapes,
         annotations=annotations,
-        height=int(160 + span * PX_PER_UNIT),
+        height=height,
         template="plotly_white",
-        legend={"groupclick": "toggleitem", "tracegroupgap": 12},
-        margin={"l": 110, "r": 20, "t": 70 if title else 40, "b": 40},
+        legend={"groupclick": "toggleitem", "tracegroupgap": 12, "x": LEGEND_X, "xanchor": "left", "y": 1, "yanchor": "top"},
+        margin=margin,
         hoverlabel={"align": "left"},
     )
     fig.update_yaxes(
@@ -1037,4 +1132,7 @@ def trace_figure(
         dtick=None if is_time else 1,
         range=[x_min, x_max],
     )
+    if trace_metrics and not is_time:
+        # no ticks in the room for the metric texts
+        fig.update_xaxes(tickvals=list(range(int(relations[X].min()), int(relations[X].max()) + 1)))
     return fig

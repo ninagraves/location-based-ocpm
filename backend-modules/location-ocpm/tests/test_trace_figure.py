@@ -382,3 +382,33 @@ def test_shape_legend_explains_markers_in_use(derivation):
     }
     plain = relations_for_figure(derivation.relations, derivation.loc, ["c1"], AGG, processing=())
     assert not [t for t in trace_figure(plain).data if t.legendgroup == "shape"]
+
+
+def test_metrics_in_legend_and_per_trace(derivation):
+    rel = relations_for_figure(derivation.relations, derivation.loc, ["c1", "c2"], AGG)
+    plain = trace_figure(rel)
+    fig = trace_figure(
+        rel,
+        legend_metrics=[("N_vis = 3", "number of visits"), "N_loop = 0"],
+        legend_metrics_title="metrics (S6)",
+        trace_metrics={"c1": [("N_vis = 2", "number of visits"), ("N_triv = 1", "trivial visits")], "c2": ["N_vis = 1"]},
+    )
+    new = [a for a in fig.layout.annotations if a.text.startswith(("N_", "<b>metrics"))]
+    assert len(plain.layout.annotations) + 6 == len(fig.layout.annotations)
+    by_text = {}
+    for a in new:
+        by_text.setdefault(a.text, []).append(a)
+    # whole set: right of the plot (paper coordinates), title first, explanation on mouse-over
+    title = by_text["<b>metrics (S6)</b>"][0]
+    whole = [a for a in new if a.xref == "paper" and a.text != title.text]
+    assert [a.text for a in whole] == ["N_vis = 3", "N_loop = 0"]
+    assert whole[0].hovertext == "number of visits" and whole[1].hovertext is None
+    assert title.x > 1 and title.y > whole[0].y > whole[1].y
+    # per trace: in data coordinates right of the last relation, one line per metric
+    per_trace = [a for a in new if a.xref == "x"]
+    assert sorted(a.text for a in per_trace) == ["N_triv = 1", "N_vis = 1", "N_vis = 2"]
+    assert all(a.x >= rel["x"].max() for a in per_trace)
+    assert {a.text: a.hovertext for a in per_trace}["N_triv = 1"] == "trivial visits"
+    # the axis is extended to make room; the ticks stay at the relations
+    assert fig.layout.xaxis.range[1] > plain.layout.xaxis.range[1]
+    assert max(fig.layout.xaxis.tickvals) == rel["x"].max()

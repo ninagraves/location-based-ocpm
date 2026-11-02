@@ -7,6 +7,6 @@
 - `pipeline.py`: everything in one call (`analyse_visits`).
 - `visit_files.py`: save and load maximal visits.
 - `trace_figure.py`: draft figure of object traces with visits.
-Waiting times are in the package `waiting_times` (with or without visits).
+Waiting times are in the package `waiting_times` (with or without visits), disjoint mapping sets in `visit_mapping`.
 Documented in `docs/resources/visits.md`, `docs/resources/shifts.md` and `docs/resources/trace-figure.md`.
 """

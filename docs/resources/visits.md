@@ -4,9 +4,9 @@ Status: implemented in the backend package and demoed in `notebooks/visits.ipynb
 Concept: `overview/Single Level Visit Mappings.md` (outside this repo), sections "Visits", "Deriving maximal Visits" (with DD-V1 to DD-V4), "Visit duration" and "implementation".
 Code: `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/visits/` (paths below are relative to it).
 Tests: `backend-modules/location-ocpm/tests/test_visits.py` (running example and the edge-case example).
-Built on the visits: stops, transfers and shifts (`docs/resources/shifts.md`) and, optionally, waiting times (`docs/resources/waiting-times.md`).
+Built on the visits: stops, transfers and shifts (`docs/resources/shifts.md`), optionally waiting times (`docs/resources/waiting-times.md`), and disjoint mapping sets (`docs/resources/visit-mapping.md`).
 
-Not implemented (benched or discarded in the concept): cutting visits and excursions (Part B), the general marker/segment version (Part D), visit sequences, the characteristics "contained" and "overlapping", and the conditions on the visit itself of DD-V4 (maximum visit duration, maximum number of deviating infixes, maximum time outside, maximum number of other high-level locations; open question to Nina, since cutting by them changes maximality).
+Not implemented (benched or discarded in the concept): cutting visits and excursions (Part B), the general marker/segment version (Part D), the characteristics "contained" and "overlapping", and the conditions on the visit itself of DD-V4 (maximum visit duration, maximum number of deviating infixes, maximum time outside, maximum number of other high-level locations; open question to Nina, since cutting by them changes maximality).
 
 ## 1. What it shows
 
