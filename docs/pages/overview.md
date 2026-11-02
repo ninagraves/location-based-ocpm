@@ -107,9 +107,10 @@ With the location context of `data/running_example/inputs/locations.csv` and pro
 | fully / partially / unlocated (events) | Activity "[fully / partially / unlocated events]" |
 | movement, transformation, processing | Activity "[movement events]", "[transformation events]", "[processing operations]" |
 | agreeing, not agreeing | Activity "[agreeing events]", "[disagreeing events]" |
-| fully / partially / unlocated (handling units) | Handling unit type "[fully / partially / unlocated HUs]" |
+| fully / partially / unlocated (handling units) | Handling unit "[fully / partially / unlocated HUs]" |
 | vehicle, storage unit (locations chart) | Location "[vehicles]", "[storage units]" |
-| combinations of roles, other, agreeing at high level only, not tested, vehicle and storage unit, high-level segments, every segment of the relations chart | nothing (no filter value matches them; high-level filter values follow with the high-level switch) |
+| high-level location (locations chart, outer ring) | Location "[high-level] A" (all locations of A); a location that is its own only member (the unmapped T) sets "T" (`high_level_groups`) |
+| combinations of roles, other, agreeing at high level only, not tested, vehicle and storage unit, every segment of the relations chart | nothing (no filter value matches them) |
 
 Values of different categories within the Activity filter are combined with OR, so clicking a type and then a locatedness segment widens the filter instead of narrowing it.
 A sunburst click never zooms into the segment.

@@ -126,3 +126,11 @@ def test_search_ids(derivation):
 def test_heatmap_of_processing_operations(context):
     """Only the processing operations' activities stay."""
     assert sorted(heatmap(context, PageFilter(), events="processing").columns) == ["cast slab", "cut", "label", "roll"]
+
+
+def test_sunburst_high_level_clicks(context):
+    """A high-level segment of the Locations sunburst sets its entry; the unmapped T sets itself."""
+    from ocelescope_module_location_based_ocpm.overview.data_charts import data_charts
+
+    filters = {s.id: s.filter.value for s in data_charts(context).locations if s.parent and s.filter}
+    assert filters == {"other/A": "[high-level] A", "storage unit/B": "[high-level] B", "vehicle/T": "T"}

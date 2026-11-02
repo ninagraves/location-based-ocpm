@@ -262,12 +262,23 @@ def location_types(derivation: Derivation) -> pl.DataFrame:
     return pl.DataFrame(rows, schema={"location": pl.String, "location_type": pl.String, "high_level": pl.String}, orient="row")
 
 
-def location_segments(counted: pl.DataFrame, with_high_level: bool) -> list[Segment]:
+def high_level_groups(derivation: Derivation) -> set[str]:
+    """High-level locations with an entry of their own in the grouped location filter: all but those whose only
+    location is themselves (e.g. an unmapped T)."""
+    members: dict[str, set[str]] = {}
+    for location in derivation.locations:
+        members.setdefault(derivation.context.agg.get(location, location), set()).add(location)
+    return {hl for hl, own in members.items() if own != {hl}} if derivation.has_high_level else set()
+
+
+def location_segments(counted: pl.DataFrame, with_high_level: bool, groups: set[str] | frozenset = frozenset()) -> list[Segment]:
     """Locations sunburst: inner ring location type, outer ring high-level location.
 
     Args:
         counted: One row per counted item with columns location_type, high_level.
         with_high_level: False leaves out the outer ring (no high-level locations configured).
+        groups: High-level locations with an entry of their own in the location filter; a click on one sets
+            "[high-level] A", a click on another (a location that is its own only member) sets the location.
 
     Returns:
         list[Segment]: Non-empty segments, inner ring first; types in display order, high-level locations by
@@ -289,7 +300,16 @@ def location_segments(counted: pl.DataFrame, with_high_level: bool) -> list[Segm
         )
         for kind in LOCATION_TYPES:
             for _, high_level, count in outer.filter(pl.col("location_type") == kind).rows():
-                segments.append(Segment(id=f"{kind}/{high_level}", label=high_level, parent=kind, count=count))
+                value = f.HIGH_LEVEL_PREFIX + high_level if high_level in groups else high_level
+                segments.append(
+                    Segment(
+                        id=f"{kind}/{high_level}",
+                        label=high_level,
+                        parent=kind,
+                        count=count,
+                        filter=FilterValue(filter="locations", value=value),
+                    )
+                )
     return segments
 
 
@@ -305,6 +325,7 @@ def data_charts(derivation: Derivation, page_filter: PageFilter | None = None) -
     """
     page_filter = page_filter or PageFilter()
     passing = passing_relations(derivation, page_filter)
+    groups = high_level_groups(derivation)
     kept_events = event_categories(derivation).join(passing.select(c.EVENT).unique(), on=c.EVENT, how="semi")
     relations = derivation.relations.join(passing.select(c.EVENT, c.HU), on=[c.EVENT, c.HU], how="semi")
     types = location_types(derivation)
@@ -314,8 +335,8 @@ def data_charts(derivation: Derivation, page_filter: PageFilter | None = None) -
         events=event_segments(kept_events),
         relations=relation_segments(first_levels(relations)),
         handling_units=hu_segments(passing.unique(c.HU)["hu_located"]),
-        locations=location_segments(types, derivation.has_high_level),
-        location_relations=location_segments(located, derivation.has_high_level),
+        locations=location_segments(types, derivation.has_high_level, groups),
+        location_relations=location_segments(located, derivation.has_high_level, groups),
         unlocated_relations=passing.filter(pl.col("loc").is_null()).height,
         has_context=any(
             option is not None for option in (config.high_level_locations, config.vehicles, config.storage_units)
