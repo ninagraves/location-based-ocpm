@@ -26,39 +26,39 @@ LOCATION = "location"
 
 
 def loc(level: int) -> str:
-    """Name of the column holding loc_k.
+    """Name of the column holding loc^k.
 
     Args:
         level: Level k (0 to 3).
 
     Returns:
-        str: e.g. "loc_2".
+        str: e.g. "loc^2".
     """
-    return f"loc_{level}"
+    return f"loc^{level}"
 
 
 def before(level: int) -> str:
-    """Name of the column holding before_{loc_k}.
+    """Name of the column holding before_{loc^k}.
 
     Args:
         level: Level k (0 to 3).
 
     Returns:
-        str: e.g. "before_2".
+        str: e.g. "before^2".
     """
-    return f"before_{level}"
+    return f"before^{level}"
 
 
 def ploc(level: int) -> str:
-    """Name of the column holding ploc_k.
+    """Name of the column holding ploc^k.
 
     Args:
         level: Level k (0 to 3).
 
     Returns:
-        str: e.g. "ploc_2".
+        str: e.g. "ploc^2".
     """
-    return f"ploc_{level}"
+    return f"ploc^{level}"
 
 
 #: All levels, lowest first.

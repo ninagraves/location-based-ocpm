@@ -13,23 +13,23 @@ def test_no_errors(derivation):
 
 
 def test_levels(derivation):
-    columns = ["hu", "event", "loc_0", "loc_1", "loc_2", "loc_3"]
+    columns = ["hu", "event", "loc^0", "loc^1", "loc^2", "loc^3"]
     actual = derivation.relations.select(columns).sort("hu", "event")
     assert_frame_equal(actual, expected("levels").sort("hu", "event"))
 
 
 def test_before_and_ploc_level_1(derivation):
-    actual = derivation.relations.select("hu", "event", "puloc", "before_1", "ploc_1").sort("hu", "event")
+    actual = derivation.relations.select("hu", "event", "puloc", "before^1", "ploc^1").sort("hu", "event")
     assert_frame_equal(actual, expected("ploc_1").sort("hu", "event"))
 
 
 def test_level_at_which_a_relation_is_first_located(derivation):
     """Concept: Level 0: 15, Level 1: 4, Level 2: 3, Level 3: 4, never: 2."""
     first = derivation.relations.select(
-        pl.when(pl.col("loc_0").is_not_null()).then(pl.lit("0"))
-        .when(pl.col("loc_1").is_not_null()).then(pl.lit("1"))
-        .when(pl.col("loc_2").is_not_null()).then(pl.lit("2"))
-        .when(pl.col("loc_3").is_not_null()).then(pl.lit("3"))
+        pl.when(pl.col("loc^0").is_not_null()).then(pl.lit("0"))
+        .when(pl.col("loc^1").is_not_null()).then(pl.lit("1"))
+        .when(pl.col("loc^2").is_not_null()).then(pl.lit("2"))
+        .when(pl.col("loc^3").is_not_null()).then(pl.lit("3"))
         .otherwise(pl.lit("never"))
         .alias("first")
     )["first"].value_counts()
@@ -54,11 +54,11 @@ def test_t1_tie_rule():
             "is_movement": [False] * 7,
             "uloc": [None] * 7,
             "puloc": [None] * 7,
-            "loc_2": [None, None, None, "D", "A", "B", "C"],
+            "loc^2": [None, None, None, "D", "A", "B", "C"],
         },
-        schema_overrides={"uloc": pl.String, "puloc": pl.String, "loc_2": pl.String},
+        schema_overrides={"uloc": pl.String, "puloc": pl.String, "loc^2": pl.String},
     )
     events = relations.select("event").unique()
-    eloc_2 = event_locations(relations, events, "loc_2").select("event", "eloc")
-    loc_3 = add_loc_3(relations, eloc_2).filter(pl.col("hu") == "h")["loc_3"].unique().to_list()
+    eloc_2 = event_locations(relations, events, "loc^2").select("event", "eloc")
+    loc_3 = add_loc_3(relations, eloc_2).filter(pl.col("hu") == "h")["loc^3"].unique().to_list()
     assert loc_3 == ["D"]

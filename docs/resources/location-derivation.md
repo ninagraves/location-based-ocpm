@@ -14,7 +14,7 @@ Status: used by the configuration (iteration 3, `docs/pages/configuration.md`); 
 | 1. User choices | `config.py`, `DerivationConfig` | one option per input, selected level |
 | 2. Resolve inputs | `inputs.py`, `resolve_inputs` | `relations` (one row per hu-event relation), `events`, notices, blocking errors |
 | 3. Requirements | `requirements.py`, `check_requirements` | blocking errors RQ1-RQ3 |
-| 4. Levels | `levels.py`, `add_loc_0` … `add_loc_3`, `add_before`, `add_ploc` | columns `loc_k`, `before_k`, `ploc_k` for k = 0..3 |
+| 4. Levels | `levels.py`, `add_loc_0` … `add_loc_3`, `add_before`, `add_ploc` | columns `loc^k`, `before^k`, `ploc^k` for k = 0..3 |
 | 5. Locatedness, agreement | `locatedness.py`, `agreement.py` | per relation, event, HU: located; per event: agreeing, eloc |
 | 6. Flags | `flags.py`, `f1_…` to `f5_…` | flagged events / HUs |
 | All | `pipeline.py`, `derive` | `Derivation` |
@@ -103,15 +103,15 @@ Example: `data/running_example/expected/ploc_1.csv`; e.g. (c1, e13): before_{loc
 
 ## 5. Locatedness, agreement and eloc (concept boxes "Locatedness", "Location Agreement")
 
-Locatedness (`locatedness.py`), all for a location column λ such as "loc_3":
-- `relation_locatedness(relations, "loc_k")`: per hu-event relation, `located` = loc^k ≠ ⊥.
-- `event_locatedness(relations, events, "loc_k")`: per event `n_relations`, `n_located` and `located` (fully located / partially located / unlocated). Events without handling units are included and unlocated.
-- `hu_locatedness(relations, "loc_k")`: the same per handling unit.
+Locatedness (`locatedness.py`), all for a location column λ such as "loc^3":
+- `relation_locatedness(relations, "loc^k")`: per hu-event relation, `located` = loc^k ≠ ⊥.
+- `event_locatedness(relations, events, "loc^k")`: per event `n_relations`, `n_located` and `located` (fully located / partially located / unlocated). Events without handling units are included and unlocated.
+- `hu_locatedness(relations, "loc^k")`: the same per handling unit.
 - `locatedness(n_relations, n_located)`: the shared rule as a polars expression; constants `FULLY`, `PARTIALLY`, `UNLOCATED`.
 
 Agreement (`agreement.py`):
-- `event_agreement(relations, events, "loc_k")`: per event `n_locations` (distinct locations ≠ ⊥), `agreeing` (at most one) and `eloc` (that location if exactly one, else ⊥).
-- `event_locations(relations, events, "loc_k")`: both joined per event; `Derivation.event_locations[k]` holds the result for every level.
+- `event_agreement(relations, events, "loc^k")`: per event `n_locations` (distinct locations ≠ ⊥), `agreeing` (at most one) and `eloc` (that location if exactly one, else ⊥).
+- `event_locations(relations, events, "loc^k")`: both joined per event; `Derivation.event_locations[k]` holds the result for every level.
 
 Example: `data/running_example/expected/agreement.csv`; e.g. e14 at Level 1: c1 T, c3 B1 → fully located, disagreeing, eloc ⊥. All functions are demonstrated in `notebooks/location_derivation.ipynb`, section 6.
 

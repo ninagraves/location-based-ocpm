@@ -6,7 +6,7 @@ other notebooks (e.g. `notebooks/trace_figure.ipynb`) load them instead of deriv
 File format (one file per level k, `locations_level_{k}.csv`):
 - one row per hu-event relation, sorted by hu, time, event;
 - columns `MAPPING_COLUMNS`: event, hu, object_type, time, activity, is_movement, is_transformation, loc, ploc;
-- `loc` = loc_k and `ploc` = ploc_k, so every file has the same columns and the level is in the file name;
+- `loc` = loc^k and `ploc` = ploc^k, so every file has the same columns and the level is in the file name;
 - time in ISO format, booleans as true/false, ⊥ as an empty cell.
 """
 
@@ -18,9 +18,9 @@ import polars as pl
 from . import columns as c
 from .pipeline import Derivation
 
-#: Column of the current location loc_k in a level file.
+#: Column of the current location loc^k in a level file.
 LOC = "loc"
-#: Column of the previous location ploc_k in a level file.
+#: Column of the previous location ploc^k in a level file.
 PLOC = "ploc"
 
 #: Columns of a level file, in this order, with their types.
@@ -51,7 +51,7 @@ def level_file_name(level: int) -> str:
 
 
 def level_mapping(derivation: Derivation, level: int) -> pl.DataFrame:
-    """The location mapping of one level: loc_k and ploc_k per hu-event relation.
+    """The location mapping of one level: loc^k and ploc^k per hu-event relation.
 
     Args:
         derivation: Result of `pipeline.derive` without blocking errors.
