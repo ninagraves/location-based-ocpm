@@ -2,6 +2,8 @@
 
 import polars as pl
 from ocelescope_module_location_based_ocpm.visits.trace_figure import (
+    ROW_FILL,
+    ROW_TOP,
     TIE_FILL,
     VISIT_DASH,
     add_high_level_locations,
@@ -304,3 +306,79 @@ def test_ties_follow_as4_on_every_axis():
     for axis in ("trace position", "event order", "time"):
         rel = relations_for_figure(relations, axis=axis)
         assert rel.sort("x")["event"].to_list() == ["c", "b", "a", "d"], axis
+
+def test_processing_defaults_to_transformations_and_takes_given_events(derivation):
+    """Without P, the transformation events are processing operations; with P, exactly the given events."""
+    default = relations_for_figure(derivation.relations, derivation.loc, ["c2"], AGG)
+    assert default.filter("is_processing")["event"].to_list() == ["e3", "e15"]
+    given = relations_for_figure(
+        derivation.relations, derivation.loc, ["c2"], AGG, processing={"e4", "e15"}
+    )
+    assert given.filter("is_processing")["event"].to_list() == ["e4", "e15"]
+    none = relations_for_figure(
+        derivation.relations, derivation.loc, ["c2"], AGG, processing=()
+    )
+    assert not none["is_processing"].any()
+
+
+def test_processing_drawn_as_stars_with_legend_entry(derivation):
+    """Processing operations are stars in their location colour; the legend gets 'processing operation'."""
+    rel = relations_for_figure(
+        derivation.relations,
+        derivation.loc,
+        ["c1"],
+        AGG,
+        {"T"},
+        processing={"e4", "e14"},
+    )
+    fig = trace_figure(rel)
+    stars = {
+        (t.marker.symbol, x)
+        for t in fig.data
+        if t.marker.symbol in ("star", "star-open") and t.name != "processing operation"
+        for x in t.x
+    }
+    x_of = dict(rel.select("event", "x").iter_rows())
+    assert stars == {("star", x_of["e4"]), ("star-open", x_of["e14"])}
+    assert "processing operation" in {t.name for t in fig.data}
+    # The location legend keeps the plain symbols.
+    legend = {
+        t.name: t.marker.symbol
+        for t in fig.data
+        if t.showlegend and t.legendgroup == "location"
+    }
+    assert legend["A1"] == "circle" and legend["T"] == "circle-open"
+    plain = trace_figure(
+        relations_for_figure(
+            derivation.relations, derivation.loc, ["c1"], AGG, processing=()
+        )
+    )
+    assert "processing operation" not in {t.name for t in plain.data}
+
+
+def test_every_other_handling_unit_shaded(derivation):
+    """Rows 1, 3, ... get a full-width band in ROW_FILL; shade_rows=False draws none."""
+    rel = relations_for_figure(derivation.relations, derivation.loc, ["c1", "c2", "c3"], AGG, {"T"}, {"B1"})
+    bands = [s for s in trace_figure(rel).layout.shapes if s.fillcolor == ROW_FILL]
+    assert len(bands) == 2
+    assert all(b.xref == "paper" and b.x0 == 0 and b.x1 == 1 for b in bands)
+    # The bands do not overlap and the first one starts at the top of the plot.
+    top, second = sorted(bands, key=lambda b: -b.y1)
+    assert top.y0 > second.y1 and top.y1 == ROW_TOP
+    assert not [s for s in trace_figure(rel, shade_rows=False).layout.shapes if s.fillcolor == ROW_FILL]
+
+
+def test_shape_legend_explains_markers_in_use(derivation):
+    """The 'shape' legend group names the shapes that occur: processing (located or not), vehicle, storage unit."""
+    rel = relations_for_figure(
+        derivation.relations, derivation.loc, ["c1", "c5"], AGG, {"T"}, {"B1"}, processing={"e4", "e16"}
+    )
+    shapes = {t.name: t.marker.symbol for t in trace_figure(rel).data if t.legendgroup == "shape"}
+    assert shapes == {
+        "processing operation": "star",
+        "processing operation, not located": "asterisk-open",
+        "vehicle": "circle-open",
+        "storage unit": "diamond",
+    }
+    plain = relations_for_figure(derivation.relations, derivation.loc, ["c1"], AGG, processing=())
+    assert not [t for t in trace_figure(plain).data if t.legendgroup == "shape"]

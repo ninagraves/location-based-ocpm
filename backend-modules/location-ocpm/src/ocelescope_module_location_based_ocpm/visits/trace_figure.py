@@ -7,11 +7,12 @@ Documented in `docs/resources/trace-figure.md`.
 The figure is built in small steps, each a function of its own:
 1. `add_high_level_locations`: hat-hl, the high-level location of every relation (agg, completed by identity).
 2. `add_location_kinds`: whether a relation's location is a vehicle (V), a storage unit (W) or neither.
+2b. `add_processing`: whether a relation's event is a processing operation (P; default: the transformation events T).
 3. `add_x_positions`: trace position (position in otrace(hu)) and the x value for the chosen axis.
 4. `location_colours`: one colour per location name, ranked by frequency in the figure.
 5. `visit_lanes`: places visits in lanes so that visits sharing relations do not overlap.
 6. `trace_figure`: draws everything.
-`relations_for_figure` runs steps 1 to 3 on a relations frame (a saved location mapping or `Derivation.relations`).
+`relations_for_figure` runs steps 1 to 3 (including 2b) on a relations frame (a saved location mapping or `Derivation.relations`).
 """
 
 from collections.abc import Collection, Mapping
@@ -36,6 +37,8 @@ KIND = "location_kind"
 HU_ORDER = "hu_order"
 #: Column of the x value of the relation in the figure.
 X = "x"
+#: Column marking relations whose event is a processing operation (e in P).
+IS_PROCESSING = "is_processing"
 
 #: Categorical colours of the module palette (light scheme, `frontend-modules/.../lib/palette.ts`, CATEGORICAL).
 CATEGORICAL = (
@@ -77,6 +80,13 @@ LOW_SYMBOL = {"vehicle": "circle-open", "storage": "diamond", "other": "circle"}
 HIGH_SYMBOL = "square"
 #: Marker symbol of ⊥ (both levels).
 BOTTOM_SYMBOL = "x-thin-open"
+#: Marker symbol of a processing operation by location kind (replaces LOW_SYMBOL; same colour and fill).
+#: Processing overwrites the storage-unit diamond (Nina 2026-10-31): one star shape, open on vehicles.
+PROCESSING_SYMBOL = {"vehicle": "star-open", "storage": "star", "other": "star"}
+#: Marker symbol of a processing operation without a location.
+BOTTOM_PROCESSING_SYMBOL = "asterisk-open"
+#: Marker size of a processing operation (stars look smaller than circles of the same size).
+PROCESSING_SIZE = 17
 
 # Vertical layout, in y units: the low-level row of a handling unit is at its row y, the high-level
 # row HIGH_OFFSET below it, the visit lanes below that, LANE apart; GAP separates handling units.
@@ -105,6 +115,10 @@ TIE_SPREAD = 0.5
 PX_PER_UNIT = 70
 #: Fill of the background box behind events with the same timestamp (very light, very transparent grey).
 TIE_FILL = "rgba(134, 142, 150, 0.12)"
+#: Fill of the background band behind every other handling unit (very light grey; Nina 2026-11-02).
+ROW_FILL = "rgba(0, 0, 0, 0.035)"
+#: Height of a handling unit's band above its low-level row (covers the angled event labels), in y units.
+ROW_TOP = 0.6
 #: Optional column of the visits table with an id per visit, written in the middle of its bar.
 VISIT_ID = "visit_id"
 #: Dash pattern of the outline of visits in `dashed_groups` (dash length, gap; plotly also accepts "dash", "dot").
@@ -143,6 +157,33 @@ def add_location_kinds(
         .otherwise(pl.lit("other"))
         .alias(kind)
     )
+
+
+def add_processing(
+    relations: pl.DataFrame,
+    processing: Collection[str] | None = None,
+    is_processing: str = IS_PROCESSING,
+) -> pl.DataFrame:
+    """Add whether the event of a relation is a processing operation, i.e. in the set P.
+
+    As decided for the implementation (Nina, 2026-10-31): if no P is given, the transformation events T
+    (column is_transformation) are used.
+
+    Args:
+        relations: Relations frame with the columns event and is_transformation.
+        processing: Event ids of the processing operations P; None = the transformation events.
+            Pass an empty collection to mark no processing operations at all.
+        is_processing: Name of the new column.
+
+    Returns:
+        pl.DataFrame: `relations` with the boolean column `is_processing`.
+    """
+    flag = (
+        pl.col(c.IS_TRANSFORMATION).fill_null(False)
+        if processing is None
+        else pl.col(c.EVENT).is_in(list(processing))
+    )
+    return relations.with_columns(flag.alias(is_processing))
 
 
 def add_x_positions(
@@ -241,12 +282,12 @@ def relations_for_figure(
         vehicles: The set V.
         storage_units: The set W.
         axis: See `add_x_positions`.
-        processing: The processing operations P as event ids, for the AS4 order of events with the same
-            timestamp; None = the transformation events T.
+        processing: Event ids of the processing operations P (see `add_processing`), also used for the
+            AS4 order of events with the same timestamp; None = the transformation events T.
 
     Returns:
         pl.DataFrame: Columns hu, hu_order, object_type, event, time, activity, is_movement, is_transformation, loc,
-        high_level, location_kind, tie_rank, position, x.
+        high_level, location_kind, is_processing, tie_rank, position, x.
     """
     if handling_units is not None:
         order = {hu: i for i, hu in enumerate(handling_units)}
@@ -270,6 +311,7 @@ def relations_for_figure(
     )
     relations = add_high_level_locations(relations, "loc", agg)
     relations = add_location_kinds(relations, "loc", vehicles, storage_units)
+    relations = add_processing(relations, processing)
     return add_x_positions(relations, axis, processing)
 
 
@@ -365,6 +407,7 @@ def _relation_hover(row: dict) -> str:
         for name, flag in (
             ("movement", row[c.IS_MOVEMENT]),
             ("transformation", row[c.IS_TRANSFORMATION]),
+            ("processing", row.get(IS_PROCESSING)),
         )
         if flag
     ]
@@ -448,6 +491,7 @@ def trace_figure(
     link_shared_events: bool = True,
     mark_ties: bool = True,
     show_visit_ids: bool = True,
+    shade_rows: bool = True,
     title: str | None = None,
     width: int = WIDTH,
 ) -> go.Figure:
@@ -457,7 +501,9 @@ def trace_figure(
     handling unit and, below it, its object type in brackets):
     - the low-level row: one marker per relation at its x, coloured by loc (circle; open circle for
       vehicles, diamond for storage units; grey × for ⊥), joined by a line (the trace); the event id
-      is written at an angle above each marker;
+      is written at an angle above each marker; processing operations (column is_processing, see
+      `add_processing`) are stars instead (open star on vehicles, also a star on storage units,
+      asterisk for ⊥), in the same colour, with an extra legend entry "processing operation";
     - the high-level locations, drawn as chosen by `high_level_style`:
       "squares": a row of squares below, one per relation;
       "ribbon": a row below with one thick bar per run of relations with the same high-level location,
@@ -467,6 +513,10 @@ def trace_figure(
     - below that, each visit group (e.g. "maximal", "resolved") in its own lanes: one bar per visit
       from its first to its last relation (a visit at ⊥, high_level null, is grey), outlined (or filled for `filled_groups`; outline dashed for
       `dashed_groups`), coloured by its location.
+    Every other handling unit gets a very light grey background band (`shade_rows`), so that event ids
+    far to the right can still be matched to their handling unit.
+    A legend group "shape" explains the marker shapes in use: processing operation (star), processing
+    operation without a location (open asterisk), vehicle (open circle), storage unit (diamond).
     Dashed vertical lines join the relations of an event shared by several shown handling units.
     Events with the same timestamp get a light grey background box (`mark_ties`): across the whole figure
     on the "event order" and "time" axes; per handling unit on the "trace position" axis, where the tied
@@ -485,6 +535,7 @@ def trace_figure(
             where a shared event has different x values).
         show_visit_ids: Write the visit_id (if the column is given) in the middle of each visit bar.
         mark_ties: Draw the background boxes behind events with the same timestamp (needs column time).
+        shade_rows: Shade every other handling unit (the first, third, ...) with ROW_FILL across the plot width.
         title: Figure title.
         width: Figure width in pixels. A run label ("ribbon", "shading") is only shown if it fits
             into its ribbon or box at this width; otherwise the legend and the hover name the location.
@@ -533,6 +584,8 @@ def trace_figure(
     row_bottom: dict[str, float] = {}
     y = 0.0
     shown_legend: set[str] = set()
+    # Locations seen only at processing operations so far: legend key -> (label, symbol, colour).
+    legend_pending: dict[str, tuple[str, str, str]] = {}
     for hu in hus:
         rows = relations.filter(pl.col(c.HU) == hu)
         row_y[hu] = y
@@ -695,13 +748,19 @@ def trace_figure(
         # Markers: low-level row (and high-level row for "squares"); one trace per location, kind and level.
         hover = [_relation_hover(r) for r in rows.iter_rows(named=True)]
         rows = rows.with_columns(pl.Series("_hover", hover))
-        for (name, kind, high), part in rows.group_by(
-            "loc", KIND, HIGH_LEVEL, maintain_order=True
+        if IS_PROCESSING not in rows.columns:
+            rows = rows.with_columns(pl.lit(False).alias(IS_PROCESSING))
+        for (name, kind, high, processed), part in rows.group_by(
+            "loc", KIND, HIGH_LEVEL, IS_PROCESSING, maintain_order=True
         ):
             if name is None:
                 symbol, colour, label = BOTTOM_SYMBOL, GREY, NOT_LOCATED
+                if processed:
+                    symbol = BOTTOM_PROCESSING_SYMBOL
             else:
                 symbol, colour, label = LOW_SYMBOL[kind], colours[name], name
+                if processed:
+                    symbol = PROCESSING_SYMBOL[kind]
             ring = (
                 colours.get(high, GREY)
                 if high_level_style == "outline" and high is not None
@@ -718,19 +777,25 @@ def trace_figure(
                     mode="markers",
                     marker={
                         "symbol": symbol,
-                        "size": 13,
+                        "size": PROCESSING_SIZE if processed else 13,
                         "color": colour,
                         "line": {"width": ring_width, "color": ring},
                     },
                     name=label,
                     legendgroup="location",
                     legendgrouptitle_text="location",
-                    showlegend=key not in shown_legend,
+                    showlegend=not processed and key not in shown_legend,
                     customdata=part["_hover"],
                     hovertemplate="%{customdata}<extra></extra>",
                 )
             )
-            shown_legend.add(key)
+            # The location legend shows the plain symbol; processing has its own legend entry.
+            if processed:
+                if key not in shown_legend:
+                    plain = BOTTOM_SYMBOL if name is None else LOW_SYMBOL[kind]
+                    legend_pending.setdefault(key, (label, plain, colour))
+            else:
+                shown_legend.add(key)
         if high_level_style == "squares":
             for high, part in rows.group_by(HIGH_LEVEL, maintain_order=True):
                 high = high[0]
@@ -841,6 +906,66 @@ def trace_figure(
                 }
             )
 
+    # Legend entries of locations only seen at processing operations, and of processing itself.
+    for key, (label, symbol, colour) in legend_pending.items():
+        if key not in shown_legend:
+            fig.add_trace(
+                go.Scatter(
+                    x=[None],
+                    y=[None],
+                    mode="markers",
+                    marker={"symbol": symbol, "size": 13, "color": colour},
+                    name=label,
+                    legendgroup="location",
+                    legendgrouptitle_text="location",
+                    hoverinfo="skip",
+                )
+            )
+    # Legend group "shape": what the marker shapes mean (only shapes that occur in the figure).
+    processing = relations.get_column(IS_PROCESSING, default=pl.Series([False] * relations.height)).fill_null(False)
+    located = relations["loc"].is_not_null()
+    kinds = relations.get_column(KIND, default=pl.Series([None] * relations.height, dtype=pl.String))
+    shape_entries = [
+        ("processing operation", "star", PROCESSING_SIZE, (processing & located).any()),
+        ("processing operation, not located", BOTTOM_PROCESSING_SYMBOL, PROCESSING_SIZE, (processing & ~located).any()),
+        ("vehicle", LOW_SYMBOL["vehicle"], 13, ((kinds == "vehicle") & ~processing).any()),
+        ("storage unit", LOW_SYMBOL["storage"], 13, ((kinds == "storage") & ~processing).any()),
+    ]
+    for name, symbol, size, used in shape_entries:
+        if used:
+            fig.add_trace(
+                go.Scatter(
+                    x=[None],
+                    y=[None],
+                    mode="markers",
+                    marker={"symbol": symbol, "size": size, "color": GREY},
+                    name=name,
+                    legendgroup="shape",
+                    legendgrouptitle_text="shape",
+                    hoverinfo="skip",
+                )
+            )
+
+    # Every other handling unit: a very light background band across the plot width.
+    if shade_rows:
+        for i, hu in enumerate(hus):
+            if i % 2:
+                continue
+            last = i == len(hus) - 1
+            shapes.append(
+                {
+                    "type": "rect",
+                    "xref": "paper",
+                    "x0": 0,
+                    "x1": 1,
+                    "y0": y + GAP / 2 if last else row_bottom[hu] - GAP + ROW_TOP,
+                    "y1": row_y[hu] + ROW_TOP,
+                    "line": {"width": 0},
+                    "fillcolor": ROW_FILL,
+                    "layer": "below",
+                }
+            )
+
     # Same timestamp: a light background box around the tied events.
     if mark_ties and c.TIME in relations.columns:
         keys = [c.HU, c.TIME] if is_trace_position else [c.TIME]
@@ -900,7 +1025,7 @@ def trace_figure(
         ticktext=ticktext,
         showgrid=False,
         zeroline=False,
-        range=[y + GAP / 2, 0.6],
+        range=[y + GAP / 2, ROW_TOP],
     )
     x_title = (
         "time" if is_time else "trace position" if is_trace_position else "event order"
