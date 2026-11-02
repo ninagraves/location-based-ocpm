@@ -95,7 +95,7 @@ def get_bar_chart(
     mode: Mode = "frequent",
     end: End = "top",
 ) -> BarChart:
-    """One overview bar chart (Activities, Locations, Movement activities) of the kept part of the log."""
+    """One overview bar chart (Activities, Locations, Handling unit types, Activity · type) of the kept part of the log."""
     return overview_bar_chart(derivation, page_filter, chart=chart, measure=measure, by=by, mode=mode, end=end)
 
 
