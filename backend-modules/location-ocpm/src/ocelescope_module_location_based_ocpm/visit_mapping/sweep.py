@@ -62,7 +62,10 @@ class SweepStep:
     @property
     def inner_visits(self) -> list[MaximalVisit]:
         """The inner visits {m(e) | e ∈ set(ξ)}, in the order of their first position."""
-        found = {self.trace.maximal[p].visit_id: self.trace.maximal[p] for p in self.positions}
+        found = {
+            self.trace.maximal[p].visit_id: self.trace.maximal[p]
+            for p in self.positions
+        }
         return sorted(found.values(), key=lambda m: m.first)
 
 
@@ -73,25 +76,18 @@ Rule = Callable[[SweepStep], bool]
 def excursions(trace: Trace, visit: MaximalVisit, after: int) -> list[tuple[int, int]]:
     """The excursions of a maximal visit that start after a position.
 
-    An excursion is a maximal run of relations not at the visit's high-level location, strictly inside it.
+    The excursions Ξ(ν) come from the shared excursion table (`visits.excursions.excursions`, stored in
+    `MaximalVisit.excursions` by `traces.split_traces`); the sweep only picks those after its entry.
 
     Args:
-        trace: The trace.
+        trace: The trace (kept for rules that want to look further).
         visit: A maximal visit of the trace.
         after: Only excursions starting after this position.
 
     Returns:
         list[tuple[int, int]]: (first, last) position of each excursion, in trace order.
     """
-    out = []
-    start = None
-    for p in range(after + 1, visit.last + 1):
-        if not trace.at(p, visit.high_level):
-            start = p if start is None else start
-        elif start is not None:
-            out.append((start, p - 1))
-            start = None
-    return out
+    return [(start, end) for start, end in visit.excursions if start > after]
 
 
 def sweep_trace(trace: Trace, rule: Rule) -> list[Segment]:
@@ -139,5 +135,6 @@ def later_wins(step: SweepStep) -> bool:
     """S4 later wins: split iff an inner visit overlaps the current one and starts after it (reaches beyond
     its end); otherwise absorb. Contained visits are absorbed as in S1."""
     return not any(
-        inner.first > step.current.first and inner.last > step.current.last for inner in step.inner_visits
+        inner.first > step.current.first and inner.last > step.current.last
+        for inner in step.inner_visits
     )

@@ -1,5 +1,5 @@
 """Generate the small visits example: eight handling units whose traces cover the edge cases of
-maximal visits, shifts and waiting times (`overview/Single Level Visit Mappings.md`).
+maximal visits, shifts and waiting times (`overview/concepts/Visit Mappings.md`).
 
 The single source of the files in this folder; never edit the outputs by hand. Run from the repository
 root with `uv run python data/visits_example/make_visits_example.py`.

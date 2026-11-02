@@ -1,8 +1,8 @@
 # Stops, transfers and shifts
 
 Status: implemented in the backend package and demoed in `notebooks/shifts.ipynb`; not used by any page yet.
-Concept: `overview/Single Level Visit Mappings.md` (outside this repo), section "identifying shifts" (with DD-S1) and the shift times of "Visit Metrics" (work in progress); categories as in Part A of `claude_notes/excursions-and-visit-sequences.md`.
-Code: `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/visits/shifts.py`; run together with the visits by `visits/pipeline.analyse_visits`.
+Concept: `overview/concepts/Visit Mappings.md` (outside this repo), section "identifying shifts" (with DD-S1) and the shift times of "Visit Metrics" (work in progress); categories as in Part A of `claude_notes/excursions-and-visit-sequences.md`.
+Code: `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/visits/shifts.py`; run together with the visits by `visits/pipeline.analyse_visits` (or `analyse_visit_set` for any visit set, e.g. a mapping set).
 Tests: `backend-modules/location-ocpm/tests/test_visits.py`.
 Input: maximal visits and their relations (`docs/resources/visits.md`).
 
@@ -21,7 +21,7 @@ Per visit at $hl \in HL$:
 | Stops | `add_stops(visit_relations, vehicles, location)` | on_vehicle, is_stop per visit relation |
 | Transfers | `transfers(visit_relations, location, vehicles_outside_external)` | one row per $\mu_j$: j, from/to stop, transfer_events, transfer_length, all_on_vehicle, all_at_location, transfer_duration, category |
 | Category | `transfer_category(vehicles_outside_external)` | the expression used by `transfers` |
-| Per visit | `shift_summary(visit_relations, transfers, location)` | counts (`CATEGORY_COUNTS`), internal_shift_time, external_shift_time, location sets, is_vehicle_visit, is_transferring_visit |
+| Per visit | `shift_summary(visit_relations, transfers, location)` (vehicle / transferring visit from the shared kind rule `properties.kind_expr`) | counts (`CATEGORY_COUNTS`), internal_shift_time, external_shift_time, location sets, is_vehicle_visit, is_transferring_visit |
 
 Column names are at the top of `shifts.py`.
 All functions are linear after the sort of the visit relations and work eager or lazy.
@@ -30,7 +30,7 @@ Decisions taken in the implementation:
 - ⊥ visits get null in all stop and shift columns (only defined for $hl \in HL$); the location sets leave ⊥ out.
 - ⊥ inside a transfer counts as not on a vehicle, so the transfer is an external shift.
 - Vehicle relations at the start or end of a visit (before the first or after the last stop) are no transfer.
-- DD-S1 (note l. 260–261): by default a transfer that is only on vehicles is a vehicle shift, also if a vehicle lies outside $hl$ (e.g. the truck T); with `vehicles_outside_external=True` it is a vehicle shift only if all its relations are at $hl$, otherwise an external shift.
+- DD-S1 (concept note, "identifying shifts"): by default a transfer that is only on vehicles is a vehicle shift, also if a vehicle lies outside $hl$ (e.g. the truck T); with `vehicles_outside_external=True` it is a vehicle shift only if all its relations are at $hl$, otherwise an external shift.
 - Shift times are 0 for a visit without transfers of that kind and null at ⊥.
 
 ## 3. Example

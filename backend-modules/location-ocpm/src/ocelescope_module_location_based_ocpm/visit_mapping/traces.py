@@ -13,6 +13,8 @@ import polars as pl
 
 from ..derivation import columns as c
 from ..visits import columns as v
+from ..visits.excursions import excursions as visit_excursions
+from ..visits.maximal import visit_relations
 from ..visits.order import processing_flag
 
 #: Column of the relations: loc ∈ V (false for ⊥).
@@ -30,12 +32,15 @@ class MaximalVisit:
         high_level: Its high-level location hl (None = ⊥).
         first: Position of its first relation.
         last: Position of its last relation.
+        excursions: Its excursions Ξ(ν) as (first, last) positions, in trace order (from
+            `visits.excursions.excursions`).
     """
 
     visit_id: int
     high_level: str | None
     first: int
     last: int
+    excursions: tuple[tuple[int, int], ...] = ()
 
 
 @dataclass
@@ -104,7 +109,9 @@ def add_mapping_inputs(
     )
 
 
-def storage_high_levels(storage_units: Collection[str], agg: Mapping[str, str] | None = None) -> set[str]:
+def storage_high_levels(
+    storage_units: Collection[str], agg: Mapping[str, str] | None = None
+) -> set[str]:
     """The high-level locations that contain a storage unit: {agg(w) | w ∈ W} (agg completed by identity).
 
     Args:
@@ -142,14 +149,28 @@ def split_traces(
         relations = relations.filter(pl.col(c.HU).is_in(list(handling_units)))
     by_id = {
         row[v.VISIT_ID]: row
-        for row in visits.select(v.VISIT_ID, v.HIGH_LEVEL, v.FIRST_POSITION, v.LAST_POSITION).iter_rows(named=True)
+        for row in visits.select(
+            v.VISIT_ID, v.HIGH_LEVEL, v.FIRST_POSITION, v.LAST_POSITION
+        ).iter_rows(named=True)
     }
+    # Ξ(ν) of every maximal visit, from the shared excursion table (0-based positions).
+    found: dict[int, list[tuple[int, int]]] = {}
+    own_visits = visits.filter(pl.col(c.HU).is_in(relations[c.HU].unique().to_list()))
+    table = visit_excursions(visit_relations(relations, own_visits))
+    for row in table.select(v.VISIT_ID, v.FIRST_POSITION, v.LAST_POSITION).iter_rows():
+        found.setdefault(row[0], []).append((row[1] - 1, row[2] - 1))
     traces = []
-    for (hu,), part in relations.sort(c.HU, v.POSITION).group_by(c.HU, maintain_order=True):
+    for (hu,), part in relations.sort(c.HU, v.POSITION).group_by(
+        c.HU, maintain_order=True
+    ):
         ids = part[v.VISIT_ID].to_list()
         own = {
             i: MaximalVisit(
-                i, by_id[i][v.HIGH_LEVEL], by_id[i][v.FIRST_POSITION] - 1, by_id[i][v.LAST_POSITION] - 1
+                i,
+                by_id[i][v.HIGH_LEVEL],
+                by_id[i][v.FIRST_POSITION] - 1,
+                by_id[i][v.LAST_POSITION] - 1,
+                tuple(sorted(found.get(i, []))),
             )
             for i in set(ids)
         }

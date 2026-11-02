@@ -1,7 +1,7 @@
 """Trace figure: object traces of several handling units with their low-level and high-level locations,
 and optionally visits drawn as bars below each trace.
 
-Draft for the visit conceptualisation (`overview/Single Level Visit Mappings.md`); not used by any page yet.
+Draft for the visit conceptualisation (`overview/concepts/Visit Mappings.md`); not used by any page yet.
 Documented in `docs/resources/trace-figure.md`.
 
 The figure is built in small steps, each a function of its own:
@@ -25,7 +25,8 @@ import polars as pl
 from ..derivation import columns as c
 from .columns import HIGH_LEVEL, POSITION, TIE_RANK
 from .context import add_high_level_locations
-from .order import sort_by_seq
+from .order import add_tie_rank
+from .sequence import add_positions, runs
 
 #: Axis options: position in the handling unit's own trace (as in the visit definition), order of all
 #: shown events (shared events line up vertically), or real time.
@@ -223,9 +224,14 @@ def add_x_positions(
         position and x.
     """
     order = HU_ORDER if HU_ORDER in relations.columns else c.HU
-    out = sort_by_seq(relations, order, processing=processing).with_columns(
-        (pl.int_range(pl.len()).over(c.HU) + 1).alias(POSITION)
+    ranked = add_tie_rank(relations, processing)
+    out = add_positions(
+        ranked.sort(order, c.TIME, TIE_RANK, c.EVENT),
+        c.HU,
+        [c.TIME, TIE_RANK, c.EVENT],
+        POSITION,
     )
+    out = out.sort(order, c.TIME, TIE_RANK, c.EVENT)
     if axis == "trace position":
         x = pl.col(POSITION)
     elif axis == "event order":
@@ -442,25 +448,19 @@ def high_level_runs(relations: pl.DataFrame) -> pl.DataFrame:
         pl.DataFrame: One row per run: hu, high_level, x0 (x of its first relation), x1 (x of its last relation).
     """
     return (
-        relations.with_columns(
-            (
-                pl.col(HIGH_LEVEL)
-                .ne_missing(pl.col(HIGH_LEVEL).shift(1))
-                .over(c.HU)
-                .fill_null(True)
-            )
-            .cum_sum()
-            .over(c.HU)
-            .alias("_run")
+        runs(
+            relations,
+            HIGH_LEVEL,
+            c.HU,
+            POSITION,
+            keep=lambda value: value.is_not_null(),
+            aggregations=[
+                pl.col(X).sort_by(POSITION).first().alias("x0"),
+                pl.col(X).sort_by(POSITION).last().alias("x1"),
+            ],
         )
-        .group_by(c.HU, "_run", maintain_order=True)
-        .agg(
-            pl.col(HIGH_LEVEL).first(),
-            pl.col(X).first().alias("x0"),
-            pl.col(X).last().alias("x1"),
-        )
-        .filter(pl.col(HIGH_LEVEL).is_not_null())
-        .drop("_run")
+        .rename({"value": HIGH_LEVEL})
+        .select(c.HU, HIGH_LEVEL, "x0", "x1")
     )
 
 

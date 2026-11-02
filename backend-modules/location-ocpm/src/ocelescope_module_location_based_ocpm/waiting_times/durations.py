@@ -1,4 +1,4 @@
-"""Optional processing durations (DD-W3 in `overview/Single Level Visit Mappings.md`).
+"""Optional processing durations (DD-W3 in `overview/concepts/Visit Mappings.md`).
 
 Timestamps are completion times, so a waiting time w(σ[c[l]]) also contains the processing time of the
 operation σ[c[l]] itself (we do not know when it started). If an event attribute holds the processing

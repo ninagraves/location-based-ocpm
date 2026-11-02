@@ -1,5 +1,5 @@
 """Processing operations, storage removals and the timed pieces of a scope: waiting, storage and remaining time
-(section "Waiting Times" of `overview/Single Level Visit Mappings.md`, design decisions DD-W1 to DD-W7).
+(section "Waiting Times" of `overview/concepts/Visit Mappings.md`, design decisions DD-W1 to DD-W7).
 
 Inputs: processing operations P ⊆ E (a separate input in the concept; here the transformation events T are
 used if no P is given; P ∩ M ≠ ∅ is allowed) and storage units W ⊆ L (optional; none = no storage removals).

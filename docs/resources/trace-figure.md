@@ -1,6 +1,6 @@
 # Trace figure (draft)
 
-Status: draft for the visit conceptualisation (`overview/Single Level Visit Mappings.md`).
+Status: draft for the visit conceptualisation (`overview/concepts/Visit Mappings.md`).
 Not used by any page yet; it will be discussed with Nina and changed before it goes into the tool.
 
 ## What it shows

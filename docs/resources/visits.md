@@ -1,12 +1,12 @@
 # Maximal visits
 
 Status: implemented in the backend package and demoed in `notebooks/visits.ipynb`; not used by any page yet.
-Concept: `overview/Single Level Visit Mappings.md` (outside this repo), sections "Visits", "Deriving maximal Visits" (with DD-V1 to DD-V4), "Visit duration" and "implementation".
+Concept: `overview/concepts/Visit Mappings.md` (outside this repo), sections "Visits", "Deriving maximal Visits" (with DD-V1 to DD-V4), "Visit duration" and "implementation".
 Code: `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/visits/` (paths below are relative to it).
 Tests: `backend-modules/location-ocpm/tests/test_visits.py` (running example and the edge-case example).
-Built on the visits: stops, transfers and shifts (`docs/resources/shifts.md`), optionally waiting times (`docs/resources/waiting-times.md`), and disjoint mapping sets (`docs/resources/visit-mapping.md`).
+Built on the visits: properties of visits and visit sets, excursions and RQ4 (`docs/resources/visit-properties.md`), stops, transfers and shifts (`docs/resources/shifts.md`), waiting times (`docs/resources/waiting-times.md`), dwell times and the visit overview (`docs/resources/visit-overview.md`), and disjoint mapping sets (`docs/resources/visit-mapping.md`).
 
-Not implemented (benched or discarded in the concept): cutting visits and excursions (Part B), the general marker/segment version (Part D), the characteristics "contained" and "overlapping", and the conditions on the visit itself of DD-V4 (maximum visit duration, maximum number of deviating infixes, maximum time outside, maximum number of other high-level locations; open question to Nina, since cutting by them changes maximality).
+Not implemented (benched or discarded in the concept): cutting visits and excursions (Part B), the general marker/segment version (Part D), and the conditions on the visit itself of DD-V4 (maximum visit duration, maximum number of deviating infixes, maximum time outside, maximum number of other high-level locations; open question to Nina, since cutting by them changes maximality).
 
 ## 1. What it shows
 
@@ -19,17 +19,17 @@ Plus a flag: auto-completed locations whose name clashes with a provided high-le
 | Step | File, function | Output |
 |---|---|---|
 | Event order | `order.py`, `tie_rank`, `sort_by_seq` | AS4 group of each event for equal timestamps: 0 movement, 1 processing operation, 2 other |
-| Trace positions | `maximal.py`, `add_trace_positions` | position in $otrace(hu)$: time, then AS4 group, then event id |
+| Trace positions | `maximal.py`, `add_trace_positions` (with `sequence.add_positions`) | position in $otrace(hu)$: time, then AS4 group, then event id |
 | High-level locations | `context.py`, `add_high_level_locations` | $\widehat{hl}$ ($agg$ completed by identity) |
 | Tolerance | `maximal.py`, `add_kappa` | $\kappa(\widehat{hl})$: $\kappa_{max}$ (null = no limit), 0 for ⊥ |
 | Gaps | `maximal.py`, `add_gaps` | $g_j = p_j - p_{j-1} - 1$ per (hu, $hl$); with `ignore_vehicles` without relations on vehicles (DD-V2) |
 | Further gap measures | `maximal.py`, `add_gap_measures` | per gap: number of distinct timestamps of the deviating infix (`gap_timestamps`) and its duration $time(\sigma[p_j]) - time(\sigma[p_{j-1}+1])$ (`gap_duration`); both 0 for an empty infix |
 | Visit ids | `maximal.py`, `add_visit_ids` | new visit iff gap null, gap $> \kappa$, or (if set) gap_timestamps $>$ max_timestamps or gap_duration $>$ max_excursion_duration; cumulative sum numbers the visits |
-| Visits | `maximal.py`, `maximal_visits` | one row per visit: first, last and exit event, times, duration, counts, interrupted |
+| Visits | `maximal.py`, `maximal_visits` (intervals per visit id, then `visit_table`) | one row per visit: first, last and exit event, times, duration, counts, interrupted; `visit_table` builds the same table for any visit set |
 | All visit steps | `maximal.py`, `derive_maximal_visits` | relations with visit ids, and the visits |
 | Visit relations | `maximal.py`, `visit_relations` | one row per visit and $r \in R(\nu)$ (incl. excursions), at_location |
 | Flag naming clash | `context.py`, `naming_clashes` | unmapped locations whose name is a high-level location of $agg$ (e.g. B unmapped and B1 → B) |
-| All | `pipeline.py`, `analyse_visits` | `VisitAnalysis` (relations, visits incl. the shift summary, visit_relations, transfers, naming_clashes) |
+| All | `pipeline.py`, `analyse_visits` | `VisitAnalysis`: derives $\vmax$ and runs `analyse_visit_set` on it (properties, excursions, shifts, dwell times, waiting times, overview; `docs/resources/visit-overview.md`) |
 
 Column names are in `columns.py`.
 All functions take and return polars frames, eager or lazy alike; nothing iterates over rows.

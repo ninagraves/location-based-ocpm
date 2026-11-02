@@ -1,4 +1,4 @@
-"""Maximal visits (`overview/Single Level Visit Mappings.md`, "Visits" and "Deriving maximal Visits").
+"""Maximal visits (`overview/concepts/Visit Mappings.md`, "Visits" and "Deriving maximal Visits").
 
 A visit ν = (hu, hl, σ) is a stay of a handling unit at one high-level location hl ∈ HL_⊥: an infix σ of
 otrace(hu) that starts when hu enters hl, ends with its last event there, and contains no deviating
@@ -16,7 +16,8 @@ The steps, each a function of its own (all work on eager and lazy polars frames 
    duration of the deviating infix in between (DD-V1, for the optional further conditions).
 5. `add_visit_ids`: whether a relation starts a new maximal visit, and the visit it belongs to at its
    own high-level location.
-6. `maximal_visits`: one row per maximal visit (first, last and exit event, duration, ...).
+6. `maximal_visits`: one row per maximal visit (first, last and exit event, duration, ...), via
+   `visit_table`, which builds the same table for any set of visits given as intervals.
 7. `visit_relations`: one row per visit and relation r ∈ R(ν), i.e. including the relations of excursions.
 `derive_maximal_visits` runs steps 1 to 6 in one call.
 """
@@ -29,11 +30,14 @@ import polars as pl
 from ..derivation import columns as c
 from . import columns as v
 from .context import Frame, add_high_level_locations
-from .order import sort_by_seq
+from .order import add_tie_rank
+from .sequence import add_positions, at_positions, expand_intervals
 
 
 def add_trace_positions(
-    relations: Frame, processing: Collection[str] | None = None, movement: str = c.IS_MOVEMENT
+    relations: Frame,
+    processing: Collection[str] | None = None,
+    movement: str = c.IS_MOVEMENT,
 ) -> Frame:
     """Add the position of every relation in otrace(hu), starting at 1.
 
@@ -51,12 +55,13 @@ def add_trace_positions(
     Returns:
         Frame: `relations` sorted by hu, time, tie_rank, event, with the columns tie_rank and position.
     """
-    return sort_by_seq(relations, c.HU, processing=processing, movement=movement).with_columns(
-        (pl.int_range(pl.len()).over(c.HU) + 1).alias(v.POSITION)
-    )
+    ranked = add_tie_rank(relations, processing, movement)
+    return add_positions(ranked, c.HU, [c.TIME, v.TIE_RANK, c.EVENT])
 
 
-def add_kappa(relations: Frame, kappa: int | None, high_level: str = v.HIGH_LEVEL) -> Frame:
+def add_kappa(
+    relations: Frame, kappa: int | None, high_level: str = v.HIGH_LEVEL
+) -> Frame:
     """Add κ(hat-hl), the excursion tolerance of the relation's own high-level location.
 
     The concept defines one tolerance κ_max for every hl ∈ HL and κ(⊥) = 0.
@@ -119,15 +124,21 @@ def add_gaps(
         Frame: `relations` with the column gap (null for the first relation at a high-level location).
     """
     if ignore_vehicles:
-        weight = (~pl.col(location).is_in(list(vehicles)).fill_null(False)).cast(pl.Int64)
+        weight = (~pl.col(location).is_in(list(vehicles)).fill_null(False)).cast(
+            pl.Int64
+        )
     else:
         weight = pl.repeat(1, pl.len(), dtype=pl.Int64)
     out = relations.with_columns(weight.alias("_w")).with_columns(
-        (pl.col("_w").cum_sum().over(c.HU, order_by=v.POSITION) - pl.col("_w")).alias("_c")
+        (pl.col("_w").cum_sum().over(c.HU, order_by=v.POSITION) - pl.col("_w")).alias(
+            "_c"
+        )
     )
     # `over` puts all nulls (⊥) of a handling unit into one group, so ⊥ needs no stand-in value.
     group = (c.HU, high_level)
-    previous_c = (pl.col("_c") + pl.col("_w")).shift(1).over(*group, order_by=v.POSITION)
+    previous_c = (
+        (pl.col("_c") + pl.col("_w")).shift(1).over(*group, order_by=v.POSITION)
+    )
     previous_p = pl.col(v.POSITION).shift(1).over(*group, order_by=v.POSITION)
     gap = (
         pl.when(pl.col(high_level).is_null())
@@ -173,8 +184,15 @@ def add_gap_measures(relations: Frame, high_level: str = v.HIGH_LEVEL) -> Frame:
     empty = (pl.col(v.POSITION) - previous_p - 1) == 0
     zero = pl.col(c.TIME) - pl.col(c.TIME)
     return out.with_columns(
-        pl.when(empty).then(0).otherwise(pl.col("_t_before") - first_t + 1).cast(pl.Int64).alias(v.GAP_TIMESTAMPS),
-        pl.when(empty).then(zero).otherwise(pl.col(c.TIME) - first_time).alias(v.GAP_DURATION),
+        pl.when(empty)
+        .then(0)
+        .otherwise(pl.col("_t_before") - first_t + 1)
+        .cast(pl.Int64)
+        .alias(v.GAP_TIMESTAMPS),
+        pl.when(empty)
+        .then(zero)
+        .otherwise(pl.col(c.TIME) - first_time)
+        .alias(v.GAP_DURATION),
     ).drop("_t", "_t_before", "_t_after", "_time_after")
 
 
@@ -212,11 +230,17 @@ def add_visit_ids(
         Frame: `relations` with the columns starts_visit (bool) and visit_id (Int64).
     """
     located = pl.col(high_level).is_not_null()
-    starts = pl.col(v.GAP).is_null() | (pl.col(v.GAP) > pl.col(v.KAPPA)).fill_null(False)
+    starts = pl.col(v.GAP).is_null() | (pl.col(v.GAP) > pl.col(v.KAPPA)).fill_null(
+        False
+    )
     if max_timestamps is not None:
-        starts = starts | (located & (pl.col(v.GAP_TIMESTAMPS) > max_timestamps)).fill_null(False)
+        starts = starts | (
+            located & (pl.col(v.GAP_TIMESTAMPS) > max_timestamps)
+        ).fill_null(False)
     if max_excursion_duration is not None:
-        starts = starts | (located & (pl.col(v.GAP_DURATION) > max_excursion_duration)).fill_null(False)
+        starts = starts | (
+            located & (pl.col(v.GAP_DURATION) > max_excursion_duration)
+        ).fill_null(False)
     number = starts.cum_sum().over(c.HU, high_level, order_by=v.POSITION)
     # First position of the visit of each relation, then a dense rank over (hu, first position).
     first = pl.col(v.POSITION).min().over(c.HU, high_level, number)
@@ -226,81 +250,130 @@ def add_visit_ids(
     )
 
 
-def maximal_visits(relations: Frame, high_level: str = v.HIGH_LEVEL) -> Frame:
-    """One row per maximal visit ν = (hu, hl, otrace(hu)[i:k]).
+#: Columns computed by `visit_table`, in this order (after visit_id and the interval columns).
+VISIT_TABLE_COLUMNS = [
+    v.FIRST_EVENT,
+    v.LAST_EVENT,
+    v.EXIT_EVENT,
+    v.ENTRY_TIME,
+    v.LAST_TIME,
+    v.EXIT_TIME,
+    v.ENDS_TRACE,
+    v.DURATION,
+    v.N_RELATIONS,
+    v.N_AT_LOCATION,
+    v.INTERRUPTED,
+]
+
+
+def visit_table(
+    intervals: Frame, relations: Frame, high_level: str = v.HIGH_LEVEL
+) -> Frame:
+    """The visits table of ANY set of visits given as intervals of the traces.
+
+    Used for the maximal visits (`maximal_visits`), for the visits of a mapping set
+    (`visit_mapping.segments.mapping_visits`) and for hand-written visit sets, so every visit set has the
+    same columns.
 
     Columns:
-    - visit_id, hu, high_level (null = ⊥ visit), kappa;
-    - first_position i, last_position k, first_event e_i (= entry event e_in), last_event e_k;
+    - visit_id (kept if given, else 1, 2, ... in hu and position order), then the columns of `intervals`;
+    - first_event e_i (= entry event e_in), last_event e_k;
     - exit_event e_out = otrace(hu)[k+1], or e_k if the trace ends with the visit (then ends_trace is true);
     - entry_time, last_time, exit_time, and duration d = time(e_out) - time(e_in);
-    - n_relations = |σ| = k - i + 1, n_at_location = number of relations at hl, and interrupted
-      (true iff some relation of σ is not at hl).
+    - n_relations = |σ| = k - i + 1, n_at_location = |R_hl(ν)|, and interrupted (R(ν) ≠ R_hl(ν)).
 
     Bounds of the duration (concept, "Visit duration"): if the visit ends with the trace, d is a lower
     bound; if the exit event is not a movement, the departure lies between e_k and e_out, so d is an
     upper bound. Both are left to the reader of the table (columns ends_trace and the exit event).
+
+    How it works: the events and times are looked up at the first, last and last + 1 position of each
+    interval (`sequence.at_positions`); n_at_location counts the conforming rows of `visit_relations`.
+
+    Args:
+        intervals: One row per visit with hu, high_level (null = ⊥), first_position, last_position, and
+            optionally visit_id and further columns (kept).
+        relations: The relations with hu, position, event, time and `high_level`.
+        high_level: Column of hat-hl in `relations`.
+
+    Returns:
+        Frame: One row per visit, sorted by visit_id.
+    """
+    names = intervals.collect_schema().names()
+    if v.VISIT_ID not in names:
+        intervals = (
+            intervals.sort(c.HU, v.FIRST_POSITION)
+            .with_row_index(v.VISIT_ID, offset=1)
+            .with_columns(pl.col(v.VISIT_ID).cast(pl.Int64))
+        )
+        names = [v.VISIT_ID, *names]
+    else:
+        names = [v.VISIT_ID, *(n for n in names if n != v.VISIT_ID)]
+    rel = relations.select(c.HU, v.POSITION, c.EVENT, c.TIME, high_level)
+    out = at_positions(
+        intervals, rel, v.FIRST_POSITION, {c.EVENT: v.FIRST_EVENT, c.TIME: v.ENTRY_TIME}
+    )
+    out = at_positions(
+        out, rel, v.LAST_POSITION, {c.EVENT: v.LAST_EVENT, c.TIME: v.LAST_TIME}
+    )
+    out = at_positions(
+        out,
+        rel,
+        v.LAST_POSITION,
+        {c.EVENT: "_next_event", c.TIME: "_next_time"},
+        offset=1,
+    )
+    conforming = (
+        visit_relations(
+            rel,
+            intervals.select(
+                v.VISIT_ID, c.HU, v.HIGH_LEVEL, v.FIRST_POSITION, v.LAST_POSITION
+            ),
+            high_level,
+        )
+        .group_by(v.VISIT_ID)
+        .agg(pl.col(v.AT_LOCATION).sum().cast(pl.Int64).alias(v.N_AT_LOCATION))
+    )
+    n_relations = pl.col(v.LAST_POSITION) - pl.col(v.FIRST_POSITION) + 1
+    return (
+        out.join(conforming, on=v.VISIT_ID, how="left")
+        .with_columns(
+            pl.col("_next_event").is_null().alias(v.ENDS_TRACE),
+            pl.col("_next_event").fill_null(pl.col(v.LAST_EVENT)).alias(v.EXIT_EVENT),
+            pl.col("_next_time").fill_null(pl.col(v.LAST_TIME)).alias(v.EXIT_TIME),
+            n_relations.cast(pl.Int64).alias(v.N_RELATIONS),
+            pl.col(v.N_AT_LOCATION).fill_null(0),
+        )
+        .with_columns(
+            (pl.col(v.EXIT_TIME) - pl.col(v.ENTRY_TIME)).alias(v.DURATION),
+            (pl.col(v.N_RELATIONS) > pl.col(v.N_AT_LOCATION)).alias(v.INTERRUPTED),
+        )
+        .select(*names, *VISIT_TABLE_COLUMNS)
+        .sort(v.VISIT_ID)
+    )
+
+
+def maximal_visits(relations: Frame, high_level: str = v.HIGH_LEVEL) -> Frame:
+    """One row per maximal visit ν = (hu, hl, otrace(hu)[i:k]).
+
+    The relations of one visit id are exactly the visit's relations at its own hl, so the interval is
+    [min position, max position] of the visit id; all further columns come from `visit_table`.
 
     Args:
         relations: Output of `add_visit_ids` (all relations of every handling unit, not only some).
         high_level: Column of hat-hl.
 
     Returns:
-        Frame: One row per maximal visit, sorted by visit_id.
+        Frame: visit_id, hu, high_level (null = ⊥ visit), kappa, first_position, last_position and the
+        columns of `visit_table`; sorted by visit_id.
     """
-    visits = relations.group_by(v.VISIT_ID).agg(
+    intervals = relations.group_by(v.VISIT_ID).agg(
         pl.col(c.HU).first(),
         pl.col(high_level).first().alias(v.HIGH_LEVEL),
         pl.col(v.KAPPA).first(),
-        pl.col(v.POSITION).min().alias(v.FIRST_POSITION),
-        pl.col(v.POSITION).max().alias(v.LAST_POSITION),
-        pl.col(c.EVENT).sort_by(v.POSITION).first().alias(v.FIRST_EVENT),
-        pl.col(c.EVENT).sort_by(v.POSITION).last().alias(v.LAST_EVENT),
-        pl.col(c.TIME).sort_by(v.POSITION).first().alias(v.ENTRY_TIME),
-        pl.col(c.TIME).sort_by(v.POSITION).last().alias(v.LAST_TIME),
-        pl.len().cast(pl.Int64).alias(v.N_AT_LOCATION),
+        pl.col(v.POSITION).min().cast(pl.Int64).alias(v.FIRST_POSITION),
+        pl.col(v.POSITION).max().cast(pl.Int64).alias(v.LAST_POSITION),
     )
-    # The exit event is the relation right after the last one, if the trace goes on.
-    successors = relations.select(
-        c.HU,
-        (pl.col(v.POSITION) - 1).alias(v.LAST_POSITION),
-        pl.col(c.EVENT).alias("_next_event"),
-        pl.col(c.TIME).alias("_next_time"),
-    )
-    visits = visits.join(successors, on=[c.HU, v.LAST_POSITION], how="left")
-    n_relations = pl.col(v.LAST_POSITION) - pl.col(v.FIRST_POSITION) + 1
-    return (
-        visits.with_columns(
-            pl.col("_next_event").is_null().alias(v.ENDS_TRACE),
-            pl.col("_next_event").fill_null(pl.col(v.LAST_EVENT)).alias(v.EXIT_EVENT),
-            pl.col("_next_time").fill_null(pl.col(v.LAST_TIME)).alias(v.EXIT_TIME),
-            n_relations.cast(pl.Int64).alias(v.N_RELATIONS),
-        )
-        .with_columns(
-            (pl.col(v.EXIT_TIME) - pl.col(v.ENTRY_TIME)).alias(v.DURATION),
-            (pl.col(v.N_RELATIONS) > pl.col(v.N_AT_LOCATION)).alias(v.INTERRUPTED),
-        )
-        .select(
-            v.VISIT_ID,
-            c.HU,
-            v.HIGH_LEVEL,
-            v.KAPPA,
-            v.FIRST_POSITION,
-            v.LAST_POSITION,
-            v.FIRST_EVENT,
-            v.LAST_EVENT,
-            v.EXIT_EVENT,
-            v.ENTRY_TIME,
-            v.LAST_TIME,
-            v.EXIT_TIME,
-            v.ENDS_TRACE,
-            v.DURATION,
-            v.N_RELATIONS,
-            v.N_AT_LOCATION,
-            v.INTERRUPTED,
-        )
-        .sort(v.VISIT_ID)
-    )
+    return visit_table(intervals, relations, high_level)
 
 
 def visit_relations(
@@ -312,8 +385,9 @@ def visit_relations(
     times (once with its own maximal visit, and once per visit at another location around it).
     Works for any set of visits given by hu, first and last position (not only maximal ones).
 
-    How it works: each visit is expanded to the positions first_position, ..., last_position and joined
-    with the relations on (hu, position); the cost is linear in the size of the result.
+    How it works: each visit is expanded to the positions first_position, ..., last_position
+    (`sequence.expand_intervals`) and joined with the relations on (hu, position); the cost is linear in
+    the size of the result.
 
     Args:
         relations: Relations frame with columns hu, position, `high_level` and any further columns
@@ -326,23 +400,26 @@ def visit_relations(
         Frame: The relation columns plus visit_id, visit_high_level, first_position, last_position and
         at_location (hat-hl(r) = hl, where ⊥ = ⊥ counts as true), sorted by visit_id and position.
     """
-    expanded = visits.select(
-        v.VISIT_ID,
-        c.HU,
-        pl.col(v.HIGH_LEVEL).alias(v.VISIT_HIGH_LEVEL),
-        v.FIRST_POSITION,
-        v.LAST_POSITION,
-        pl.int_ranges(pl.col(v.FIRST_POSITION), pl.col(v.LAST_POSITION) + 1).alias(
-            v.POSITION
-        ),
-    ).explode(v.POSITION)
+    expanded = expand_intervals(
+        visits.select(
+            v.VISIT_ID,
+            c.HU,
+            pl.col(v.HIGH_LEVEL).alias(v.VISIT_HIGH_LEVEL),
+            v.FIRST_POSITION,
+            v.LAST_POSITION,
+        )
+    )
     names = relations.collect_schema().names()
     rel = relations.drop(v.VISIT_ID) if v.VISIT_ID in names else relations
     return (
         expanded.with_columns(pl.col(v.POSITION).cast(pl.Int64))
-        .join(rel.with_columns(pl.col(v.POSITION).cast(pl.Int64)), on=[c.HU, v.POSITION])
+        .join(
+            rel.with_columns(pl.col(v.POSITION).cast(pl.Int64)), on=[c.HU, v.POSITION]
+        )
         .with_columns(
-            pl.col(high_level).eq_missing(pl.col(v.VISIT_HIGH_LEVEL)).alias(v.AT_LOCATION)
+            pl.col(high_level)
+            .eq_missing(pl.col(v.VISIT_HIGH_LEVEL))
+            .alias(v.AT_LOCATION)
         )
         .sort(v.VISIT_ID, v.POSITION)
     )
@@ -386,7 +463,13 @@ def derive_maximal_visits(
     rel = add_trace_positions(relations, processing)
     rel = add_high_level_locations(rel, location, agg)
     rel = add_kappa(rel, kappa)
-    rel = add_gaps(rel, location=location, vehicles=vehicles, ignore_vehicles=ignore_vehicles)
+    rel = add_gaps(
+        rel, location=location, vehicles=vehicles, ignore_vehicles=ignore_vehicles
+    )
     rel = add_gap_measures(rel)
-    rel = add_visit_ids(rel, max_timestamps=max_timestamps, max_excursion_duration=max_excursion_duration)
+    rel = add_visit_ids(
+        rel,
+        max_timestamps=max_timestamps,
+        max_excursion_duration=max_excursion_duration,
+    )
     return rel, maximal_visits(rel)

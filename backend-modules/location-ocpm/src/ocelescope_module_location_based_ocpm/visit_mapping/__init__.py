@@ -8,9 +8,10 @@ Per handling unit, a mapping set is a segmentation of its trace into consecutive
 - `optimal.py`: the best segmentation of a whole trace by additive criteria (lexicographic or weighted):
   S5, S6 and custom strategies.
 - `strategies.py`: the predefined strategies and how to choose one.
-- `segments.py`: from segments (hu, first and last position) to a visits table.
+- `segments.py`: from segments (hu, first and last position) to a visits table (`visits.maximal.visit_table`).
 - `metrics.py`: evaluation metrics of a mapping set, for one or several handling units.
-- `pipeline.py`: everything in one call (`derive_mapping_set`, `compare_strategies`).
+- `pipeline.py`: everything in one call (`derive_mapping_set`, `compare_strategies`), and shifts, waiting
+  times and the visit overview on a mapping set (`analyse_mapping`).
 - `mapping_files.py`: save and load a mapping set.
 Documented in `docs/resources/visit-mapping.md`.
 """

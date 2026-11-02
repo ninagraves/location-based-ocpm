@@ -1,4 +1,4 @@
-"""Waiting times (`overview/Single Level Visit Mappings.md`, "Waiting Times", DD-W1 to DD-W7). Not used by any
+"""Waiting times (`overview/concepts/Visit Mappings.md`, "Waiting Times", DD-W1 to DD-W7). Not used by any
 page yet.
 
 Measured per visit (the visits come from `visits`) or, without visits, per whole trace (DD-W6).

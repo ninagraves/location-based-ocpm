@@ -142,7 +142,7 @@ def add_high_level_locations(
     """Add the high-level location of loc and of ploc of every relation.
 
     hl((e, hu)) = agg(loc((e, hu))) and agg(ploc((e, hu))), ⊥ where the location is ⊥ (hat-hl in
-    `overview/Single Level Visit Mappings.md`). `agg` may be partial: unmapped locations are their own
+    `overview/concepts/Visit Mappings.md`). `agg` may be partial: unmapped locations are their own
     high-level location (identity).
 
     Args:

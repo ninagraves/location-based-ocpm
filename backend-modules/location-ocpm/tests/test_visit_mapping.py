@@ -24,9 +24,10 @@ from ocelescope_module_location_based_ocpm.visit_mapping.pipeline import (
     derive_mapping_set,
 )
 from ocelescope_module_location_based_ocpm.visit_mapping.strategies import (
+    DEFAULT_LAMBDA,
     STRATEGIES,
     cost_optimal,
-    nina_strategy,
+    domain_knowledge,
 )
 from ocelescope_module_location_based_ocpm.visit_mapping.traces import split_traces
 from ocelescope_module_location_based_ocpm.visits.context import location_context
@@ -105,16 +106,19 @@ def test_s6_hits_all_targets(analyses):
 
 def test_s6_without_storage_tie_break_takes_the_longer_visit():
     result = derive_mapping_set(
-        RELATIONS, **OPTIONS, strategy=nina_strategy(storage_tie_break=False)
+        RELATIONS, **OPTIONS, strategy=domain_knowledge(storage_tie_break=False)
     )
     assert sequences(result.mapping) == TARGETS
     extra = derive_mapping_set(
-        EXTRA, **OPTIONS, strategy=nina_strategy(storage_tie_break=False)
+        EXTRA, **OPTIONS, strategy=domain_knowledge(storage_tie_break=False)
     )
     assert letters(extra)["x2"] == "AAAAAB"
 
 
 def test_s5_default_equals_s1(analyses):
+    """Default λ = 0.5 (Nina, 2026-11-02) gives the same optima as λ = 0, i.e. S1 on the running example."""
+    assert DEFAULT_LAMBDA == 0.5
+    assert cost_optimal().name == "S5 cost-optimal (λ = 0.5)"
     assert sequences(by_key(analyses, "S5").mapping) == sequences(
         by_key(analyses, "S1").mapping
     )
@@ -213,8 +217,8 @@ def all_segmentations(trace, p=0):
 @pytest.mark.parametrize(
     "strategy",
     [
-        nina_strategy(),
-        nina_strategy(storage_tie_break=False),
+        domain_knowledge(),
+        domain_knowledge(storage_tie_break=False),
         cost_optimal(),
         cost_optimal(1.25),
     ],
@@ -274,7 +278,7 @@ def test_custom_strategies_equal_the_presets():
         == s6
     )
     s5 = sequences(derive_mapping_set(RELATIONS, **OPTIONS, strategy="S5").mapping)
-    custom = weighted({"n_visits": 1, "n_nonconforming": 1})
+    custom = weighted({"n_visits": 1, "n_nonconforming": 0.5})
     assert (
         sequences(derive_mapping_set(RELATIONS, **OPTIONS, strategy=custom).mapping)
         == s5
@@ -322,7 +326,7 @@ def test_unknown_strategy_and_criterion():
         derive_mapping_set(RELATIONS, **OPTIONS, strategy=lexicographic(["n_loops"]))
 
 
-#: Pooled metrics of the working note 7.3 and Nina's note l. 720-731 (S6 without the storage tie-break; trivial =
+#: Pooled metrics of the working note 7.3 and Nina's concept note, "Evaluating mapping sets" (S6 without the storage tie-break; trivial =
 #: one relation without processing, connecting visits included).
 METRICS = {
     "S1": (15, 13, 0, 3, 2, 0, 0, 2, 3.6, 3, 4, 4, 39),
@@ -333,7 +337,7 @@ METRICS = {
 
 @pytest.mark.parametrize("key", list(METRICS))
 def test_pooled_metrics(key):
-    strategy = nina_strategy(storage_tie_break=False) if key == "S6" else key
+    strategy = domain_knowledge(storage_tie_break=False) if key == "S6" else key
     analysis = derive_mapping_set(
         RELATIONS, **OPTIONS, strategy=strategy, trivial_excludes_connecting=False
     )
@@ -376,9 +380,9 @@ def test_pooled_metrics(key):
 
 def test_trivial_options():
     analysis = derive_mapping_set(
-        RELATIONS, **OPTIONS, strategy=nina_strategy(storage_tie_break=False)
+        RELATIONS, **OPTIONS, strategy=domain_knowledge(storage_tie_break=False)
     )
-    # default: |σ| = 1 (note l. 143), connecting visits excluded: (T e8) of b3 and (B e34) of b7, not the
+    # default: |σ| = 1 (concept note, "Properties"), connecting visits excluded: (T e8) of b3 and (B e34) of b7, not the
     # connecting (T e38) of b8
     trivial = analysis.metrics.visits.filter("is_trivial")
     assert sorted(trivial["hu"].to_list()) == ["b3", "b7"]
@@ -402,7 +406,7 @@ def test_trivial_options():
 
 
 def test_trivial_counts_with_sigma_one():
-    # values of the concept thread (|σ| = 1, connecting included): S1 3, S2 28, S3 27, S4 4, S5 (λ = 1) 3
+    # values of the concept thread (|σ| = 1, connecting included): S1 3, S2 28, S3 27, S4 4, S5 (λ = 0.5) 3
     expected = {"S1": 3, "S2": 28, "S3": 27, "S4": 4, "S5": 3}
     for key, n in expected.items():
         analysis = derive_mapping_set(
@@ -512,7 +516,7 @@ def test_share_of_vehicle_relations_on_the_way():
             pooled["n_vehicle_relations"],
         ) == (n, 10), key
         assert pooled["p_vr"] == pytest.approx(n / 10)
-    for strategy in (nina_strategy(), nina_strategy(storage_tie_break=False)):
+    for strategy in (domain_knowledge(), domain_knowledge(storage_tie_break=False)):
         pooled = derive_mapping_set(
             RELATIONS, **OPTIONS, strategy=strategy
         ).metrics.pooled

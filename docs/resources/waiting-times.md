@@ -1,7 +1,7 @@
 # Waiting times
 
 Status: implemented in the backend package and demoed in `notebooks/waiting_times.ipynb`; not used by any page yet.
-Concept: `overview/Single Level Visit Mappings.md` (outside this repo), section "Waiting Times" with DD-W1 to DD-W7; storage units as decided in C.6 of `claude_notes/excursions-and-visit-sequences.md`.
+Concept: `overview/concepts/Visit Mappings.md` (outside this repo), section "Waiting Times" with DD-W1 to DD-W7; storage units as decided in C.6 of `claude_notes/excursions-and-visit-sequences.md`.
 Code: `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/waiting_times/` (paths below are relative to it).
 Tests: `backend-modules/location-ocpm/tests/test_waiting_times.py`.
 
@@ -31,6 +31,7 @@ Flags: two processing operations of one handling unit at one timestamp (RQ5), an
 | Summary | `waiting.py`, `waiting_summary` | counts, totals, is_processing_visit per scope |
 | Flag RQ5 | `waiting.py`, `simultaneous_processing` | handling units with two or more processing operations at one timestamp |
 | All | `pipeline.py`, `analyse_waiting_times` | `WaitingAnalysis` (scopes, scope_relations, pieces, waiting_times, summary, simultaneous_processing, negative_waiting_times) |
+| With visits, shifts and overview | `visits/pipeline.py`, `analyse_visit_set` / `analyse_visits`; `visit_mapping/pipeline.py`, `analyse_mapping` | the `WaitingAnalysis` as `VisitAnalysis.waiting`, per-activity statistics and the overview (`docs/resources/visit-overview.md`) |
 
 Column names are at the top of `waiting.py`, `scopes.py` and `durations.py`.
 All functions take and return polars frames, eager or lazy alike; nothing iterates over rows.

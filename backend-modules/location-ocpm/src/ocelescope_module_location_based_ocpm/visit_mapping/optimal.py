@@ -28,14 +28,16 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
+# The kinds are defined once for all visit sets (`visits.properties`); re-exported here for the criteria.
+from ..visits.properties import (  # noqa: F401
+    BOTTOM_VISIT,
+    STAY,
+    TRANSFERRING_VISIT,
+    VEHICLE_VISIT,
+    kind_of,
+)
 from .sweep import Segment
 from .traces import Trace
-
-#: Kinds of a segment.
-STAY = "stay"
-VEHICLE_VISIT = "vehicle visit"
-TRANSFERRING_VISIT = "transferring visit"
-BOTTOM_VISIT = "⊥ visit"
 
 Direction = Literal["min", "max"]
 
@@ -80,22 +82,34 @@ class Criterion:
 #: The available criteria (working note 6.2 and the implementation brief).
 CRITERIA: dict[str, Criterion] = {
     "n_visits": Criterion(lambda s: 1, "min", "number of visits"),
-    "n_stays": Criterion(lambda s: int(s.kind == STAY), "min", "number of stays (visits with a stop)"),
+    "n_stays": Criterion(
+        lambda s: int(s.kind == STAY), "min", "number of stays (visits with a stop)"
+    ),
     "n_vehicle_visits": Criterion(
-        lambda s: int(s.kind in (VEHICLE_VISIT, TRANSFERRING_VISIT)), "min", "number of vehicle and transferring visits"
+        lambda s: int(s.kind in (VEHICLE_VISIT, TRANSFERRING_VISIT)),
+        "min",
+        "number of vehicle and transferring visits",
     ),
     "n_nonconforming": Criterion(
-        lambda s: s.n_relations - s.n_at_location, "min", "relations not at their visit's hl"
+        lambda s: s.n_relations - s.n_at_location,
+        "min",
+        "relations not at their visit's hl",
     ),
     "n_conforming_processing": Criterion(
-        lambda s: s.n_conforming_processing, "max", "processing relations at their visit's hl"
+        lambda s: s.n_conforming_processing,
+        "max",
+        "processing relations at their visit's hl",
     ),
     "n_storage_stay_relations": Criterion(
         lambda s: s.n_relations if s.kind == STAY and s.at_storage_location else 0,
         "max",
         "relations in stays at a high-level location with a storage unit (storage tie-break)",
     ),
-    "duration_sq": Criterion(lambda s: s.duration_hours**2, "max", "squared visit duration in hours (prefers longer visits)"),
+    "duration_sq": Criterion(
+        lambda s: s.duration_hours**2,
+        "max",
+        "squared visit duration in hours (prefers longer visits)",
+    ),
 }
 
 
@@ -123,9 +137,15 @@ class GlobalStrategy:
         for entry in self.criteria:
             key, direction = (entry, None) if isinstance(entry, str) else entry
             if key not in CRITERIA:
-                raise ValueError(f"Unknown criterion {key!r}; use one of {sorted(CRITERIA)}.")
+                raise ValueError(
+                    f"Unknown criterion {key!r}; use one of {sorted(CRITERIA)}."
+                )
             base = CRITERIA[key]
-            crit = base if direction is None else Criterion(base.value, direction, base.description)
+            crit = (
+                base
+                if direction is None
+                else Criterion(base.value, direction, base.description)
+            )
             out.append((key, crit, 1.0 if crit.direction == "min" else -1.0))
         return out
 
@@ -146,7 +166,9 @@ def lexicographic(
     Returns:
         GlobalStrategy: The strategy.
     """
-    return GlobalStrategy(tuple(criteria), "lexicographic", {}, no_sacrifice_to_vehicles, name)
+    return GlobalStrategy(
+        tuple(criteria), "lexicographic", {}, no_sacrifice_to_vehicles, name
+    )
 
 
 def weighted(
@@ -164,7 +186,9 @@ def weighted(
     Returns:
         GlobalStrategy: The strategy.
     """
-    return GlobalStrategy(tuple(weights), "weighted", dict(weights), no_sacrifice_to_vehicles, name)
+    return GlobalStrategy(
+        tuple(weights), "weighted", dict(weights), no_sacrifice_to_vehicles, name
+    )
 
 
 def segment_stats(trace: Trace, first: int, last: int) -> SegmentStats:
@@ -181,27 +205,30 @@ def segment_stats(trace: Trace, first: int, last: int) -> SegmentStats:
     h = trace.high_levels[first]
     positions = range(first, last + 1)
     at = [p for p in positions if trace.at(p, h)]
-    if h is None:
-        kind = BOTTOM_VISIT
-    elif any(not trace.on_vehicle[p] for p in at):
-        kind = STAY
-    elif all(trace.on_vehicle[p] or not trace.located(p) for p in positions):
-        kind = VEHICLE_VISIT
-    else:
-        kind = TRANSFERRING_VISIT
+    kind = kind_of(
+        h,
+        has_stop=any(not trace.on_vehicle[p] for p in at),
+        has_non_vehicle=any(
+            trace.located(p) and not trace.on_vehicle[p] for p in positions
+        ),
+    )
     exit_position = last + 1 if last + 1 < len(trace) else last
     duration = (trace.times[exit_position] - trace.times[first]).total_seconds() / 3600
     return SegmentStats(
         n_relations=len(positions),
         n_at_location=len(at),
-        n_conforming_processing=0 if h is None else sum(trace.is_processing[p] for p in at),
+        n_conforming_processing=0
+        if h is None
+        else sum(trace.is_processing[p] for p in at),
         kind=kind,
         duration_hours=duration,
         at_storage_location=h in trace.storage_high_levels,
     )
 
 
-def segment_cost(stats: SegmentStats, strategy: GlobalStrategy) -> tuple[float, ...] | None:
+def segment_cost(
+    stats: SegmentStats, strategy: GlobalStrategy
+) -> tuple[float, ...] | None:
     """The cost of one segment under a strategy (lower is better).
 
     Args:
@@ -214,7 +241,9 @@ def segment_cost(stats: SegmentStats, strategy: GlobalStrategy) -> tuple[float, 
     """
     if strategy.no_sacrifice_to_vehicles and stats.kind == TRANSFERRING_VISIT:
         return None
-    signed = [(key, sign * crit.value(stats)) for key, crit, sign in strategy.resolved()]
+    signed = [
+        (key, sign * crit.value(stats)) for key, crit, sign in strategy.resolved()
+    ]
     if strategy.mode == "weighted":
         return (sum(strategy.weights.get(key, 1.0) * value for key, value in signed),)
     return tuple(value for _, value in signed)
@@ -253,7 +282,9 @@ def valid_ends(trace: Trace, first: int) -> list[int]:
     ]
 
 
-def optimal_segmentation(trace: Trace, strategy: GlobalStrategy) -> tuple[list[Segment], tuple[float, ...]]:
+def optimal_segmentation(
+    trace: Trace, strategy: GlobalStrategy
+) -> tuple[list[Segment], tuple[float, ...]]:
     """The best segmentation of one trace under a global strategy (dynamic programme over the positions).
 
     Args:
@@ -268,7 +299,9 @@ def optimal_segmentation(trace: Trace, strategy: GlobalStrategy) -> tuple[list[S
     best: list[tuple[tuple[float, ...], int] | None] = [None] * (n + 1)
     best[n] = (tuple(0.0 for _ in range(width)), n)
     for i in range(n - 1, -1, -1):
-        for q in reversed(valid_ends(trace, i)):  # longest first: ties keep the longer segment (S1)
+        for q in reversed(
+            valid_ends(trace, i)
+        ):  # longest first: ties keep the longer segment (S1)
             rest = best[q + 1]
             cost = segment_cost(segment_stats(trace, i, q), strategy)
             if rest is None or cost is None:

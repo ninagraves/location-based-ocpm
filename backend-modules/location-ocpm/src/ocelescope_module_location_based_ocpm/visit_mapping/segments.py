@@ -10,6 +10,7 @@ import polars as pl
 
 from ..derivation import columns as c
 from ..visits import columns as v
+from ..visits.maximal import visit_table
 from .sweep import Segment
 
 #: Column of a mapping visit: id of the maximal visit m(i) it lies in.
@@ -26,7 +27,8 @@ def segments_frame(segments: Iterable[tuple[str, Segment]]) -> pl.DataFrame:
         pl.DataFrame: Columns hu, high_level, first_position, last_position, maximal_visit_id.
     """
     rows = [
-        (hu, s.high_level, s.first + 1, s.last + 1, s.maximal_visit_id) for hu, s in segments
+        (hu, s.high_level, s.first + 1, s.last + 1, s.maximal_visit_id)
+        for hu, s in segments
     ]
     return pl.DataFrame(
         rows,
@@ -42,7 +44,8 @@ def segments_frame(segments: Iterable[tuple[str, Segment]]) -> pl.DataFrame:
 
 
 def mapping_visits(relations: pl.DataFrame, segments: pl.DataFrame) -> pl.DataFrame:
-    """The visits table of a mapping set: one row per segment with the columns of `maximal.maximal_visits`.
+    """The visits table of a mapping set: one row per segment with the columns of `maximal.maximal_visits`
+    (built by the same `maximal.visit_table`).
 
     Args:
         relations: Relations with columns hu, event, time, position, high_level (e.g. of
@@ -55,64 +58,7 @@ def mapping_visits(relations: pl.DataFrame, segments: pl.DataFrame) -> pl.DataFr
         last_event, exit_event, entry_time, last_time, exit_time, ends_trace, duration, n_relations,
         n_at_location, interrupted; sorted by visit_id.
     """
-    rel = relations.select(
-        c.HU, pl.col(v.POSITION).cast(pl.Int64), c.EVENT, c.TIME, pl.col(v.HIGH_LEVEL).alias("_hl")
-    )
-    first = rel.select(
-        c.HU,
-        pl.col(v.POSITION).alias(v.FIRST_POSITION),
-        pl.col(c.EVENT).alias(v.FIRST_EVENT),
-        pl.col(c.TIME).alias(v.ENTRY_TIME),
-    )
-    last = rel.select(
-        c.HU,
-        pl.col(v.POSITION).alias(v.LAST_POSITION),
-        pl.col(c.EVENT).alias(v.LAST_EVENT),
-        pl.col(c.TIME).alias(v.LAST_TIME),
-    )
-    after = rel.select(
-        c.HU,
-        (pl.col(v.POSITION) - 1).alias(v.LAST_POSITION),
-        pl.col(c.EVENT).alias("_next_event"),
-        pl.col(c.TIME).alias("_next_time"),
-    )
-    expanded = (
-        segments.select(
-            c.HU,
-            v.FIRST_POSITION,
-            v.LAST_POSITION,
-            pl.col(v.HIGH_LEVEL).alias("_visit_hl"),
-            pl.int_ranges(v.FIRST_POSITION, pl.col(v.LAST_POSITION) + 1).alias(v.POSITION),
-        )
-        .explode(v.POSITION)
-        .with_columns(pl.col(v.POSITION).cast(pl.Int64))
-        .join(rel.select(c.HU, v.POSITION, "_hl"), on=[c.HU, v.POSITION])
-        .group_by(c.HU, v.FIRST_POSITION)
-        .agg(
-            pl.len().cast(pl.Int64).alias(v.N_RELATIONS),
-            pl.col("_hl").eq_missing(pl.col("_visit_hl")).sum().cast(pl.Int64).alias(v.N_AT_LOCATION),
-        )
-    )
-    return (
-        segments.sort(c.HU, v.FIRST_POSITION)
-        .with_row_index(v.VISIT_ID, offset=1)
-        .with_columns(pl.col(v.VISIT_ID).cast(pl.Int64))
-        .join(first, on=[c.HU, v.FIRST_POSITION], how="left")
-        .join(last, on=[c.HU, v.LAST_POSITION], how="left")
-        .join(after, on=[c.HU, v.LAST_POSITION], how="left")
-        .join(expanded, on=[c.HU, v.FIRST_POSITION], how="left")
-        .with_columns(
-            pl.col("_next_event").is_null().alias(v.ENDS_TRACE),
-            pl.col("_next_event").fill_null(pl.col(v.LAST_EVENT)).alias(v.EXIT_EVENT),
-            pl.col("_next_time").fill_null(pl.col(v.LAST_TIME)).alias(v.EXIT_TIME),
-        )
-        .with_columns(
-            (pl.col(v.EXIT_TIME) - pl.col(v.ENTRY_TIME)).alias(v.DURATION),
-            (pl.col(v.N_RELATIONS) > pl.col(v.N_AT_LOCATION)).alias(v.INTERRUPTED),
-        )
-        .drop("_next_event", "_next_time")
-        .sort(v.VISIT_ID)
-    )
+    return visit_table(segments, relations)
 
 
 #: Column of `visit_sequences`.
@@ -129,7 +75,12 @@ def visit_sequences(mapping: pl.DataFrame, bottom: str = "⊥") -> pl.DataFrame:
     Returns:
         pl.DataFrame: Columns hu, sequence (e.g. "(A e3–e11) (T e13–e14)"), sorted by hu.
     """
-    text = pl.format("({} {}–{})", pl.col(v.HIGH_LEVEL).fill_null(bottom), v.FIRST_EVENT, v.LAST_EVENT)
+    text = pl.format(
+        "({} {}–{})",
+        pl.col(v.HIGH_LEVEL).fill_null(bottom),
+        v.FIRST_EVENT,
+        v.LAST_EVENT,
+    )
     return (
         mapping.sort(c.HU, v.FIRST_POSITION)
         .group_by(c.HU, maintain_order=True)

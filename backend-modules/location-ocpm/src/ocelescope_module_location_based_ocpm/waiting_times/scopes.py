@@ -1,5 +1,5 @@
 """The scopes in which waiting times are measured: visits, or whole traces (DD-W6 in
-`overview/Single Level Visit Mappings.md`).
+`overview/concepts/Visit Mappings.md`).
 
 - **With visits** (default of the concept): every visit ν = (hu, hl, σ) with hl ∈ HL is a scope; visits at
   ⊥ get no waiting times (DD-W7). The clock starts at the entry into hl, and only processing operations at

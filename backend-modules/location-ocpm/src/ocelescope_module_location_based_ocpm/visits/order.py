@@ -1,4 +1,4 @@
-"""Order of events with the same timestamp (AS4 in `overview/Single Level Visit Mappings.md`).
+"""Order of events with the same timestamp (AS4 in `overview/concepts/Visit Mappings.md`).
 
 `seq(E')` orders a set of events by time; ties (events with the same timestamp) are broken by AS4:
 1. movement events (e ∈ M) first,

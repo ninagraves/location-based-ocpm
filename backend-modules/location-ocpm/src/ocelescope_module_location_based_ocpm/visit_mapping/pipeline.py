@@ -1,5 +1,6 @@
 """Mapping sets in one call: maximal visits, then one strategy per trace, then the visits table and the
-evaluation metrics; plus a comparison of several strategies."""
+evaluation metrics (`derive_mapping_set`); a comparison of several strategies (`compare_strategies`); and
+shifts, waiting times and the visit overview on a mapping set (`analyse_mapping`)."""
 
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
@@ -7,6 +8,7 @@ from dataclasses import dataclass
 import polars as pl
 
 from ..visits.maximal import derive_maximal_visits
+from ..visits.pipeline import VisitAnalysis, analyse_visit_set
 from .metrics import MappingMetrics, mapping_metrics
 from .segments import mapping_visits, segments_frame
 from .strategies import StrategyLike, segment_trace, strategy_name
@@ -146,3 +148,46 @@ def compare_strategies(
         ]
     )
     return table.select(STRATEGY, pl.exclude(STRATEGY)), analyses
+
+
+def analyse_mapping(
+    analysis: MappingAnalysis,
+    location: str = "loc",
+    vehicles: Collection[str] = (),
+    processing: Collection[str] | None = None,
+    storage_units: Collection[str] = (),
+    vehicles_outside_external: bool = False,
+    with_waiting_times: bool = True,
+    agg: Mapping[str, str] | None = None,
+    **waiting_options,
+) -> VisitAnalysis:
+    """Shifts, waiting times, dwell times, properties and the overview of a mapping set, in one call.
+
+    The same as for the maximal visits (`visits.pipeline.analyse_visit_set`), run on V_map.
+
+    Args:
+        analysis: Output of `derive_mapping_set`.
+        location: Column of loc.
+        vehicles: The set V.
+        processing: The processing operations P as event ids; None = T.
+        storage_units: The set W.
+        vehicles_outside_external: DD-S1.
+        with_waiting_times: Also compute the waiting times (default True).
+        agg: Location mapping, only for the naming-clash flag.
+        **waiting_options: Further options of `waiting_times.pipeline.analyse_waiting_times`.
+
+    Returns:
+        VisitAnalysis: All frames for the visits of the mapping set.
+    """
+    return analyse_visit_set(
+        analysis.relations,
+        analysis.mapping,
+        location,
+        vehicles,
+        processing,
+        storage_units,
+        vehicles_outside_external,
+        with_waiting_times,
+        agg,
+        **waiting_options,
+    )

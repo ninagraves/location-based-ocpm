@@ -1,4 +1,4 @@
-"""Stops, transfers and shifts of visits (`overview/Single Level Visit Mappings.md`, "identifying shifts").
+"""Stops, transfers and shifts of visits (`overview/concepts/Visit Mappings.md`, "identifying shifts").
 
 Let ν = (hu, hl, σ) be a visit with hl ∈ HL (visits at ⊥ have no stops, transfers or shifts).
 - A **stop** of ν is a relation of ν at hl that is not on a vehicle: hat-hl(r) = hl and loc(r) ∉ V.
@@ -31,6 +31,8 @@ import polars as pl
 from ..derivation import columns as c
 from . import columns as v
 from .context import Frame
+from .properties import TRANSFERRING_VISIT, VEHICLE_VISIT, kind_expr
+from .sequence import add_positions
 
 #: Transfer categories, in the order of the concept.
 STAY = "stay"
@@ -137,7 +139,9 @@ def transfer_category(vehicles_outside_external: bool = False) -> pl.Expr:
 
 
 def transfers(
-    visit_relations: Frame, location: str = "loc", vehicles_outside_external: bool = False
+    visit_relations: Frame,
+    location: str = "loc",
+    vehicles_outside_external: bool = False,
 ) -> Frame:
     """One row per transfer μ_j between two consecutive stops of a visit, with its category.
 
@@ -163,8 +167,7 @@ def transfers(
     """
     ordered = visit_relations.sort(v.VISIT_ID, v.POSITION)
     stops = (
-        ordered.filter(pl.col(v.IS_STOP))
-        .with_columns((pl.int_range(pl.len()).over(v.VISIT_ID) + 1).cast(pl.Int64).alias(J))
+        add_positions(ordered.filter(pl.col(v.IS_STOP)), v.VISIT_ID, v.POSITION, J)
         .select(
             v.VISIT_ID,
             c.HU,
@@ -200,7 +203,9 @@ def transfers(
             pl.col(ALL_ON_VEHICLE).fill_null(True),
             pl.col(ALL_AT_LOCATION).fill_null(True),
             (pl.col(TO_POSITION) - pl.col(FROM_POSITION) - 1).alias(TRANSFER_LENGTH),
-            (pl.col("_to_time") - pl.col("_leave_time").fill_null(pl.col("_to_time"))).alias(TRANSFER_DURATION),
+            (
+                pl.col("_to_time") - pl.col("_leave_time").fill_null(pl.col("_to_time"))
+            ).alias(TRANSFER_DURATION),
         )
         .with_columns(transfer_category(vehicles_outside_external).alias(CATEGORY))
         .select(
@@ -267,11 +272,16 @@ def shift_summary(
             for category, column in CATEGORY_COUNTS.items()
         ],
         pl.col(TRANSFER_DURATION).filter(internal).sum().alias(INTERNAL_SHIFT_TIME),
-        pl.col(TRANSFER_DURATION).filter(pl.col(CATEGORY) == EXTERNAL_SHIFT).sum().alias(EXTERNAL_SHIFT_TIME),
+        pl.col(TRANSFER_DURATION)
+        .filter(pl.col(CATEGORY) == EXTERNAL_SHIFT)
+        .sum()
+        .alias(EXTERNAL_SHIFT_TIME),
     )
     count_columns = list(CATEGORY_COUNTS.values())
     has_location = pl.col(v.VISIT_HIGH_LEVEL).is_not_null()
     no_non_vehicle = pl.col(NON_VEHICLE_LOCATIONS).list.len() == 0
+    # the kinds are defined once for every visit set (`properties.kind_expr`)
+    kind = kind_expr(pl.col(v.VISIT_HIGH_LEVEL), pl.col(N_STOPS) > 0, ~no_non_vehicle)
 
     def only_at_location(expr: pl.Expr) -> pl.Expr:
         """`expr` for visits at hl ∈ HL, null for visits at ⊥."""
@@ -281,11 +291,16 @@ def shift_summary(
     times = (INTERNAL_SHIFT_TIME, EXTERNAL_SHIFT_TIME)
     return (
         per_visit.join(counts, on=v.VISIT_ID, how="left")
-        .with_columns(pl.col(count_columns).fill_null(0), *(pl.col(t).fill_null(zero) for t in times))
         .with_columns(
-            (pl.col(N_DIRECT_SHIFTS) + pl.col(N_VEHICLE_SHIFTS)).alias(N_INTERNAL_SHIFTS),
-            no_non_vehicle.alias(IS_VEHICLE_VISIT),
-            ((pl.col(N_STOPS) == 0) & ~no_non_vehicle).alias(IS_TRANSFERRING_VISIT),
+            pl.col(count_columns).fill_null(0),
+            *(pl.col(t).fill_null(zero) for t in times),
+        )
+        .with_columns(
+            (pl.col(N_DIRECT_SHIFTS) + pl.col(N_VEHICLE_SHIFTS)).alias(
+                N_INTERNAL_SHIFTS
+            ),
+            (kind == VEHICLE_VISIT).alias(IS_VEHICLE_VISIT),
+            (kind == TRANSFERRING_VISIT).alias(IS_TRANSFERRING_VISIT),
         )
         .with_columns(
             only_at_location(pl.col(col)).alias(col)

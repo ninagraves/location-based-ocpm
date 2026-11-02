@@ -1,5 +1,5 @@
 """Location context for visits: the location mapping agg, the vehicles V and the storage units W
-(`overview/Single Level Visit Mappings.md`, "Specific new notations").
+(`overview/concepts/Visit Mappings.md`, "Specific new notations").
 
 Also `add_high_level_locations`, which applies agg to the relations (hat-hl), and `naming_clashes`, the flag
 for auto-completed locations whose name is also a provided high-level location.

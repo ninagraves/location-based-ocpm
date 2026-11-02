@@ -9,7 +9,7 @@ it has a stop, otherwise a vehicle visit (all located relations on vehicles), a 
 | N_vis | n_visits | number of visits |
 | N_proc, p_proc | n_conforming_processing, n_located_processing, p_proc | processing relations at their visit's hl / all located processing relations |
 | N_loop | n_loops | stays whose hl occurred in an earlier stay, with a stay at another hl in between (vehicle and transferring visits ignored, so A, T, A is no loop) |
-| N_triv | n_trivial | visits with one relation (Nina, note l. 143), not connecting (default, Nina 2026-11-02) |
+| N_triv | n_trivial | visits with one relation (Nina, concept note, "Properties"), not connecting (default, Nina 2026-11-02) |
 | N_triv^np | n_trivial_without_processing | trivial visits without a processing operation at their hl (Nina, 2026-11-02) |
 | N_veh, N_trans | n_vehicle_visits, n_transferring_visits | vehicle and transferring visits |
 | p_vr | n_vehicle_relations_on_the_way, n_vehicle_relations, p_vr | relations at vehicles (loc ∈ V) in a vehicle or transferring visit / all relations at vehicles (Nina, 2026-11-02) |
@@ -29,16 +29,26 @@ import polars as pl
 
 from ..derivation import columns as c
 from ..visits import columns as v
-from ..visits.maximal import visit_relations
+from ..visits.maximal import visit_relations, visit_table
 from ..visits.order import processing_flag
+from ..visits.properties import (
+    KIND,
+    N_PROCESSING_AT_LOCATION,
+    N_VEHICLE_RELATIONS,
+    STAY,
+    TRANSFERRING_VISIT,
+    VEHICLE_VISIT,
+    located_processing,
+    trivial_expr,
+    visit_properties,
+    with_positions,
+)
+from ..visits.sequence import add_positions
 from ..visits.shifts import add_stops
-from .optimal import BOTTOM_VISIT, STAY, TRANSFERRING_VISIT, VEHICLE_VISIT
 
 #: Columns of the per-visit metrics.
-KIND = "kind"
 SEQUENCE_INDEX = "j"
 N_CONFORMING_PROCESSING = "n_conforming_processing"
-N_VEHICLE_RELATIONS = "n_vehicle_relations"
 IS_LOOP = "is_loop"
 IS_CONNECTING = "is_connecting"
 IS_TRIVIAL = "is_trivial"
@@ -87,37 +97,6 @@ class MappingMetrics:
     pooled: pl.DataFrame
 
 
-def with_positions(mapping: pl.DataFrame, relations: pl.DataFrame) -> pl.DataFrame:
-    """Make sure a mapping has first_position, last_position and visit_id.
-
-    Args:
-        mapping: One row per visit with hu, high_level and either first_position, last_position or
-            first_event, last_event.
-        relations: Relations with hu, event, position.
-
-    Returns:
-        pl.DataFrame: `mapping` with the positions (looked up from the events if missing) and a visit_id
-        (1, 2, ... in hu and position order if missing).
-    """
-    out = mapping
-    if v.FIRST_POSITION not in out.columns or v.LAST_POSITION not in out.columns:
-        pos = relations.select(c.HU, c.EVENT, pl.col(v.POSITION).cast(pl.Int64))
-        out = out.join(
-            pos.rename({c.EVENT: v.FIRST_EVENT, v.POSITION: v.FIRST_POSITION}),
-            on=[c.HU, v.FIRST_EVENT],
-        ).join(
-            pos.rename({c.EVENT: v.LAST_EVENT, v.POSITION: v.LAST_POSITION}),
-            on=[c.HU, v.LAST_EVENT],
-        )
-    if v.VISIT_ID not in out.columns:
-        out = (
-            out.sort(c.HU, v.FIRST_POSITION)
-            .with_row_index(v.VISIT_ID, offset=1)
-            .with_columns(pl.col(v.VISIT_ID).cast(pl.Int64))
-        )
-    return out
-
-
 def visit_metrics(
     relations: pl.DataFrame,
     mapping: pl.DataFrame,
@@ -146,61 +125,18 @@ def visit_metrics(
     rel = relations.with_columns(
         processing_flag(processing).alias(v.IS_PROCESSING_EVENT)
     )
-    vrel = add_stops(visit_relations(rel, mapping), vehicles, location)
-    located_not_vehicle = pl.col(location).is_not_null() & ~pl.col(v.ON_VEHICLE)
-    per_visit = vrel.group_by(v.VISIT_ID).agg(
-        pl.len().cast(pl.Int64).alias(v.N_RELATIONS),
-        pl.col(v.AT_LOCATION).sum().cast(pl.Int64).alias(v.N_AT_LOCATION),
-        (
-            pl.col(v.IS_PROCESSING_EVENT)
-            & pl.col(v.AT_LOCATION)
-            & pl.col(v.VISIT_HIGH_LEVEL).is_not_null()
-        )
-        .sum()
-        .cast(pl.Int64)
-        .alias(N_CONFORMING_PROCESSING),
-        pl.col(v.ON_VEHICLE).sum().cast(pl.Int64).alias(N_VEHICLE_RELATIONS),
-        pl.col(v.IS_STOP).any().alias("_has_stop"),
-        located_not_vehicle.any().alias("_has_non_vehicle"),
+    intervals = mapping.select(
+        c.HU, v.VISIT_ID, v.HIGH_LEVEL, v.FIRST_POSITION, v.LAST_POSITION
     )
-    times = relations.select(c.HU, pl.col(v.POSITION).cast(pl.Int64), c.TIME)
-    kind = (
-        pl.when(pl.col(v.HIGH_LEVEL).is_null())
-        .then(pl.lit(BOTTOM_VISIT))
-        .when(pl.col("_has_stop"))
-        .then(pl.lit(STAY))
-        .when(~pl.col("_has_non_vehicle"))
-        .then(pl.lit(VEHICLE_VISIT))
-        .otherwise(pl.lit(TRANSFERRING_VISIT))
-    )
-    out = (
-        mapping.select(
-            c.HU, v.VISIT_ID, v.HIGH_LEVEL, v.FIRST_POSITION, v.LAST_POSITION
-        )
-        .join(per_visit, on=v.VISIT_ID)
-        .join(
-            times.rename({v.POSITION: v.FIRST_POSITION, c.TIME: "_entry"}),
-            on=[c.HU, v.FIRST_POSITION],
-        )
-        .join(
-            times.with_columns(pl.col(v.POSITION) - 1).rename(
-                {v.POSITION: v.LAST_POSITION, c.TIME: "_next"}
-            ),
-            on=[c.HU, v.LAST_POSITION],
-            how="left",
-        )
-        .join(
-            times.rename({v.POSITION: v.LAST_POSITION, c.TIME: "_last"}),
-            on=[c.HU, v.LAST_POSITION],
-        )
-        .with_columns(
-            kind.alias(KIND),
-            (pl.col("_next").fill_null(pl.col("_last")) - pl.col("_entry")).alias(
-                v.DURATION
-            ),
-        )
-        .sort(c.HU, v.FIRST_POSITION)
-        .with_columns((pl.int_range(pl.len()).over(c.HU) + 1).alias(SEQUENCE_INDEX))
+    table = visit_table(intervals, rel)
+    vrel = add_stops(visit_relations(rel, table), vehicles, location)
+    out = add_positions(
+        visit_properties(table, vrel, location=location).rename(
+            {N_PROCESSING_AT_LOCATION: N_CONFORMING_PROCESSING}
+        ),
+        c.HU,
+        v.FIRST_POSITION,
+        SEQUENCE_INDEX,
     )
     is_stay = pl.col(KIND) == STAY
     # loops: among the stays of a handling unit, hl seen before and the previous stay at another hl
@@ -230,7 +166,7 @@ def visit_metrics(
     out = out.join(stays, on=v.VISIT_ID, how="left").with_columns(
         pl.col(IS_LOOP).fill_null(False), connecting.alias(IS_CONNECTING)
     )
-    trivial = pl.col(v.N_RELATIONS) == 1
+    trivial = trivial_expr()
     if trivial_excludes_connecting:
         trivial = trivial & ~pl.col(IS_CONNECTING)
     without_processing = trivial & (pl.col(N_CONFORMING_PROCESSING) == 0)
@@ -368,16 +304,7 @@ def mapping_metrics(
     visits = visit_metrics(
         relations, mapping, vehicles, processing, location, trivial_excludes_connecting
     )
-    located = (
-        relations.with_columns(processing_flag(processing).alias("_p"))
-        .group_by(c.HU)
-        .agg(
-            (pl.col("_p") & pl.col(v.HIGH_LEVEL).is_not_null())
-            .sum()
-            .cast(pl.Int64)
-            .alias("n_located_processing")
-        )
-    )
+    located = located_processing(relations, processing)
     return MappingMetrics(
         visits, summarise(visits, located, [c.HU]), summarise(visits, located, [])
     )
@@ -403,7 +330,7 @@ METRIC_LABELS: dict[str, tuple[str, tuple[str, str] | None]] = {
 }
 
 #: Explanation of each metric, shown on mouse-over in the trace figure (Nina's note, "Evaluating mapping
-#: sets", l. 705-718: definition, then what it says).
+#: sets": definition, then what it says).
 METRIC_EXPLANATIONS: dict[str, str] = {
     "n_visits": "number of visits, Σ_hu r(hu)<br>size of the mapping; per hu: r(hu)",
     "n_stays": "number of stays: visits with at least one stop<br>(a relation at the visit's hl, not on a vehicle)",

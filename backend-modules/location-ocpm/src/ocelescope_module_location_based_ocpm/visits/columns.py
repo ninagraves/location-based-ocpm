@@ -1,4 +1,4 @@
-"""Column names of the frames used for visits (`overview/Single Level Visit Mappings.md`).
+"""Column names of the frames used for visits (`overview/concepts/Visit Mappings.md`).
 
 One place for the names, so a rename is a single edit.
 The columns of the relations frame itself (event, hu, time, ...) are in `derivation/columns.py`.
