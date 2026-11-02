@@ -173,24 +173,35 @@ def test_edge_lead_in_consumption_and_production(edge):
     assert (
         roles["x3"] == "consumed"
         and roles["x4"] == "produced"
-        and roles["x5"] == "consumed and produced"
+        and roles["x6"] == "consumed and produced"
     )
 
 
-def test_edge_movements_first_among_tied_events(edge):
-    """At 6:00, the crane move x8 comes before the scan x7 (movements first, then event id)."""
+def test_edge_ties_ordered_by_as4(edge):
+    """AS4: at 5:00 the processing operation x6 comes before the label x5; at 6:00 the crane move x8 before the scan x7."""
     h2 = edge.filter(pl.col("hu") == "h2")
-    assert h2["event"].to_list() == ["x4", "x5", "x6", "x8", "x7"]
-    assert (
-        h2.filter(pl.col("event") == "x8")["x"].item()
-        < h2.filter(pl.col("event") == "x7")["x"].item()
-    )
-    # x5 and x6 (no movement) stay in event id order.
+    assert h2["event"].to_list() == ["x4", "x6", "x5", "x8", "x7"]
+    assert h2["tie_rank"].to_list() == [0, 1, 2, 0, 2]
+    x = dict(h2.select("event", "x").rows())
+    assert x["x6"] < x["x5"] and x["x8"] < x["x7"]
     assert h2["position"].to_list() == [1, 2, 3, 4, 5]
 
 
+def test_ties_follow_the_shared_seq_order(edge):
+    """The timeline orders every handling unit's relations exactly as `visits.order.sort_by_seq`."""
+    from ocelescope_module_location_based_ocpm.visits.order import sort_by_seq
+
+    processing = pl.read_csv(EDGE / "processing_events.csv")["event"].to_list()
+    expected = sort_by_seq(
+        pl.read_csv(EDGE / "relations.csv", try_parse_dates=True),
+        "hu",
+        processing=processing,
+    ).select("hu", "event")
+    assert edge.sort("hu", "position").select("hu", "event").equals(expected)
+
+
 def test_edge_pickup_differs_and_band_loc_only(edge):
-    """x8 picks h2 up at Y3, but h2 was at Y2: marked; the band stays Y2 up to x8, then Y1."""
+    """x8 picks h2 up at Y3, but h2 was at Y2 after x5: marked; the band stays Y2 up to x8, then Y1."""
     assert edge.filter("pickup_differs")["event"].to_list() == ["x8"]
     assert _segments(edge, "h2") == [
         ("Y2", False, 7.0, 10.0),
