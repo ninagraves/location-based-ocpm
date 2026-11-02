@@ -1,0 +1,7 @@
+location,high_level,is_vehicle
+X1,X,false
+Y1,Y,false
+Y2,Y,false
+Y3,Y,false
+C,Y,true
+F,,false

@@ -20,7 +20,7 @@ def test_events_without_handling_units_are_unlocated(derivation):
 
 
 def test_hu_locatedness_level_3(derivation):
-    located = dict(hu_locatedness(derivation.relations, "loc_3").select("hu", "located").iter_rows())
+    located = dict(hu_locatedness(derivation.relations, "loc^3").select("hu", "located").iter_rows())
     assert located == {
         "s1": "fully located", "c1": "fully located", "c2": "fully located",
         "c3": "fully located", "c4": "fully located", "c5": "unlocated",
@@ -43,14 +43,14 @@ def test_flags_use_the_selected_level(ocel):
     """At Level 1, e5 has no previous location for c1, so F5 (b) and F1 do not change, but the
     selected columns do."""
     level_1 = derive(ocel, example_config(level=1))
-    assert (level_1.loc, level_1.ploc) == ("loc_1", "ploc_1")
+    assert (level_1.loc, level_1.ploc) == ("loc^1", "ploc^1")
     assert level_1.flags.f1.to_list() == ["e11", "e12"]
 
 
 def test_relation_locatedness_level_3(derivation):
     from ocelescope_module_location_based_ocpm.derivation.locatedness import relation_locatedness
 
-    located = relation_locatedness(derivation.relations, "loc_3")
+    located = relation_locatedness(derivation.relations, "loc^3")
     assert located["located"].sum() == 26
     assert located.filter(~pl.col("located"))["hu"].unique().to_list() == ["c5"]
 
@@ -58,6 +58,6 @@ def test_relation_locatedness_level_3(derivation):
 def test_event_agreement_level_1(derivation):
     from ocelescope_module_location_based_ocpm.derivation.agreement import event_agreement
 
-    agreement = event_agreement(derivation.relations, derivation.events, "loc_1")
+    agreement = event_agreement(derivation.relations, derivation.events, "loc^1")
     e14 = agreement.filter(pl.col("event") == "e14").row(0, named=True)
     assert e14 == {"event": "e14", "n_locations": 2, "agreeing": False, "eloc": None}

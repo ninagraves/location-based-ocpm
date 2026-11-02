@@ -1,10 +1,10 @@
-"""Current locations loc_0 to loc_3, before_λ and ploc_λ (`overview/Deriving Locations.md`, "Deriving Current locations").
+"""Current locations loc^0 to loc^3, before_λ and ploc_λ (`overview/Deriving Locations.md`, "Deriving Current locations").
 
 All functions take the relations frame (one row per hu-event relation, see `inputs.ResolvedInputs`)
 and return it with one more column. A null value is ⊥.
 
 Time ties: several events of one handling unit can share a timestamp. Level 1 uses ≤ on time,
-so all relations of a handling unit at one timestamp get the same loc_1; before_λ uses < on time.
+so all relations of a handling unit at one timestamp get the same loc^1; before_λ uses < on time.
 Both are computed on "time steps" (one row per handling unit and timestamp).
 """
 
@@ -19,7 +19,7 @@ def _per_time_step(relations: pl.DataFrame, value: str) -> pl.DataFrame:
     Args:
         relations: Relations frame with columns hu, time and `value`.
         value: Column to collapse; the first non-null value of the time step is kept
-            (all non-null values of a step agree by RQ1 for uloc, and by construction for loc_1 to loc_3).
+            (all non-null values of a step agree by RQ1 for uloc, and by construction for loc^1 to loc^3).
 
     Returns:
         pl.DataFrame: Columns hu, time, `value`, sorted by hu and time.
@@ -32,13 +32,13 @@ def _per_time_step(relations: pl.DataFrame, value: str) -> pl.DataFrame:
 
 
 def add_loc_0(relations: pl.DataFrame) -> pl.DataFrame:
-    """Level 0 (provided): loc_0((e, hu)) = uloc(e) if e ∈ dom(uloc), else ⊥.
+    """Level 0 (provided): loc^0((e, hu)) = uloc(e) if e ∈ dom(uloc), else ⊥.
 
     Args:
         relations: Relations frame with column uloc.
 
     Returns:
-        pl.DataFrame: With column loc_0.
+        pl.DataFrame: With column loc^0.
     """
     return relations.with_columns(pl.col(c.ULOC).alias(c.loc(0)))
 
@@ -50,7 +50,7 @@ def add_loc_1(relations: pl.DataFrame) -> pl.DataFrame:
         relations: Relations frame with columns hu, time, uloc.
 
     Returns:
-        pl.DataFrame: With column loc_1.
+        pl.DataFrame: With column loc^1.
     """
     steps = _per_time_step(relations, c.ULOC).with_columns(
         pl.col(c.ULOC).forward_fill().over(c.HU, order_by=c.TIME).alias(c.loc(1))
@@ -59,14 +59,14 @@ def add_loc_1(relations: pl.DataFrame) -> pl.DataFrame:
 
 
 def add_before(relations: pl.DataFrame, level: int) -> pl.DataFrame:
-    """before_{loc_k}: loc_k at the handling unit's latest strictly earlier event with loc_k ≠ ⊥.
+    """before_{loc^k}: loc^k at the handling unit's latest strictly earlier event with loc^k ≠ ⊥.
 
     Args:
-        relations: Relations frame with columns hu, time and loc_k.
+        relations: Relations frame with columns hu, time and loc^k.
         level: Level k.
 
     Returns:
-        pl.DataFrame: With column before_k.
+        pl.DataFrame: With column before^k.
     """
     steps = _per_time_step(relations, c.loc(level)).with_columns(
         pl.col(c.loc(level)).forward_fill().shift(1).over(c.HU, order_by=c.TIME).alias(c.before(level))
@@ -75,14 +75,14 @@ def add_before(relations: pl.DataFrame, level: int) -> pl.DataFrame:
 
 
 def add_ploc(relations: pl.DataFrame, level: int) -> pl.DataFrame:
-    """ploc_k: the provided pickup location where there is one, else before_{loc_k}.
+    """ploc^k: the provided pickup location where there is one, else before_{loc^k}.
 
     Args:
-        relations: Relations frame with columns puloc and before_k (see `add_before`).
+        relations: Relations frame with columns puloc and before^k (see `add_before`).
         level: Level k.
 
     Returns:
-        pl.DataFrame: With column ploc_k.
+        pl.DataFrame: With column ploc^k.
     """
     return relations.with_columns(pl.coalesce(c.PULOC, c.before(level)).alias(c.ploc(level)))
 
@@ -128,13 +128,13 @@ def first_location(relations: pl.DataFrame) -> pl.DataFrame:
 
 
 def add_loc_2(relations: pl.DataFrame) -> pl.DataFrame:
-    """Level 2 (backward fill): loc_1 where known, else l_0(hu) (see `first_location`).
+    """Level 2 (backward fill): loc^1 where known, else l_0(hu) (see `first_location`).
 
     Args:
-        relations: Relations frame with columns hu, time, is_movement, uloc, puloc, loc_1.
+        relations: Relations frame with columns hu, time, is_movement, uloc, puloc, loc^1.
 
     Returns:
-        pl.DataFrame: With column loc_2.
+        pl.DataFrame: With column loc^2.
     """
     l_0 = first_location(relations).select(c.HU, "l_0")
     return (
@@ -145,8 +145,8 @@ def add_loc_2(relations: pl.DataFrame) -> pl.DataFrame:
 
 
 def add_loc_3(relations: pl.DataFrame, eloc_2: pl.DataFrame) -> pl.DataFrame:
-    """Level 3 (transformation locations): loc_2 where known, else the agreed Level 2 location of the
-    handling unit's earliest transformation event t_1(hu) before its first movement with eloc_{loc_2} ≠ ⊥.
+    """Level 3 (transformation locations): loc^2 where known, else the agreed Level 2 location of the
+    handling unit's earliest transformation event t_1(hu) before its first movement with eloc_{loc^2} ≠ ⊥.
 
     Choice of t_1(hu) (Nina, 2026-10-28): 1. earliest time, 2. among those, only events with an agreed
     location (eloc ≠ ⊥; this is a filter, so a disagreeing transformation never blocks a later one),
@@ -154,11 +154,11 @@ def add_loc_3(relations: pl.DataFrame, eloc_2: pl.DataFrame) -> pl.DataFrame:
 
     Args:
         relations: Relations frame with columns hu, time, event, is_transformation, is_movement,
-            uloc, puloc, loc_2.
-        eloc_2: Agreed event locations under loc_2, columns event, eloc (see `agreement.event_locations`).
+            uloc, puloc, loc^2.
+        eloc_2: Agreed event locations under loc^2, columns event, eloc (see `agreement.event_locations`).
 
     Returns:
-        pl.DataFrame: With column loc_3.
+        pl.DataFrame: With column loc^3.
     """
     t_m = first_location(relations).select(c.HU, "t_m")
     t_1 = (

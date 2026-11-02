@@ -365,7 +365,7 @@ def derive_maximal_visits(
         relations: One row per hu-event relation with columns hu, event, time, is_movement and `location`
             (and is_transformation if `processing` is None), e.g. a saved
             level mapping (`derivation.level_files.load_level_mapping`) or `Derivation.relations`.
-        location: Column of the current location loc (null = ⊥), e.g. "loc" or "loc_3".
+        location: Column of the current location loc (null = ⊥), e.g. "loc" or "loc^3".
         agg: Location mapping L -> HL (partial, completed by identity); None = identity.
         kappa: κ_max, the maximum number of events of a deviating infix at every high-level location
             (κ(⊥) = 0); None = no limit on the number of events (DD-V1).
