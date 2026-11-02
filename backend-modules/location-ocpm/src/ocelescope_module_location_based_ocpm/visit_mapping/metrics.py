@@ -9,7 +9,8 @@ it has a stop, otherwise a vehicle visit (all located relations on vehicles), a 
 | N_vis | n_visits | number of visits |
 | N_proc, p_proc | n_conforming_processing, n_located_processing, p_proc | processing relations at their visit's hl / all located processing relations |
 | N_loop | n_loops | stays whose hl occurred in an earlier stay, with a stay at another hl in between (vehicle and transferring visits ignored, so A, T, A is no loop) |
-| N_triv | n_trivial | visits with one relation (Nina, note l. 143), not connecting (default, Nina 2026-11-02); optionally only without processing at its hl (note l. 709; Nina still to decide) |
+| N_triv | n_trivial | visits with one relation (Nina, note l. 143), not connecting (default, Nina 2026-11-02) |
+| N_triv^np | n_trivial_without_processing | trivial visits without a processing operation at their hl (Nina, 2026-11-02) |
 | N_veh, N_trans | n_vehicle_visits, n_transferring_visits | vehicle and transferring visits |
 | p_vr | n_vehicle_relations_on_the_way, n_vehicle_relations, p_vr | relations at vehicles (loc ∈ V) in a vehicle or transferring visit / all relations at vehicles (Nina, 2026-11-02) |
 | N_conn, p_conn | n_connecting, p_conn | vehicle or transferring visits whose two neighbours are stays at different hl / (N_veh + N_trans) |
@@ -41,6 +42,7 @@ N_VEHICLE_RELATIONS = "n_vehicle_relations"
 IS_LOOP = "is_loop"
 IS_CONNECTING = "is_connecting"
 IS_TRIVIAL = "is_trivial"
+IS_TRIVIAL_WITHOUT_PROCESSING = "is_trivial_without_processing"
 
 #: Columns of the summaries (per handling unit and pooled).
 SUMMARY_COLUMNS = [
@@ -51,6 +53,7 @@ SUMMARY_COLUMNS = [
     "p_proc",
     "n_loops",
     "n_trivial",
+    "n_trivial_without_processing",
     "n_vehicle_visits",
     "n_transferring_visits",
     "n_connecting",
@@ -100,8 +103,12 @@ def with_positions(mapping: pl.DataFrame, relations: pl.DataFrame) -> pl.DataFra
     if v.FIRST_POSITION not in out.columns or v.LAST_POSITION not in out.columns:
         pos = relations.select(c.HU, c.EVENT, pl.col(v.POSITION).cast(pl.Int64))
         out = out.join(
-            pos.rename({c.EVENT: v.FIRST_EVENT, v.POSITION: v.FIRST_POSITION}), on=[c.HU, v.FIRST_EVENT]
-        ).join(pos.rename({c.EVENT: v.LAST_EVENT, v.POSITION: v.LAST_POSITION}), on=[c.HU, v.LAST_EVENT])
+            pos.rename({c.EVENT: v.FIRST_EVENT, v.POSITION: v.FIRST_POSITION}),
+            on=[c.HU, v.FIRST_EVENT],
+        ).join(
+            pos.rename({c.EVENT: v.LAST_EVENT, v.POSITION: v.LAST_POSITION}),
+            on=[c.HU, v.LAST_EVENT],
+        )
     if v.VISIT_ID not in out.columns:
         out = (
             out.sort(c.HU, v.FIRST_POSITION)
@@ -117,7 +124,6 @@ def visit_metrics(
     vehicles: Collection[str] = (),
     processing: Collection[str] | None = None,
     location: str = "loc",
-    trivial_without_processing: bool = False,
     trivial_excludes_connecting: bool = True,
 ) -> pl.DataFrame:
     """Per-visit metrics of a mapping set.
@@ -129,22 +135,27 @@ def visit_metrics(
         vehicles: The set V.
         processing: The processing operations P as event ids; None = the transformation events T.
         location: Column of loc.
-        trivial_without_processing: True = a visit with one relation is trivial only if it has no processing
-            at its hl (the brief's definition); default False (Nina, note l. 143: |σ| = 1).
         trivial_excludes_connecting: True (default; Nina, 2026-11-02) = connecting vehicle or transferring
-            visits are never trivial; False = they count like any other visit.
+            visits are never trivial; False = they count like any other visit. Applies to both is_trivial
+            (|σ| = 1) and is_trivial_without_processing (also no processing operation at its hl).
 
     Returns:
         pl.DataFrame: One row per visit (see `MappingMetrics.visits`), sorted by hu and j.
     """
     mapping = with_positions(mapping, relations)
-    rel = relations.with_columns(processing_flag(processing).alias(v.IS_PROCESSING_EVENT))
+    rel = relations.with_columns(
+        processing_flag(processing).alias(v.IS_PROCESSING_EVENT)
+    )
     vrel = add_stops(visit_relations(rel, mapping), vehicles, location)
     located_not_vehicle = pl.col(location).is_not_null() & ~pl.col(v.ON_VEHICLE)
     per_visit = vrel.group_by(v.VISIT_ID).agg(
         pl.len().cast(pl.Int64).alias(v.N_RELATIONS),
         pl.col(v.AT_LOCATION).sum().cast(pl.Int64).alias(v.N_AT_LOCATION),
-        (pl.col(v.IS_PROCESSING_EVENT) & pl.col(v.AT_LOCATION) & pl.col(v.VISIT_HIGH_LEVEL).is_not_null())
+        (
+            pl.col(v.IS_PROCESSING_EVENT)
+            & pl.col(v.AT_LOCATION)
+            & pl.col(v.VISIT_HIGH_LEVEL).is_not_null()
+        )
         .sum()
         .cast(pl.Int64)
         .alias(N_CONFORMING_PROCESSING),
@@ -163,18 +174,30 @@ def visit_metrics(
         .otherwise(pl.lit(TRANSFERRING_VISIT))
     )
     out = (
-        mapping.select(c.HU, v.VISIT_ID, v.HIGH_LEVEL, v.FIRST_POSITION, v.LAST_POSITION)
+        mapping.select(
+            c.HU, v.VISIT_ID, v.HIGH_LEVEL, v.FIRST_POSITION, v.LAST_POSITION
+        )
         .join(per_visit, on=v.VISIT_ID)
-        .join(times.rename({v.POSITION: v.FIRST_POSITION, c.TIME: "_entry"}), on=[c.HU, v.FIRST_POSITION])
         .join(
-            times.with_columns(pl.col(v.POSITION) - 1).rename({v.POSITION: v.LAST_POSITION, c.TIME: "_next"}),
+            times.rename({v.POSITION: v.FIRST_POSITION, c.TIME: "_entry"}),
+            on=[c.HU, v.FIRST_POSITION],
+        )
+        .join(
+            times.with_columns(pl.col(v.POSITION) - 1).rename(
+                {v.POSITION: v.LAST_POSITION, c.TIME: "_next"}
+            ),
             on=[c.HU, v.LAST_POSITION],
             how="left",
         )
-        .join(times.rename({v.POSITION: v.LAST_POSITION, c.TIME: "_last"}), on=[c.HU, v.LAST_POSITION])
+        .join(
+            times.rename({v.POSITION: v.LAST_POSITION, c.TIME: "_last"}),
+            on=[c.HU, v.LAST_POSITION],
+        )
         .with_columns(
             kind.alias(KIND),
-            (pl.col("_next").fill_null(pl.col("_last")) - pl.col("_entry")).alias(v.DURATION),
+            (pl.col("_next").fill_null(pl.col("_last")) - pl.col("_entry")).alias(
+                v.DURATION
+            ),
         )
         .sort(c.HU, v.FIRST_POSITION)
         .with_columns((pl.int_range(pl.len()).over(c.HU) + 1).alias(SEQUENCE_INDEX))
@@ -188,7 +211,10 @@ def visit_metrics(
             pl.col(v.HIGH_LEVEL).shift(1).over(c.HU).alias("_prev_stay_hl"),
         )
         .select(
-            v.VISIT_ID, (pl.col("_seen") & (pl.col("_prev_stay_hl") != pl.col(v.HIGH_LEVEL))).alias(IS_LOOP)
+            v.VISIT_ID,
+            (pl.col("_seen") & (pl.col("_prev_stay_hl") != pl.col(v.HIGH_LEVEL))).alias(
+                IS_LOOP
+            ),
         )
     )
     prev_kind = pl.col(KIND).shift(1).over(c.HU)
@@ -205,11 +231,13 @@ def visit_metrics(
         pl.col(IS_LOOP).fill_null(False), connecting.alias(IS_CONNECTING)
     )
     trivial = pl.col(v.N_RELATIONS) == 1
-    if trivial_without_processing:
-        trivial = trivial & (pl.col(N_CONFORMING_PROCESSING) == 0)
     if trivial_excludes_connecting:
         trivial = trivial & ~pl.col(IS_CONNECTING)
-    return out.with_columns(trivial.alias(IS_TRIVIAL)).select(
+    without_processing = trivial & (pl.col(N_CONFORMING_PROCESSING) == 0)
+    return out.with_columns(
+        trivial.alias(IS_TRIVIAL),
+        without_processing.alias(IS_TRIVIAL_WITHOUT_PROCESSING),
+    ).select(
         c.HU,
         v.VISIT_ID,
         v.HIGH_LEVEL,
@@ -225,15 +253,20 @@ def visit_metrics(
         IS_LOOP,
         IS_CONNECTING,
         IS_TRIVIAL,
+        IS_TRIVIAL_WITHOUT_PROCESSING,
     )
 
 
 def _share(numerator: str, denominator: str) -> pl.Expr:
     """numerator / denominator, null if the denominator is 0."""
-    return pl.when(pl.col(denominator) > 0).then(pl.col(numerator) / pl.col(denominator))
+    return pl.when(pl.col(denominator) > 0).then(
+        pl.col(numerator) / pl.col(denominator)
+    )
 
 
-def summarise(visits: pl.DataFrame, located_processing: pl.DataFrame, by: list[str]) -> pl.DataFrame:
+def summarise(
+    visits: pl.DataFrame, located_processing: pl.DataFrame, by: list[str]
+) -> pl.DataFrame:
     """Summary metrics of per-visit metrics (`SUMMARY_COLUMNS`).
 
     Args:
@@ -248,14 +281,28 @@ def summarise(visits: pl.DataFrame, located_processing: pl.DataFrame, by: list[s
     aggs = [
         pl.len().cast(pl.Int64).alias("n_visits"),
         (pl.col(KIND) == STAY).sum().cast(pl.Int64).alias("n_stays"),
-        pl.col(N_CONFORMING_PROCESSING).sum().cast(pl.Int64).alias("n_conforming_processing"),
+        pl.col(N_CONFORMING_PROCESSING)
+        .sum()
+        .cast(pl.Int64)
+        .alias("n_conforming_processing"),
         pl.col(IS_LOOP).sum().cast(pl.Int64).alias("n_loops"),
         pl.col(IS_TRIVIAL).sum().cast(pl.Int64).alias("n_trivial"),
+        pl.col(IS_TRIVIAL_WITHOUT_PROCESSING)
+        .sum()
+        .cast(pl.Int64)
+        .alias("n_trivial_without_processing"),
         (pl.col(KIND) == VEHICLE_VISIT).sum().cast(pl.Int64).alias("n_vehicle_visits"),
-        (pl.col(KIND) == TRANSFERRING_VISIT).sum().cast(pl.Int64).alias("n_transferring_visits"),
+        (pl.col(KIND) == TRANSFERRING_VISIT)
+        .sum()
+        .cast(pl.Int64)
+        .alias("n_transferring_visits"),
         pl.col(IS_CONNECTING).sum().cast(pl.Int64).alias("n_connecting"),
         vehicle_like.sum().cast(pl.Int64).alias("_n_vehicle_like"),
-        pl.col(N_VEHICLE_RELATIONS).filter(vehicle_like).sum().cast(pl.Int64).alias("n_vehicle_relations_on_the_way"),
+        pl.col(N_VEHICLE_RELATIONS)
+        .filter(vehicle_like)
+        .sum()
+        .cast(pl.Int64)
+        .alias("n_vehicle_relations_on_the_way"),
         pl.col(N_VEHICLE_RELATIONS).sum().cast(pl.Int64).alias("n_vehicle_relations"),
         pl.col(v.N_RELATIONS).mean().alias("mean_relations"),
         pl.col(v.N_RELATIONS).median().alias("median_relations"),
@@ -265,10 +312,17 @@ def summarise(visits: pl.DataFrame, located_processing: pl.DataFrame, by: list[s
         pl.col(v.N_RELATIONS).sum().cast(pl.Int64).alias("n_relations"),
     ]
     if by:
-        out = visits.group_by(by).agg(aggs).join(located_processing, on=by, how="left").sort(by)
+        out = (
+            visits.group_by(by)
+            .agg(aggs)
+            .join(located_processing, on=by, how="left")
+            .sort(by)
+        )
     else:
         out = visits.select(aggs).with_columns(
-            pl.lit(located_processing["n_located_processing"].sum()).cast(pl.Int64).alias("n_located_processing")
+            pl.lit(located_processing["n_located_processing"].sum())
+            .cast(pl.Int64)
+            .alias("n_located_processing")
         )
     out = out.with_columns(pl.col("n_located_processing").fill_null(0)).with_columns(
         _share("n_conforming_processing", "n_located_processing").alias("p_proc"),
@@ -286,7 +340,6 @@ def mapping_metrics(
     processing: Collection[str] | None = None,
     location: str = "loc",
     handling_units: Collection[str] | None = None,
-    trivial_without_processing: bool = False,
     trivial_excludes_connecting: bool = True,
 ) -> MappingMetrics:
     """Evaluation metrics of a mapping set for one or several handling units.
@@ -300,24 +353,34 @@ def mapping_metrics(
         processing: The processing operations P as event ids; None = the transformation events T.
         location: Column of loc.
         handling_units: Evaluate only these handling units; None = all handling units of `mapping`.
-        trivial_without_processing: See `visit_metrics`.
         trivial_excludes_connecting: See `visit_metrics`.
 
     Returns:
         MappingMetrics: Per visit, per handling unit and pooled. Shares are null if their denominator is 0.
     """
-    hus = handling_units if handling_units is not None else mapping[c.HU].unique().to_list()
+    hus = (
+        handling_units
+        if handling_units is not None
+        else mapping[c.HU].unique().to_list()
+    )
     mapping = mapping.filter(pl.col(c.HU).is_in(list(hus)))
     relations = relations.filter(pl.col(c.HU).is_in(list(hus)))
     visits = visit_metrics(
-        relations, mapping, vehicles, processing, location, trivial_without_processing, trivial_excludes_connecting
+        relations, mapping, vehicles, processing, location, trivial_excludes_connecting
     )
     located = (
         relations.with_columns(processing_flag(processing).alias("_p"))
         .group_by(c.HU)
-        .agg((pl.col("_p") & pl.col(v.HIGH_LEVEL).is_not_null()).sum().cast(pl.Int64).alias("n_located_processing"))
+        .agg(
+            (pl.col("_p") & pl.col(v.HIGH_LEVEL).is_not_null())
+            .sum()
+            .cast(pl.Int64)
+            .alias("n_located_processing")
+        )
     )
-    return MappingMetrics(visits, summarise(visits, located, [c.HU]), summarise(visits, located, []))
+    return MappingMetrics(
+        visits, summarise(visits, located, [c.HU]), summarise(visits, located, [])
+    )
 
 
 #: How each summary metric is shown in a figure: label, and for shares the numerator and denominator columns.
@@ -327,6 +390,7 @@ METRIC_LABELS: dict[str, tuple[str, tuple[str, str] | None]] = {
     "p_proc": ("p_proc", ("n_conforming_processing", "n_located_processing")),
     "n_loops": ("N_loop", None),
     "n_trivial": ("N_triv", None),
+    "n_trivial_without_processing": ("N_triv^np", None),
     "n_vehicle_visits": ("N_veh", None),
     "n_transferring_visits": ("N_trans", None),
     "p_conn": ("p_conn", ("n_connecting", "n_vehicle_like")),
@@ -349,25 +413,29 @@ METRIC_EXPLANATIONS: dict[str, str] = {
     ),
     "n_loops": (
         "number of stays whose hl already occurred in an earlier stay<br>of the sequence (vehicle and "
-        "transferring visits ignored)<br>\"went back to a place it had already left\""
+        'transferring visits ignored)<br>"went back to a place it had already left"'
     ),
     "n_trivial": (
-        "number of trivial visits: one relation only<br>(optionally: and no processing at its hl;"
-        " optionally: not connecting)<br>visits that hardly carry information"
+        "number of trivial visits: one relation only (|σ| = 1),<br>not connecting<br>visits that hardly "
+        "carry information"
     ),
-    "n_vehicle_visits": "number of vehicle visits (all located relations on vehicles)<br>how much of the mapping is \"on the way\"",
+    "n_trivial_without_processing": (
+        "number of trivial visits (|σ| = 1, not connecting)<br>without a processing operation at their hl"
+        "<br>visits that hardly carry information and are not a processing step"
+    ),
+    "n_vehicle_visits": 'number of vehicle visits (all located relations on vehicles)<br>how much of the mapping is "on the way"',
     "n_transferring_visits": (
         "number of transferring visits (no stop, but relations not on vehicles)<br>how much of the mapping is "
-        "\"on the way\""
+        '"on the way"'
     ),
     "p_conn": (
         "vehicle or transferring visits ν_j (1 < j < r) whose neighbours<br>ν_j-1, ν_j+1 are stays at different "
-        "high-level locations,<br>divided by N_veh + N_trans<br>share of vehicle visits that separate \"before\" "
-        "and \"after\""
+        'high-level locations,<br>divided by N_veh + N_trans<br>share of vehicle visits that separate "before" '
+        'and "after"'
     ),
     "p_vr": (
         "relations at vehicles (loc ∈ V) that lie in a vehicle or transferring visit,<br>divided by all relations "
-        "at vehicles<br>how many vehicle relations are kept \"on the way\" instead of being absorbed into a stay"
+        'at vehicles<br>how many vehicle relations are kept "on the way" instead of being absorbed into a stay'
     ),
     "mean_relations": "mean number of relations per visit, |R(ν)|<br>granularity",
     "median_relations": "median number of relations per visit, |R(ν)|<br>granularity",
@@ -379,10 +447,20 @@ METRIC_EXPLANATIONS: dict[str, str] = {
     ),
 }
 
-#: Metrics shown for the whole set, and per trace, by default.
+#: Metrics shown for the whole set, and per trace, by default (N_triv; pass keys with
+#: "n_trivial_without_processing" to show N_triv^np instead).
 LEGEND_METRICS = (
-    "n_visits", "p_proc", "n_loops", "n_trivial", "n_vehicle_visits", "n_transferring_visits", "p_conn", "p_vr",
-    "mean_relations", "mean_duration", "p_conf",
+    "n_visits",
+    "p_proc",
+    "n_loops",
+    "n_trivial",
+    "n_vehicle_visits",
+    "n_transferring_visits",
+    "p_conn",
+    "p_vr",
+    "mean_relations",
+    "mean_duration",
+    "p_conf",
 )
 TRACE_METRICS = ("n_visits", "n_loops", "n_trivial", "p_conf")
 
@@ -405,7 +483,9 @@ def _format_value(row: dict, key: str) -> str:
     return f"{label} = {value}"
 
 
-def metric_lines(pooled: pl.DataFrame, keys: Sequence[str] = LEGEND_METRICS) -> list[tuple[str, str]]:
+def metric_lines(
+    pooled: pl.DataFrame, keys: Sequence[str] = LEGEND_METRICS
+) -> list[tuple[str, str]]:
     """The pooled metrics as (text, explanation) pairs, e.g. for the trace figure (`legend_metrics`).
 
     Args:

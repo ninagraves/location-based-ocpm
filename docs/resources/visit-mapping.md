@@ -70,7 +70,8 @@ Ties: the segmentation whose first visit is longest, then the next (S1-like, "lo
 | $N_{vis}$ | n_visits | number of visits |
 | $p_{proc}$ | n_conforming_processing / n_located_processing | processing relations at their visit's $hl$ / located processing relations |
 | $N_{loop}$ | n_loops | stays whose $hl$ occurred in an earlier stay, with the previous stay elsewhere (vehicle and transferring visits ignored, so A, T, A is no loop) |
-| $N_{triv}$ | n_trivial | visits with one relation; by default not connecting ones; optionally only without processing at their $hl$ |
+| $N_{triv}$ | n_trivial | visits with one relation; by default not connecting ones |
+| $N_{triv}^{np}$ | n_trivial_without_processing | trivial visits without a processing operation at their $hl$ |
 | $N_{veh}$, $N_{trans}$ | n_vehicle_visits, n_transferring_visits | |
 | $p_{conn}$ | n_connecting / ($N_{veh} + N_{trans}$) | vehicle or transferring visits $\nu_j$ ($1 < j < r$) whose neighbours are stays at different $hl$ |
 | $p_{vr}$ | n_vehicle_relations_on_the_way / n_vehicle_relations | relations at vehicles ($loc \in V$) in a vehicle or transferring visit / all relations at vehicles (Nina, 2026-11-02): how many vehicle relations are kept "on the way" instead of being absorbed into a stay |
@@ -84,7 +85,7 @@ Decisions taken in the implementation:
 - Strategy names follow Nina's note (S6 = the lexicographic strategy); `"S7"` (its number in the working note) is an alias.
 - S5: λ = 1 by default (Nina, 2026-11-02); with the S1-like tie-break it gives exactly S1 on the running example.
 - S6: the storage tie-break is on by default (Nina, 2026-11-02): it picks (A e26) (B e31–e34) for b7 (Nina was indifferent) and A, B, B, B, B, B for x2 (her lean); `storage_tie_break=False` gives the longer visit (b7: (A e26–e33) (B e34); x2: A, A, A, A, A, B).
-- Trivial: one relation ($|\sigma| = 1$, note l. 143), connecting visits excluded by default (Nina, 2026-11-02, `trivial_excludes_connecting`). Whether trivial also requires "no processing at its $hl$" (note l. 709) is still open with Nina; `trivial_without_processing=True` gives it.
+- Trivial: one relation ($|\sigma| = 1$, note l. 143), connecting visits excluded by default (Nina, 2026-11-02, `trivial_excludes_connecting`). Nina, 2026-11-02: both are reported, $N_{triv}$ ($|\sigma| = 1$, not connecting) and $N_{triv}^{np}$ (additionally no processing operation at its $hl$); the figure shows $N_{triv}$ by default and $N_{triv}^{np}$ if its key is passed to `metric_lines` / `trace_metric_lines`. Running example with the defaults (S6 with the storage tie-break), $N_{triv}$ / $N_{triv}^{np}$: S1 3/3, S2 22/18, S3 21/17, S4 4/2, S5 3/3, S6 2/1.
 - ⊥ relations do not make a visit a transferring visit (they are not located); a ⊥ visit is its own kind and never infeasible.
 - $p_{proc}$ counts processing relations only at $hl \in HL$ (⊥ visits have none).
 - Durations of criteria are in hours (`duration_sq`); for weighted strategies the weights have to take this unit into account.
@@ -94,7 +95,7 @@ Decisions taken in the implementation:
 Extended running example (`data/mapping_example/`, κ = 3, $V = \{T\}$, $W = \{B1\}$, $P = \{e1, e3, e4, e15, e22, e26, e35\}$):
 - S6 hits all of Nina's targets: b1 (A e3–e11) (T e13–e14); b2 (A e3–e11) (B e12–e15); b4 (B e15–e21); s2 (A e22–e26); b6 (A e26–e30); b7 (A e26) (B e31–e34); b8 (A e35–e37) (T e38) (B e39–e41).
 - S1 (= S5 with λ = 1) misses only b8: (A e35–e40) (B e41); S4 misses b1 ((A e3–e5) (B e7) (T e8–e14)) and b8 ((A e35) (B e36–e41)); S3 hits only b2; S2 none.
-- Metrics (Nina's note l. 720–731; S6 without the storage tie-break, trivial without processing, connecting included): S1 15 visits, $p_{proc}$ 13/13, 0 loops, 3 trivial, 2/0 vehicle/transferring visits, $p_{conn}$ 0/2, 3.6/3 relations per visit, 4/4 h, $p_{conf}$ 39/54; S6 16, 13/13, 0, 3, 3/0, 1/3, 3.38/3, 3.75/3 h, 40/54; S2 39, 13/13, 12, 24, 9/0, 6/9, 1.38/1, 1.54/1 h, 54/54.
+- Metrics (Nina's note l. 720–731; S6 without the storage tie-break, connecting visits counted as trivial, trivial = $N_{triv}^{np}$): S1 15 visits, $p_{proc}$ 13/13, 0 loops, 3 trivial, 2/0 vehicle/transferring visits, $p_{conn}$ 0/2, 3.6/3 relations per visit, 4/4 h, $p_{conf}$ 39/54; S6 16, 13/13, 0, 3, 3/0, 1/3, 3.38/3, 3.75/3 h, 40/54; S2 39, 13/13, 12, 24, 9/0, 6/9, 1.38/1, 1.54/1 h, 54/54.
 - $p_{vr}$ (vehicle relations kept on the way, of 10): S1 3, S2 10, S3 9, S4 4, S5 3, S6 4 (with or without the storage tie-break; b7's e32 is absorbed into a stay either way).
 - Extra traces with S6: x1 A T B T A, x2 A B B B B B, x3 A A A T B B, x4 A A A B B, x5 A A A A T B, y1 A A A B B, y2 A B B B, y3 A A A A A B, y4 A B B B B B, y5 (A g22–g26) (T g27) (B g28); all as Nina resolved them.
 
@@ -108,7 +109,7 @@ Parameters of `derive_mapping_set`:
 - `strategy` (default `"S6"`): `"S1"` to `"S6"` (`"S7"` = `"S6"`), a rule (a function `SweepStep -> bool`), or a `GlobalStrategy` (`lexicographic`, `weighted`, `cost_optimal(lam)`, `nina_strategy(storage_tie_break)`).
 - `kappa`, `agg`, `vehicles`, `processing`, `ignore_vehicles`: as for the maximal visits.
 - `storage_units` ($W$): only for the storage tie-break of S6.
-- `trivial_without_processing` (default `False`), `trivial_excludes_connecting` (default `True`): the definition of trivial visits.
+- `trivial_excludes_connecting` (default `True`): connecting visits are never trivial (both $N_{triv}$ and $N_{triv}^{np}$).
 
 `mapping_metrics(relations, mapping, vehicles, processing, location, handling_units, ...)` takes any mapping (with first/last position or first/last event) for one or several handling units.
 

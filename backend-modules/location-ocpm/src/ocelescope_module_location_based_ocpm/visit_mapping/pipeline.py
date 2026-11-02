@@ -58,7 +58,9 @@ def map_traces(
         pl.DataFrame: `segments.segments_frame` (hu, high_level, first_position, last_position,
         maximal_visit_id).
     """
-    traces = split_traces(relations, maximal_visits, location, handling_units, storage_high_levels)
+    traces = split_traces(
+        relations, maximal_visits, location, handling_units, storage_high_levels
+    )
     return segments_frame((t.hu, s) for t in traces for s in segment_trace(t, strategy))
 
 
@@ -72,7 +74,6 @@ def derive_mapping_set(
     strategy: StrategyLike = "S6",
     storage_units: Collection[str] = (),
     ignore_vehicles: bool = False,
-    trivial_without_processing: bool = False,
     trivial_excludes_connecting: bool = True,
 ) -> MappingAnalysis:
     """V_max and V_map with its evaluation metrics, in one call.
@@ -88,7 +89,6 @@ def derive_mapping_set(
             strategy object (custom: `optimal.lexicographic`, `optimal.weighted`).
         storage_units: The set W; only used by the storage tie-break of S6 (criterion n_storage_stay_relations).
         ignore_vehicles: DD-V2 for the maximal visits.
-        trivial_without_processing: See `metrics.visit_metrics`.
         trivial_excludes_connecting: See `metrics.visit_metrics`.
 
     Returns:
@@ -100,7 +100,13 @@ def derive_mapping_set(
     rel = add_mapping_inputs(rel, vehicles, processing, location)
     if isinstance(rel, pl.LazyFrame):
         rel, visits = pl.collect_all([rel, visits])
-    segments = map_traces(rel, visits, strategy, location, storage_high_levels=storage_high_levels(storage_units, agg))
+    segments = map_traces(
+        rel,
+        visits,
+        strategy,
+        location,
+        storage_high_levels=storage_high_levels(storage_units, agg),
+    )
     mapping = mapping_visits(rel, segments)
     metrics = mapping_metrics(
         rel,
@@ -108,7 +114,6 @@ def derive_mapping_set(
         vehicles,
         processing,
         location,
-        trivial_without_processing=trivial_without_processing,
         trivial_excludes_connecting=trivial_excludes_connecting,
     )
     return MappingAnalysis(rel, visits, mapping, metrics, strategy_name(strategy))
@@ -135,6 +140,9 @@ def compare_strategies(
         analysis = derive_mapping_set(relations, strategy=strategy, **kwargs)
         analyses[analysis.strategy] = analysis
     table = pl.concat(
-        [a.metrics.pooled.with_columns(pl.lit(name).alias(STRATEGY)) for name, a in analyses.items()]
+        [
+            a.metrics.pooled.with_columns(pl.lit(name).alias(STRATEGY))
+            for name, a in analyses.items()
+        ]
     )
     return table.select(STRATEGY, pl.exclude(STRATEGY)), analyses
