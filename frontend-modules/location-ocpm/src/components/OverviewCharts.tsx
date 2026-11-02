@@ -1,5 +1,5 @@
-// Overview charts: Activities and Locations bar charts (2×2 grid, second row to come), then the
-// location × activity heatmap. Counting happens in the backend (`overview/overview_charts.py`);
+// Overview charts: four bar charts in a 2×2 grid (Activities, Handling unit types; Relations per
+// activity · type, Locations), then the location × activity heatmap. Counting happens in the backend (`overview/overview_charts.py`);
 // this file draws, colours and turns clicks into filter values.
 // Documented in docs/pages/overview.md, section "Overview charts".
 import { Alert, Box, Card, ColorSwatch, Group, Loader, SegmentedControl, Select, SimpleGrid, Stack, Text, Tooltip } from "@mantine/core";
@@ -27,6 +27,9 @@ import { plotConfig, ThemedPlot, useScheme } from "./plots";
 const MISSING = "–";
 const OTHER_LABEL = "other";
 const SEVERAL_TYPES = "[several types]";
+const SEVERAL_LOCATIONS = "[several locations]";
+/** Values a click adds nothing for. */
+const NO_FILTER: readonly string[] = [OTHER_LABEL, SEVERAL_TYPES, SEVERAL_LOCATIONS];
 
 /** Height of each bar chart in pixels. */
 const HEIGHT = 300;
@@ -40,7 +43,9 @@ type Settings = { measure: GetBarChartMeasure; by: GetBarChartBy; mode: GetBarCh
 const INFO = {
   measure:
     "relations: hu-event relations, each under its own value. events: only agreeing events, each once under the common value of its handling units ('–' if none has one); not agreeing events are left out. By locatedness or agreement (event properties), all events count.",
-  mode: "# events (# relations): bar = events or relations of the activity. # locations: bar = number of distinct locations (≠ ⊥) of the activity, counted over its relations.",
+  mode: "# events (# relations, # handling units): bar = units of the activity (type, pair). # locations: bar = number of distinct locations (≠ ⊥) of the bar's relations.",
+  huLocation:
+    "by location: a handling unit's only known location over its whole trace; '[several locations]' if it has two or more, '–' if it has none (⊥ does not count). Locatedness is also over the whole trace.",
   end: "top 10: the 10 largest bars, the rest summed into a grey 'other' bar. bottom 10: the 10 smallest bars, the rest left out. Also applies to both axes of the heatmap.",
   events: "Keep all relations or events, only those of movement events, or only those of transformation events.",
 };
@@ -52,6 +57,13 @@ const FILTER_OF: Record<string, FilterKey | undefined> = {
   object_type: "object_types",
   locatedness: "activities",
   agreement: "activities",
+};
+
+/** Filter values of handling unit locatedness (Handling unit types chart). */
+const HU_VALUES: Record<string, string> = {
+  "fully located": "[fully located HUs]",
+  "partially located": "[partially located HUs]",
+  unlocated: "[unlocated HUs]",
 };
 
 /** Filter values of event properties (locatedness, agreement); "not tested" has none. */
@@ -80,18 +92,66 @@ const BY_OPTIONS: Record<GetBarChartChart, { value: GetBarChartBy; label: string
     { value: "activity", label: "activity" },
     { value: "object_type", label: "object type" },
   ],
+  hu_types: [
+    { value: "locatedness", label: "locatedness" },
+    { value: "location", label: "location" },
+    { value: "none", label: "none" },
+  ],
+  activity_types: [
+    { value: "location", label: "location" },
+    { value: "locatedness", label: "locatedness" },
+    { value: "none", label: "none" },
+  ],
 };
 
-/** Title, bar dimension and default settings per chart. */
-const CHARTS: Record<GetBarChartChart, { title: string; bar: string; defaults: Settings }> = {
-  activities: { title: "Activities", bar: "activity", defaults: { measure: "relations", by: "location", mode: "frequent" } },
-  locations: { title: "Locations", bar: "location", defaults: { measure: "relations", by: "activity", mode: "frequent" } },
+/**
+ * Per chart: title, bar dimension (for clicks), default settings, whether it offers the
+ * relations/events switch and the "# units / # locations" switch, and its fixed unit (charts
+ * without the measure switch).
+ */
+const CHARTS: Record<
+  GetBarChartChart,
+  { title: string; bar: string; defaults: Settings; measures: boolean; modes: boolean; unit?: string; sub?: string }
+> = {
+  activities: {
+    title: "Activities",
+    bar: "activity",
+    defaults: { measure: "relations", by: "location", mode: "frequent" },
+    measures: true,
+    modes: true,
+  },
+  hu_types: {
+    title: "Handling unit types",
+    bar: "object_type",
+    defaults: { measure: "relations", by: "locatedness", mode: "frequent" },
+    measures: false,
+    modes: true,
+    unit: "handling units",
+    sub: "kept handling units",
+  },
+  activity_types: {
+    title: "Relations per activity · handling unit type",
+    bar: "activity_type",
+    defaults: { measure: "relations", by: "location", mode: "frequent" },
+    measures: false,
+    modes: true,
+    unit: "relations",
+    sub: "hu-event relations",
+  },
+  locations: {
+    title: "Locations",
+    bar: "location",
+    defaults: { measure: "relations", by: "activity", mode: "frequent" },
+    measures: true,
+    modes: false,
+  },
 };
 
 /**
  * Adds the clicked values to the page filter: each (dimension, value) pair goes to the
  * dimension's include list ("–" as "[unknown]"; locatedness and agreement as their special
- * activity values; "other", "[several types]" and "not tested" add nothing).
+ * activity values, handling unit locatedness ("hu_locatedness") as its special object type
+ * values; "other", "[several types]", "[several locations]" and "not tested" add nothing).
  * Chart locations are loc (post), so a location switches the role "pre" to "post".
  */
 const useAddValues = (ocelId: string) => {
@@ -99,13 +159,16 @@ const useAddValues = (ocelId: string) => {
   return (pairs: [string, string][]) =>
     setFilter((f) =>
       pairs.reduce<PageFilter>((acc, [dimension, value]) => {
-        const key = FILTER_OF[dimension];
-        const filterValue = EVENT_PROPERTIES.includes(dimension)
-          ? EVENT_VALUES[value]
-          : key === "locations" && value === MISSING
-            ? "[unknown]"
-            : value;
-        if (!key || !filterValue || value === OTHER_LABEL || value === SEVERAL_TYPES) return acc;
+        const key = dimension === "hu_locatedness" ? "object_types" : FILTER_OF[dimension];
+        const filterValue =
+          dimension === "hu_locatedness"
+            ? HU_VALUES[value]
+            : EVENT_PROPERTIES.includes(dimension)
+              ? EVENT_VALUES[value]
+              : key === "locations" && value === MISSING
+                ? "[unknown]"
+                : value;
+        if (!key || !filterValue || NO_FILTER.includes(value)) return acc;
         const next = withValue(acc, key, filterValue);
         return key === "locations" && next.location_role === "before" ? { ...next, location_role: "after" } : next;
       }, f),
@@ -155,6 +218,9 @@ const Control = ({ info, children }: { info: string; children: ReactNode }) => (
   </Tooltip>
 );
 
+/** Values drawn grey, in their order after the coloured ones ("–" also hatched). */
+const GREY_VALUES = [OTHER_LABEL, SEVERAL_LOCATIONS, MISSING];
+
 /** Hover text of one segment (or of a plain bar). */
 const hoverText = (bar: Bar, unit: string, segment?: { value: string; count: number }, byLabel?: string) => {
   const lines = [`<b>${bar.label}</b>: ${num(bar.count)} ${unit}`];
@@ -187,7 +253,7 @@ const traces = (data: BarChartData, by: GetBarChartBy, unit: string, byLabel: st
       },
     ];
   }
-  const values = [...data.colours, OTHER_LABEL, MISSING];
+  const values = [...data.colours, ...GREY_VALUES];
   const perValue = values
     .map((value) => {
       const shown = data.bars.flatMap((b) => {
@@ -235,11 +301,13 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
   const scheme = useScheme();
   const addValues = useAddValues(ocelId);
   const { ref, width } = useElementSize();
-  const mostLocations = chart === "activities" && settings.mode === "locations";
+  const { measures, modes, unit: fixedUnit, sub: fixedSub } = CHARTS[chart];
+  const mostLocations = modes && settings.mode === "locations";
   // With "# locations", only "by" values whose segments add up to the bar are offered.
   const locationsBy: readonly string[] = ["none", "location", "activity"];
   const by = mostLocations && !locationsBy.includes(settings.by) ? "none" : settings.by;
-  const measure = settings.measure;
+  // Charts without the switch always count relations (or handling units, ignored by the backend).
+  const measure = measures ? settings.measure : "relations";
   const { data, error } = useGetBarChart(
     ocelId,
     { ...filterParams(filter), chart, measure, by, mode: settings.mode, end },
@@ -248,10 +316,11 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
   const set = (change: Partial<Settings>) => setSettings((s) => ({ ...s, ...change }));
   const byOptions = BY_OPTIONS[chart].filter((o) => !mostLocations || locationsBy.includes(o.value));
   const byLabel = byOptions.find((o) => o.value === by)?.label ?? "";
-  const unit = mostLocations ? "locations" : measure;
+  const unit = mostLocations ? "locations" : (fixedUnit ?? measure);
   const labelChars = Math.max(6, Math.floor(width / 4 / CHAR_WIDTH));
   const sub = [
-    mostLocations ? "distinct locations" : measure === "events" ? "agreeing events" : "hu-event relations",
+    mostLocations ? "distinct locations" : (fixedSub ?? (measure === "events" ? "agreeing events" : "hu-event relations")),
+    chart === "hu_types" && !mostLocations ? "locatedness and location over the whole trace" : "",
     data?.left_out ? `${num(data.left_out)} not agreeing events left out` : "",
   ]
     .filter(Boolean)
@@ -260,7 +329,9 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
     data && by !== "none"
       ? [
           ...data.colours.map((v) => ({ label: v, colour: colourOf(v, data.colours, scheme, by) })),
-          ...(data.bars.some((b) => b.segments?.some((s) => s.value === OTHER_LABEL)) ? [{ label: OTHER_LABEL, colour: OTHER[scheme] }] : []),
+          ...[OTHER_LABEL, SEVERAL_LOCATIONS]
+            .filter((v) => data.bars.some((b) => b.segments?.some((s) => s.value === v)))
+            .map((v) => ({ label: v, colour: OTHER[scheme] })),
           ...(data.bars.some((b) => b.segments?.some((s) => s.value === MISSING))
             ? [{ label: MISSING, colour: OTHER[scheme], hatched: true }]
             : []),
@@ -275,21 +346,23 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
             {title}
           </Text>
           <Group gap={6} wrap="wrap">
-            <Control info={INFO.measure}>
-              <SegmentedControl
-                size="xs"
-                data={["relations", "events"]}
-                value={measure}
-                onChange={(v) => set({ measure: v as GetBarChartMeasure })}
-                disabled={mostLocations}
-              />
-            </Control>
-            {chart === "activities" && (
-              <Control info={INFO.mode}>
+            {measures && (
+              <Control info={INFO.measure}>
+                <SegmentedControl
+                  size="xs"
+                  data={["relations", "events"]}
+                  value={measure}
+                  onChange={(v) => set({ measure: v as GetBarChartMeasure })}
+                  disabled={mostLocations}
+                />
+              </Control>
+            )}
+            {modes && (
+              <Control info={chart === "hu_types" ? `${INFO.mode} ${INFO.huLocation}` : INFO.mode}>
                 <SegmentedControl
                   size="xs"
                   data={[
-                    { value: "frequent", label: `# ${measure}` },
+                    { value: "frequent", label: `# ${fixedUnit ?? measure}` },
                     { value: "locations", label: "# locations" },
                   ]}
                   value={settings.mode}
@@ -350,10 +423,18 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
                   const point = e.points?.[0] as { customdata?: [string, string] } | undefined;
                   if (!point?.customdata) return;
                   const [barValue, segmentValue] = point.customdata;
-                  addValues([
-                    [bar, barValue],
-                    [by, segmentValue],
-                  ]);
+                  // An activity · type bar adds both its activity and its type.
+                  const parts = data.bars.find((b) => b.label === barValue)?.parts ?? [];
+                  const barPairs: [string, string][] =
+                    chart === "activity_types"
+                      ? parts.length === 2
+                        ? [
+                            ["activity", parts[0]],
+                            ["object_type", parts[1]],
+                          ]
+                        : []
+                      : [[bar, barValue]];
+                  addValues([...barPairs, [chart === "hu_types" && by === "locatedness" ? "hu_locatedness" : by, segmentValue]]);
                 }}
               />
             </Box>
@@ -488,6 +569,8 @@ export const OverviewCharts = ({ ocelId }: { ocelId: string }) => {
       </Group>
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing="sm">
         <BarChartCard ocelId={ocelId} chart="activities" end={end} />
+        <BarChartCard ocelId={ocelId} chart="hu_types" end={end} />
+        <BarChartCard ocelId={ocelId} chart="activity_types" end={end} />
         <BarChartCard ocelId={ocelId} chart="locations" end={end} />
       </SimpleGrid>
       <HeatmapCard ocelId={ocelId} end={end} />

@@ -6,6 +6,7 @@ from ocelescope_module_location_based_ocpm.overview.filters import PageFilter
 from ocelescope_module_location_based_ocpm.overview.overview_charts import (
     MISSING,
     OTHER,
+    SEVERAL_LOCATIONS,
     colour_values,
     heatmap,
     overview_bar_chart,
@@ -93,3 +94,40 @@ def test_colour_values():
     )
     # b1: p (90) leaves 10 % > 5 %, so q too; r (4 %) is "other". b2 needs s and p.
     assert colour_values(segments) == ["p", "s", "q"]
+
+
+def test_hu_types(derivation):
+    by_locatedness = overview_bar_chart(derivation, chart="hu_types", by="locatedness")
+    assert bars(by_locatedness) == {
+        "coil": (5, {"fully located": 4, "unlocated": 1}),  # c5 unlocated
+        "slab": (1, {"fully located": 1}),
+    }
+    by_location = overview_bar_chart(derivation, chart="hu_types", by="location")
+    # c4 only at B1, c5 never located, c1-c3 at two or more locations (whole trace).
+    assert bars(by_location)["coil"] == (5, {"B1": 1, SEVERAL_LOCATIONS: 3, MISSING: 1})
+    assert bars(by_location)["slab"] == (1, {"A1": 1})
+    assert SEVERAL_LOCATIONS not in by_location.colours
+    locations = overview_bar_chart(derivation, chart="hu_types", mode="locations")
+    coil = next(b for b in locations.bars if b.label == "coil")
+    assert (coil.count, coil.locations) == (4, ["A1", "A2", "B1", "T"])
+
+
+def test_hu_types_single_location_uses_whole_trace(derivation):
+    chart = overview_bar_chart(derivation, PageFilter(locations=["B1"]), chart="hu_types", by="location")
+    # c1 passes only with its B1 relations but stays "[several locations]".
+    assert bars(chart)["coil"][1][SEVERAL_LOCATIONS] >= 1
+
+
+def test_activity_types(derivation):
+    chart = overview_bar_chart(derivation, chart="activity_types", by="location")
+    got = bars(chart)
+    assert len(got) == 10
+    assert got["crane move · coil"] == (6, {"A2": 4, "B1": 2})
+    assert got["quality check · coil"] == (6, {"B1": 3, "T": 1, MISSING: 2})
+    assert got["roll · slab"] == (1, {"A1": 1})
+    assert got["roll · coil"] == (2, {"A1": 2})
+    assert chart.bars[0].parts in (["crane move", "coil"], ["quality check", "coil"])
+    # The measure is ignored: the chart always counts relations.
+    assert bars(overview_bar_chart(derivation, chart="activity_types", measure="events", by="location")) == got
+    locations = overview_bar_chart(derivation, chart="activity_types", mode="locations")
+    assert {b.label: b.count for b in locations.bars}["quality check · coil"] == 2
