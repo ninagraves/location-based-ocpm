@@ -1,7 +1,7 @@
 # Object timeline (draft)
 
-Status: draft; the concept is in `claude_notes/Object Timeline (draft).md` (outside this repo); Nina's answers to its questions Q1 to Q8 (2026-10-31) are applied, filtering (Q9) is open.
-Not used by any page yet. Demo: `notebooks/object_timeline.ipynb`.
+Status: package function, not used by any page yet; the user-facing description (concept and display) is `overview/module/Resources/HU Timeline.md` (outside this repo); filtering is still open.
+Demo: `notebooks/object_timeline.ipynb`.
 
 ## What it shows
 For selected handling units, one row each (top to bottom; default by first event, then id):
@@ -27,7 +27,7 @@ Running example, Level 3, c1 (event order): low-level band A1 [3, 5], A2 [5, 7],
 Edge cases: `data/timeline_example/` (see its README).
 
 ## Same timestamp
-Every event gets its own x, ordered by time; among events with the same timestamp movements first (Nina 2026-10-31; an event at the same timestamp as a movement counts as after it), then by event id (`add_positions`).
+Every event gets its own x, in the order seq: by time; among events with the same timestamp by AS4 (`visits/order.py`: `tie_rank`, `sort_by_seq`, shared with visits, shifts, waiting times, mapping sets and the trace figure): movements, then processing operations, then the rest, each by event id (`add_positions`).
 On "event order" x is the rank among all shown events; on "time" the tied events are spread around their timestamp (half the smallest gap between timestamps).
 Tied events get a grey box (`tie_groups`).
 At Levels 1 to 3 all tied relations of a handling unit have the same `loc`, so the band does not change inside a box.
@@ -50,7 +50,7 @@ None (draft outside the tool). The playground timeline ignored global filters; t
 4. `add_transformation_roles(relations, roles)`: is_consumed, is_produced.
 5. `add_markers(relations)`: marker (processing/movement/other), role.
 6. `hu_order(relations, handling_units, max_handling_units)`: row order (at most 50).
-7. `add_positions(relations, axis)`: position and x (ties: movements first, then event id).
+7. `add_positions(relations, axis, processing)`: tie_rank, position and x (ties by AS4 via `visits.order.sort_by_seq`).
 8. `add_pickup_differs(relations)`: prev_loc, pickup_differs. `timeline_relations(...)` runs 1 to 8.
 9. `timestamp_before(relations, level)`: location just before each timestamp (for the lead-in).
 10. `band_segments(relations, level, reach)`: the band stretches (`continuation` gives the default reach).
@@ -61,7 +61,7 @@ Inputs of the running example: `data/running_example/inputs/processing_events.cs
 ## How to change it
 - Marker symbols, sizes and role colours: `SYMBOL`, `SIZE`, `ROLE_COLOUR`, `NO_ROLE_COLOUR`; pickup disagreement: `PICKUP_DIFFERS_SYMBOL`, `PICKUP_DIFFERS_SIZE`; limit: `MAX_HANDLING_UNITS`.
 - Geometry: `BAND_TOP`, `BAND_BOTTOM`, `MARKER_Y`, `ROW_GAP`, `LABELLED_ROW_GAP`; reach: `ORDER_CONTINUATION`, `TIME_CONTINUATION`, `MIN_TIME_CONTINUATION`.
-- Tie order: the sort key in `add_positions`; pickup disagreement rule: `add_pickup_differs`.
+- Tie order: `visits.order.tie_rank` (changes it everywhere); pickup disagreement rule: `add_pickup_differs`.
 - Colours: `trace_figure.location_colours` (ranked by the relations' loc and high_level, as in the trace figure).
 - In the tool the figure will be drawn in the frontend (Plotly.js); steps 1 to 11 become the backend's data preparation.
 

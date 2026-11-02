@@ -1,6 +1,7 @@
 """Generate the small edge-case example of the object timeline.
 
-The running example has no events with the same timestamp, no production or consumption at a movement and no
+The running example has no events with the same timestamp (here: a movement and a processing operation tied with
+other events, ordered by AS4), no production or consumption at a movement and no
 location known only from a pickup location; this example has all of them (see `README.md`). It is given directly
 as a location mapping (the format of `data/running_example/derived/locations_level_{k}.csv`), not as a log.
 Never edit the generated files by hand; change the data below and run the script again:
@@ -24,8 +25,8 @@ RELATIONS = [
     ("x2", "h1", 2, "quality check", False, False, "Y1", "Y1"),
     ("x3", "h1", 3, "charge furnace", True, True, "F", "Y1"),
     ("x4", "h2", 4, "discharge furnace", True, True, "Y2", None),
-    ("x5", "h2", 5, "rework", False, True, "Y2", "Y2"),
-    ("x6", "h2", 5, "label", False, False, "Y2", "Y2"),
+    ("x5", "h2", 5, "label", False, False, "Y2", "Y2"),
+    ("x6", "h2", 5, "rework", False, True, "Y2", "Y2"),
     ("x7", "h2", 6, "scan", False, False, "Y1", "Y2"),
     ("x8", "h2", 6, "crane move", True, False, "Y1", "Y3"),
     ("x9", "h3", 2, "inspect", False, False, None, None),
@@ -44,14 +45,14 @@ LOCATIONS = {
 }
 
 #: Processing operations P.
-PROCESSING = ["x5", "x6"]
+PROCESSING = ["x6"]
 
 #: Consumed/produced handling units at the transformation events.
 ROLES = [
     ("x3", "h1", "consumed"),
     ("x4", "h2", "produced"),
-    ("x5", "h2", "consumed"),
-    ("x5", "h2", "produced"),
+    ("x6", "h2", "consumed"),
+    ("x6", "h2", "produced"),
 ]
 
 

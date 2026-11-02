@@ -13,7 +13,8 @@ The data is prepared in small steps, each a function of its own (all take and re
 4. `add_transformation_roles`: whether the handling unit is consumed and/or produced at the event (only e ∈ T).
 5. `add_markers`: marker shape (processing, movement, other) and role colour of every relation.
 6. `add_positions`: trace position and x per relation on the "event order" or "time" axis; events with the
-   same timestamp get their own x, movements first, then by event id.
+   same timestamp get their own x, in the AS4 order of `visits/order.py` (movements, then processing
+   operations, then the rest, each by event id).
 7. `add_pickup_differs`: movements whose pickup location differs from the location after the previous event.
 `timeline_relations` runs steps 1 to 7 on a relations frame (a saved level mapping or `Derivation.relations`).
 From its output:
@@ -31,6 +32,8 @@ import plotly.graph_objects as go
 import polars as pl
 
 from ..derivation import columns as c
+from ..visits import columns as v
+from ..visits.order import sort_by_seq
 from ..visits.trace_figure import (
     CATEGORICAL,
     GREY,
@@ -306,44 +309,45 @@ def hu_order(
 def add_positions(
     relations: pl.DataFrame,
     axis: TimelineAxis = "event order",
+    processing: Collection[str] | None = None,
     spread: float = TIE_SPREAD,
 ) -> pl.DataFrame:
     """Add the trace position of every relation and its x value on the chosen axis.
 
-    Order of the relations (the order of seq, with one tie rule; Nina 2026-10-31): by time; among events with
-    the same timestamp, movements first (an event at the same timestamp as a movement counts as after it, as
-    in Level 1 of `overview/Deriving Locations.md`), then by event id.
+    Order of the relations: seq, i.e. by time and, among events with the same timestamp, by AS4
+    (`visits.order.sort_by_seq`, as for visits, shifts, waiting times, mapping sets and the trace figure):
+    movements first, then processing operations, then all other events, each group by event id; an event in
+    M ∩ P counts as a movement. To change the tie-break, change `visits.order.tie_rank`.
 
     Args:
-        relations: Relations frame with columns hu, hu_order, event, time, is_movement.
+        relations: Relations frame with columns hu, hu_order, event, time, is_movement (and is_transformation
+            if `processing` is None).
         axis: "event order": x = rank of the event among all shown events in this order, so every event has
             its own x and a shared event one x; "time": x = the timestamp, with the tied events of a timestamp
             placed side by side in this order, centred on it and together spanning at most `spread` times the
             smallest gap between two distinct timestamps.
+        processing: The processing operations P as event ids; None = the transformation events T.
         spread: See `axis` ("time" only).
 
     Returns:
-        pl.DataFrame: `relations` sorted by hu_order and this order, with columns position (index in the
-        handling unit's trace, from 1) and x.
+        pl.DataFrame: `relations` sorted by hu_order and this order, with columns tie_rank (AS4 group: 0
+        movement, 1 processing operation, 2 other), position (index in the handling unit's trace, from 1) and x.
     """
-    later = pl.col(c.IS_MOVEMENT).fill_null(False).not_().alias("_later")
-    out = (
-        relations.with_columns(later)
-        .sort(HU_ORDER, c.TIME, "_later", c.EVENT)
-        .with_columns((pl.int_range(pl.len()).over(c.HU) + 1).alias(POSITION))
+    out = sort_by_seq(relations, HU_ORDER, processing=processing).with_columns(
+        (pl.int_range(pl.len()).over(c.HU) + 1).alias(POSITION)
     )
     if axis == "event order":
         return out.with_columns(
-            pl.struct(c.TIME, "_later", c.EVENT).rank("dense").alias(X)
-        ).drop("_later")
+            pl.struct(c.TIME, v.TIE_RANK, c.EVENT).rank("dense").alias(X)
+        )
     times = out[c.TIME].unique().sort()
     gaps = times.diff().drop_nulls()
     gap = gaps.min() if len(gaps) else timedelta(hours=1)
     ties = (
-        out.select(c.TIME, "_later", c.EVENT)
+        out.select(c.TIME, v.TIE_RANK, c.EVENT)
         .unique()
         .with_columns(
-            (pl.struct("_later", c.EVENT).rank("dense").over(c.TIME) - 1).alias("_i"),
+            (pl.struct(v.TIE_RANK, c.EVENT).rank("dense").over(c.TIME) - 1).alias("_i"),
             pl.col(c.EVENT).n_unique().over(c.TIME).alias("_n"),
         )
     )
@@ -355,7 +359,7 @@ def add_positions(
             X
         ),
     )
-    return out.join(ties, on=c.EVENT, how="left", maintain_order="left").drop("_later")
+    return out.join(ties, on=c.EVENT, how="left", maintain_order="left")
 
 
 def add_pickup_differs(relations: pl.DataFrame) -> pl.DataFrame:
@@ -404,13 +408,13 @@ def timeline_relations(
         vehicles: The set V.
         processing: Event ids of P (None = the transformation events).
         roles: Consumed/produced roles (see `add_transformation_roles`).
-        axis: "event order" or "time", see `add_positions`.
+        axis: "event order" or "time", see `add_positions` (ties ordered by AS4 with the same `processing`).
         max_handling_units: See `hu_order` (default 50).
 
     Returns:
         pl.DataFrame: The columns of `relations` (only the shown handling units) plus hu_order,
         high_level, prev_high_level, is_vehicle, prev_is_vehicle, is_processing, is_consumed, is_produced,
-        marker, role, position, x, prev_loc and pickup_differs; sorted by hu_order and trace position.
+        marker, role, tie_rank, position, x, prev_loc and pickup_differs; sorted by hu_order and trace position.
     """
     order = hu_order(relations, handling_units, max_handling_units)
     out = relations.filter(pl.col(c.HU).is_in(list(order))).with_columns(
@@ -421,7 +425,7 @@ def timeline_relations(
     out = add_processing(out, processing)
     out = add_transformation_roles(out, roles)
     out = add_markers(out)
-    return add_pickup_differs(add_positions(out, axis))
+    return add_pickup_differs(add_positions(out, axis, processing))
 
 
 def continuation(relations: pl.DataFrame):
@@ -456,9 +460,7 @@ def timestamp_before(relations: pl.DataFrame, level: BandLevel = "low") -> pl.Da
     """
     prev = PLOC if level == "low" else PREV_HIGH_LEVEL
     return (
-        relations.sort(
-            c.HU, c.TIME, pl.col(c.IS_MOVEMENT).fill_null(False).not_(), c.EVENT
-        )
+        relations.sort(c.HU, c.TIME, v.TIE_RANK, c.EVENT)
         .group_by(c.HU, c.TIME, maintain_order=True)
         .agg(
             pl.col(prev).first().alias("before"),
