@@ -1,13 +1,13 @@
-// Data overview charts: events sunburst, E2HU chart, HU chart. Clicking a segment sets the
+// Data overview charts: events sunburst, E2HU chart, HU chart, locations sunburst. Clicking a segment sets the
 // matching page filter value (replacing other values of its category). Documented in docs/pages/overview.md, section "Data overview charts".
-import type { ReactNode } from "react";
-import { Alert, Box, Card, ColorSwatch, Group, Loader, SimpleGrid, Stack, Text } from "@mantine/core";
+import { type ReactNode, useState } from "react";
+import { Alert, Box, Card, ColorSwatch, Group, Loader, SegmentedControl, SimpleGrid, Stack, Text } from "@mantine/core";
 import type { Segment } from "../api/locationBasedOcpm";
 import { useGetDataCharts } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
 import { type FilterKey, usePageFilter, withValue } from "../lib/filters";
 import { num, pct } from "../lib/format";
-import { OTHER, STATUS } from "../lib/palette";
+import { CATEGORICAL, OTHER, STATUS } from "../lib/palette";
 import { plotConfig, ThemedPlot, useScheme } from "./plots";
 
 /** Height of each chart in pixels ("rather small"). */
@@ -16,6 +16,7 @@ const HEIGHT = 220;
 /** Hover texts of segments that need an explanation. */
 const NOTES: Record<string, string> = {
   "not tested": "fewer than two located handling units: agreeing by definition, but nothing is compared",
+  "agreeing at high level only": "its handling units are at different locations, but at the same high-level location",
   "⊥": "no location at any level",
 };
 
@@ -37,11 +38,12 @@ const levelName = (label: string) => (label === "⊥" ? "not located" : `Level $
 const hover = (s: Segment, total: number, unit: string, name: (label: string) => string = (l) => l) =>
   [`<b>${name(s.label)}</b>`, `${num(s.count)} ${unit} (${pct(s.count / total)})`, NOTES[s.label]].filter(Boolean).join("<br>");
 
-/** Values of the sunburst's rings in display order (as in `overview/data_charts.py`). */
-const RINGS: [string, string[]][] = [
-  ["type", ["movement", "transformation", "movement and transformation", "other"]],
+/** Values of the sunburst's rings in display order (as in `overview/data_charts.py`); the types are the
+ * occurring combinations of movement, transformation and processing, in the backend's order. */
+const RINGS: [string, string[] | null][] = [
+  ["type", null],
   ["located", ["fully located", "partially located", "unlocated"]],
-  ["agreement", ["agreeing", "not agreeing", "not tested"]],
+  ["agreement", ["agreeing", "agreeing at high level only", "not agreeing", "not tested"]],
 ];
 
 /** Legend beside a chart: one swatch per value, one per line, optionally with a title. */
@@ -64,12 +66,27 @@ const Legend = ({ items, title }: { items: { label: string; colour: string }[]; 
 );
 
 /** A small card with title, and the chart with its legend to the right. */
-const ChartCard = ({ title, sub, children, legend }: { title: string; sub: string; children: ReactNode; legend: ReactNode }) => (
+const ChartCard = ({
+  title,
+  sub,
+  children,
+  legend,
+  control,
+}: {
+  title: string;
+  sub: string;
+  children: ReactNode;
+  legend: ReactNode;
+  control?: ReactNode;
+}) => (
   <Card withBorder padding="xs">
     <Stack gap={4}>
-      <Text size="sm" fw={600}>
-        {title}
-      </Text>
+      <Group justify="space-between" gap="xs">
+        <Text size="sm" fw={600}>
+          {title}
+        </Text>
+        {control}
+      </Group>
       <Text size="xs" c="dimmed">
         {sub}
       </Text>
@@ -131,10 +148,23 @@ const Donut = ({
   );
 };
 
-/** Events sunburst: inner ring type, middle ring locatedness, outer ring agreement. */
-const Sunburst = ({ segments, onAdd }: { segments: Segment[]; onAdd: Add }) => {
+/** A sunburst (events: type, locatedness, agreement; locations: type, high-level location). */
+const Sunburst = ({
+  segments,
+  onAdd,
+  name = "Events",
+  unit = "events",
+  colour,
+}: {
+  segments: Segment[];
+  onAdd: Add;
+  name?: string;
+  unit?: string;
+  colour?: (s: Segment) => string;
+}) => {
   const scheme = useScheme();
   const total = segments.filter((s) => s.parent === "").reduce((sum, s) => sum + s.count, 0);
+  const colourOf = colour ?? ((s: Segment) => STATUS[scheme][s.label] ?? OTHER[scheme]);
   return (
     <ThemedPlot
       data={[
@@ -147,14 +177,14 @@ const Sunburst = ({ segments, onAdd }: { segments: Segment[]; onAdd: Add }) => {
           branchvalues: "total",
           sort: false,
           customdata: segments.map((_, i) => i) as unknown as number[],
-          marker: { colors: segments.map((s) => STATUS[scheme][s.label] ?? OTHER[scheme]) },
+          marker: { colors: segments.map(colourOf) },
           textinfo: "none",
-          hovertext: segments.map((s) => hover(s, total, "events")),
+          hovertext: segments.map((s) => hover(s, total, unit)),
           hoverinfo: "text",
         },
       ]}
       layout={layout}
-      config={plotConfig("Events")}
+      config={plotConfig(name)}
       style={{ width: "100%" }}
       onSunburstClick={(e) => {
         const point = e.points?.[0] as { customdata?: number } | undefined;
@@ -170,8 +200,56 @@ const Sunburst = ({ segments, onAdd }: { segments: Segment[]; onAdd: Add }) => {
 const legendOf = (labels: string[], scheme: "light" | "dark") =>
   labels.map((label) => ({ label, colour: STATUS[scheme][label] ?? OTHER[scheme] }));
 
+/** Colours of high-level locations: ranked by their total (largest first), one palette colour each. */
+const highLevelColours = (segments: Segment[], scheme: "light" | "dark") => {
+  const totals = new Map<string, number>();
+  for (const s of segments.filter((s) => s.parent !== "")) totals.set(s.label, (totals.get(s.label) ?? 0) + s.count);
+  const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([label]) => label);
+  return new Map(ranked.map((label, i) => [label, CATEGORICAL[scheme][i % CATEGORICAL[scheme].length]]));
+};
+
+/** Locations sunburst: inner ring location type, outer ring high-level location; # locations or # relations. */
+const LocationsChart = ({ locations, relations, unlocated, onAdd }: { locations: Segment[]; relations: Segment[]; unlocated: number; onAdd: Add }) => {
+  const scheme = useScheme();
+  const [measure, setMeasure] = useState<"locations" | "relations">("locations");
+  const segments = measure === "locations" ? locations : relations;
+  const colours = highLevelColours(segments, scheme);
+  const colour = (s: Segment) => (s.parent === "" ? STATUS[scheme][s.label] ?? OTHER[scheme] : colours.get(s.label) ?? OTHER[scheme]);
+  const types = segments.filter((s) => s.parent === "").map((s) => s.label);
+  const highLevel = [...colours.keys()];
+  return (
+    <ChartCard
+      title="Locations"
+      control={
+        <SegmentedControl
+          size="xs"
+          data={[
+            { value: "locations", label: "# locations" },
+            { value: "relations", label: "# relations" },
+          ]}
+          value={measure}
+          onChange={(v) => setMeasure(v as "locations" | "relations")}
+        />
+      }
+      sub={
+        measure === "locations"
+          ? "locations · inner-outer: type, high-level location"
+          : `relations by location · inner-outer: type, high-level location${unlocated ? ` · ${num(unlocated)} without a location left out` : ""}`
+      }
+      legend={
+        <Stack gap={6}>
+          <Legend title="type" items={legendOf(types, scheme)} />
+          {highLevel.length > 0 && <Legend title="high-level" items={highLevel.map((label) => ({ label, colour: colours.get(label)! }))} />}
+        </Stack>
+      }
+    >
+      <Sunburst segments={segments} onAdd={onAdd} name="Locations" unit={measure} colour={colour} />
+    </ChartCard>
+  );
+};
+
 /**
- * The three data overview charts in one row. They sit in the configuration section, above the
+ * The four data overview charts in a 2×2 grid. They sit in the configuration section, above the
  * filter bar, so they always show the whole log; a click still sets a page filter.
  */
 export const DataCharts = ({ ocelId }: { ocelId: string }) => {
@@ -181,15 +259,16 @@ export const DataCharts = ({ ocelId }: { ocelId: string }) => {
   if (error) return <Alert color="red">{errorText(error)}</Alert>;
   if (!data) return <Loader size="sm" />;
   const present = new Set(data.events.map((s) => s.label));
+  const types = data.events.filter((s) => s.parent === "").map((s) => s.label);
   return (
-    <SimpleGrid cols={{ base: 1, md: 3 }} spacing="sm">
+    <SimpleGrid cols={{ base: 1, md: 2 }} spacing="sm">
       <ChartCard
         title="Events"
         sub={`events · inner-outer: type, located, agreement (lvl ${data.level})`}
         legend={
           <Stack gap={6}>
             {RINGS.map(([ring, values]) => (
-              <Legend key={ring} title={ring} items={legendOf(values.filter((v) => present.has(v)), scheme)} />
+              <Legend key={ring} title={ring} items={legendOf((values ?? types).filter((v) => present.has(v)), scheme)} />
             ))}
           </Stack>
         }
@@ -210,6 +289,23 @@ export const DataCharts = ({ ocelId }: { ocelId: string }) => {
       >
         <Donut name="Handling units located" segments={data.handling_units} unit="handling units" onAdd={onAdd} />
       </ChartCard>
+      {data.has_context ? (
+        <LocationsChart
+          locations={data.locations ?? []}
+          relations={data.location_relations ?? []}
+          unlocated={data.unlocated_relations ?? 0}
+          onAdd={onAdd}
+        />
+      ) : (
+        <Card withBorder padding="xs">
+          <Text size="sm" fw={600}>
+            Locations
+          </Text>
+          <Text size="xs" c="dimmed">
+            no location context configured (high-level locations, vehicles or storage units)
+          </Text>
+        </Card>
+      )}
     </SimpleGrid>
   );
 };

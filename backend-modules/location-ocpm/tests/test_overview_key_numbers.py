@@ -1,5 +1,6 @@
 """Key numbers and flag badges on the running example (concept sections "Key Numbers" and "Flags")."""
 
+import polars as pl
 from ocelescope_module_location_based_ocpm.derivation.pipeline import derive
 from ocelescope_module_location_based_ocpm.overview.flag_badges import flag_counts
 from ocelescope_module_location_based_ocpm.overview.key_numbers import key_numbers
@@ -34,9 +35,21 @@ def test_key_numbers_without_optional_inputs(ocel):
 
 def test_flag_counts_level_3(derivation):
     counts = {f.key: f.count for f in flag_counts(derivation)}
-    assert counts == {"F1": 2, "F2": 2, "F3": 1, "F4": 1, "F5": 2}
+    # F6 (no high-level locations), F8 (Level 3) and F10 (no vehicles, storage units) are hidden.
+    assert counts == {"F1": 2, "F2": 2, "F3": 1, "F4": 1, "F5": 2, "F7": 0, "F9": 0}
 
 
 def test_f4_hidden_without_pickup_locations(ocel):
     keys = [f.key for f in flag_counts(derive(ocel, example_config(pickup_locations=None)))]
-    assert keys == ["F1", "F2", "F3", "F5"]
+    assert keys == ["F1", "F2", "F3", "F5", "F7", "F9"]
+
+
+def test_context_flags_shown_when_configured(ocel, input_tables):
+    """F6 and F10 appear with their inputs, F8 only at Level 0."""
+    from test_location_context import CONTEXT
+
+    tables = {name: frame.cast(pl.String) for name, frame in input_tables.items()}
+    keys = [f.key for f in flag_counts(derive(ocel, example_config(**CONTEXT), tables))]
+    assert keys == ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F9", "F10"]
+    counts = {f.key: f.count for f in flag_counts(derive(ocel, example_config(level=0, **CONTEXT), tables))}
+    assert (counts["F8"], counts["F9"]) == (0, 4)

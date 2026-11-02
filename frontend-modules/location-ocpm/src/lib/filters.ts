@@ -52,7 +52,8 @@ const OPPOSITE: Record<FilterKey, FilterKey> = {
  * (one category each, e.g. movement vs transformation events).
  */
 export const CATEGORIES: readonly (readonly string[])[] = [
-  ["[movement events]", "[transformation events]"],
+  ["[movement events]", "[transformation events]", "[processing operations]"],
+  ["[vehicles]", "[storage units]"],
   ["[fully located events]", "[partially located events]", "[unlocated events]"],
   ["[agreeing events]", "[disagreeing events]"],
   ["[fully located HUs]", "[partially located HUs]", "[unlocated HUs]"],

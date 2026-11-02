@@ -1,4 +1,5 @@
-"""Flags F1-F5 (`overview/Deriving Locations.md`, section "Flags (whole log)").
+"""Flags F1-F5 (`overview/Deriving Locations.md`, section "Flags (whole log)") and F6-F10 of the location
+context (`overview/module/Module Overview.md`, "Update Overview Page", section 4).
 
 All flags use the selected level k: loc = loc^k, ploc = ploc^k, before = before_{loc^k}.
 They are always computed on the whole log (never filtered).
@@ -133,3 +134,88 @@ def f5_movement_disagreement(relations: pl.DataFrame, level: int) -> pl.DataFram
         .select(c.EVENT, pl.lit("b").alias("kind"))
     )
     return pl.concat([kind_a, kind_b]).sort(c.EVENT)
+
+
+# region Flags of the location context (F6-F10, `overview/module/Module Overview.md`, section 4)
+
+
+def f6_naming_clashes(locations: list[str], agg: dict[str, str]) -> pl.DataFrame:
+    """F6 naming clash: unmapped locations whose name is a high-level location other locations are mapped to.
+
+    Uses `visits.context.naming_clashes` (a location mapped to itself on purpose is no clash).
+
+    Args:
+        locations: L.
+        agg: The provided (partial) mapping.
+
+    Returns:
+        pl.DataFrame: Columns location, mapped_locations; one row per flagged location.
+    """
+    from ..visits.context import naming_clashes
+
+    return naming_clashes(locations, agg)
+
+
+def f7_simultaneous_processing(relations: pl.DataFrame) -> pl.DataFrame:
+    """F7 simultaneous processing: handling units with two processing operations at the same timestamp
+    (DD-W4; `waiting_times.waiting.simultaneous_processing`).
+
+    Args:
+        relations: Relations frame with columns hu, event, time, is_processing.
+
+    Returns:
+        pl.DataFrame: Columns hu, time, events, n_events; one row per handling unit and timestamp.
+    """
+    from ..waiting_times.waiting import simultaneous_processing
+
+    processing = relations.filter(pl.col(c.IS_PROCESSING))[c.EVENT].unique().to_list()
+    return simultaneous_processing(relations, processing)
+
+
+def f8_tied_high_level_locations(relations: pl.DataFrame, level: int) -> pl.DataFrame:
+    """F8 tied high-level locations (RQ4): relations of one handling unit at the same timestamp with different
+    high-level locations (⊥ counts as a value; `visits.properties.rq4_violations`). Holds at Levels 1-3 by
+    construction, so the badge is only shown at Level 0.
+
+    Args:
+        relations: Relations frame with columns hu, event, time, hl^k.
+        level: Selected level k.
+
+    Returns:
+        pl.DataFrame: Columns hu, time, events, values; one row per violating handling unit and timestamp.
+    """
+    from ..visits.properties import rq4_violations
+
+    return rq4_violations(relations, column=c.hl(level))
+
+
+def f9_unlocated_processing(relations: pl.DataFrame, level: int) -> pl.Series:
+    """F9 unlocated processing: processing operations with a handling unit without a location
+    (hat-hl((e, hu)) = ⊥, equivalently loc^k((e, hu)) = ⊥).
+
+    Args:
+        relations: Relations frame with columns event, is_processing, loc^k.
+        level: Selected level k.
+
+    Returns:
+        pl.Series: Flagged event ids, sorted.
+    """
+    return (
+        relations.filter(pl.col(c.IS_PROCESSING) & pl.col(c.loc(level)).is_null())[c.EVENT].unique().sort()
+    )
+
+
+def f10_vehicle_and_storage(vehicles: set[str], storage_units: set[str]) -> pl.Series:
+    """F10 vehicle and storage unit: locations in V ∩ W.
+
+    Args:
+        vehicles: V.
+        storage_units: W.
+
+    Returns:
+        pl.Series: Flagged locations, sorted.
+    """
+    return pl.Series(c.LOCATION, sorted(vehicles & storage_units), dtype=pl.String)
+
+
+# endregion

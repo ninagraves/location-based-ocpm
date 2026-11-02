@@ -11,6 +11,7 @@ Rules implemented here (from the concept):
 - Pickup locations of events that are not movement events are ignored and reported.
 - e2o-qualifier locations: an event related to more than one distinct object via the selected
   qualifiers is a blocking error, and so is a location object that is also a handling unit.
+- The location context (agg, V, W) and the processing operations P are resolved in `location_context`.
 """
 
 from dataclasses import dataclass, field
@@ -32,6 +33,7 @@ from .config import (
     Qualifiers,
 )
 from .messages import BlockingError, Notice
+from ..visits.context import LocationContext
 
 #: String values that count as "not provided" (besides null and NaN).
 EMPTY_STRINGS = ("", "NA")
@@ -51,13 +53,14 @@ class ResolvedInputs:
 
     Attributes:
         relations: One row per hu-event relation (e, hu) ∈ E2HU, with columns
-            event, hu, object_type, time, activity, is_movement, is_transformation, uloc, puloc.
+            event, hu, object_type, time, activity, is_movement, is_transformation, is_processing, uloc, puloc.
         events: One row per event of the log, with columns event, time, activity,
-            is_movement, is_transformation, uloc, puloc.
+            is_movement, is_transformation, is_processing, uloc, puloc.
         notices: Non-blocking reports (dropped rows, ignored pickups, ...).
         errors: Blocking errors; if not empty, the configuration cannot be applied.
         handling_units: All handling units HU with columns hu, object_type, including those
             without any event.
+        context: The location context agg, V, W (empty if not configured).
     """
 
     relations: pl.DataFrame
@@ -67,6 +70,7 @@ class ResolvedInputs:
     handling_units: pl.DataFrame = field(
         default_factory=lambda: pl.DataFrame(schema={c.HU: pl.String, c.OBJECT_TYPE: pl.String})
     )
+    context: LocationContext = field(default_factory=LocationContext)
 
 
 def provided(column: str) -> pl.Expr:
@@ -401,13 +405,21 @@ def resolve_inputs(ocel: OCEL, config: DerivationConfig, tables: dict[str, pl.Da
             )
         puloc = puloc.filter(pl.col(c.EVENT).is_in(movements.implode()))
 
-    events = events.select(c.EVENT, c.TIME, c.ACTIVITY).with_columns(
-        pl.col(c.EVENT).is_in(movements.implode()).alias(c.IS_MOVEMENT),
-        pl.col(c.EVENT).is_in(transformations.implode()).alias(c.IS_TRANSFORMATION),
-    )
-    events = events.join(uloc.rename({c.LOCATION: c.ULOC}), on=c.EVENT, how="left").join(
+    from .location_context import resolve_location_context, resolve_processing
+
+    processing, found = resolve_processing(ocel, events, config.processing_operations, tables, transformations)
+    notices += found
+    log_events = events.join(uloc.rename({c.LOCATION: c.ULOC}), on=c.EVENT, how="left").join(
         puloc.rename({c.LOCATION: c.PULOC}), on=c.EVENT, how="left"
     )
+    context, found, blocking = resolve_location_context(ocel, config, log_events, tables)
+    notices += found
+    errors += blocking
+    events = log_events.select(c.EVENT, c.TIME, c.ACTIVITY, c.ULOC, c.PULOC).with_columns(
+        pl.col(c.EVENT).is_in(movements.implode()).alias(c.IS_MOVEMENT),
+        pl.col(c.EVENT).is_in(transformations.implode()).alias(c.IS_TRANSFORMATION),
+        pl.col(c.EVENT).is_in(processing.implode()).alias(c.IS_PROCESSING),
+    ).select(c.EVENT, c.TIME, c.ACTIVITY, c.IS_MOVEMENT, c.IS_TRANSFORMATION, c.IS_PROCESSING, c.ULOC, c.PULOC)
     e2hu = (
         ocel.e2o.pl.select(OCEL_EID, OCEL_OID)
         .collect()
@@ -422,4 +434,5 @@ def resolve_inputs(ocel: OCEL, config: DerivationConfig, tables: dict[str, pl.Da
         notices=notices,
         errors=errors,
         handling_units=hus.sort(c.HU),
+        context=context,
     )

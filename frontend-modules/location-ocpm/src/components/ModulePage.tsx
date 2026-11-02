@@ -33,12 +33,60 @@ const locationSource = (locations: DerivationConfig["target_locations"]) => {
  */
 export const SummaryLine = ({ config }: { config: DerivationConfig }) => {
   const hu = config.handling_units;
+  const context = contextParts(config);
   return (
     <>
       handling units {"table" in hu ? `from table "${hu.table}"` : <ShortList items={hu.object_types} separator=", " />};
       locations {locationSource(config.target_locations)}; Level {config.level ?? 3}
+      {context.map((part) => `; ${part}`).join("")}
     </>
   );
+};
+
+/** Where an input of the location context comes from, in a few words (e.g. 'from table "locations.csv"'). */
+const sourceOf = (input: object): string => {
+  const option = input as Record<string, unknown>;
+  switch (option.option) {
+    case "table":
+      return `from table "${option.table}"`;
+    case "event_attributes":
+      return `from "${option.low_attribute}" and "${option.high_attribute}"`;
+    case "object_attribute":
+      return `from object attribute "${option.attribute}"`;
+    case "o2o":
+      return `from o2o ${quote(option.qualifiers as string[])}`;
+    case "pattern":
+      return `by pattern ${option.pattern}`;
+    case "locations":
+      return (option.locations as string[]).join(", ");
+    case "attribute_values":
+      return `targets of "${option.attribute}" = ${quote(option.values as string[])}`;
+    case "object_types":
+      return `object types ${quote(option.object_types as string[])}`;
+    case "activities":
+      return (option.activities as string[]).join(", ");
+    case "qualifiers":
+      return `qualifiers ${quote(option.qualifiers as string[])}`;
+    default:
+      return "";
+  }
+};
+
+/** Summary parts of the configured location-context inputs (overview/module/Module Overview.md, section 1). */
+const contextParts = (config: DerivationConfig): string[] => {
+  const parts: string[] = [];
+  if (config.high_level_locations) parts.push(`high-level locations ${sourceOf(config.high_level_locations)}`);
+  if (config.vehicles) parts.push(`vehicles ${sourceOf(config.vehicles)}`);
+  if (config.storage_units) parts.push(`storage units ${sourceOf(config.storage_units)}`);
+  const processing = config.processing_operations;
+  if (processing) {
+    const selected = processing.selection ? sourceOf(processing.selection) : "";
+    const withT = processing.include_transformations !== false;
+    parts.push(
+      `processing operations: ${[withT ? "transformation events" : "", selected].filter(Boolean).join(" and ") || "none"}`,
+    );
+  }
+  return parts;
 };
 
 /** Backend versions, as a small grey line (confirms the connection). */

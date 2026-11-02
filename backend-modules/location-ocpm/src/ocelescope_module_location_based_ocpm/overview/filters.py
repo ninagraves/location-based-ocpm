@@ -19,6 +19,7 @@ from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation
 #: Special values of the activity filters, matched by event properties instead of act(e).
 MOVEMENT_EVENTS = "[movement events]"
 TRANSFORMATION_EVENTS = "[transformation events]"
+PROCESSING_OPERATIONS = "[processing operations]"
 FULLY_LOCATED_EVENTS = "[fully located events]"
 PARTIALLY_LOCATED_EVENTS = "[partially located events]"
 UNLOCATED_EVENTS = "[unlocated events]"
@@ -26,6 +27,9 @@ AGREEING_EVENTS = "[agreeing events]"
 DISAGREEING_EVENTS = "[disagreeing events]"
 #: Special value of the location filters, matching ⊥.
 UNKNOWN = "[unknown]"
+#: Special values of the location filters, matching locations in V or W (only offered if configured).
+VEHICLES = "[vehicles]"
+STORAGE_UNITS = "[storage units]"
 #: Special values of the object-type filters, matched by the locatedness of the whole trace.
 FULLY_LOCATED_HUS = "[fully located HUs]"
 PARTIALLY_LOCATED_HUS = "[partially located HUs]"
@@ -81,7 +85,7 @@ def relation_properties(derivation: Derivation) -> pl.DataFrame:
 
     Returns:
         pl.DataFrame: One row per hu-event relation with columns event, hu, activity,
-        object_type, is_movement, is_transformation, loc, ploc (the selected level's
+        object_type, is_movement, is_transformation, is_processing, loc, ploc (the selected level's
         columns, renamed), event_located, event_agreeing, hu_located.
     """
     level = derivation.level
@@ -97,6 +101,7 @@ def relation_properties(derivation: Derivation) -> pl.DataFrame:
             c.OBJECT_TYPE,
             c.IS_MOVEMENT,
             c.IS_TRANSFORMATION,
+            c.IS_PROCESSING,
             pl.col(derivation.loc).alias("loc"),
             pl.col(derivation.ploc).alias("ploc"),
         )
@@ -112,6 +117,8 @@ def _activity_match(values: list[str]) -> pl.Expr:
         expr |= pl.col(c.IS_MOVEMENT)
     if TRANSFORMATION_EVENTS in values:
         expr |= pl.col(c.IS_TRANSFORMATION)
+    if PROCESSING_OPERATIONS in values:
+        expr |= pl.col(c.IS_PROCESSING)
     located = [EVENT_LOCATEDNESS[v] for v in values if v in EVENT_LOCATEDNESS]
     if located:
         expr |= pl.col("event_located").is_in(located)
@@ -122,11 +129,19 @@ def _activity_match(values: list[str]) -> pl.Expr:
     return expr
 
 
-def _location_match(values: list[str], role: LocationRole) -> pl.Expr:
-    """Relations whose location (by role) is one of the values; "[unknown]" matches ⊥."""
+def _location_match(
+    values: list[str], role: LocationRole, vehicles: set[str] = frozenset(), storage_units: set[str] = frozenset()
+) -> pl.Expr:
+    """Relations whose location (by role) is one of the values; "[unknown]" matches ⊥, "[vehicles]" a location
+    in V, "[storage units]" a location in W."""
+    locations = set(values)
+    if VEHICLES in values:
+        locations |= set(vehicles)
+    if STORAGE_UNITS in values:
+        locations |= set(storage_units)
 
     def matches(column: str) -> pl.Expr:
-        expr = pl.col(column).is_in(values).fill_null(False)
+        expr = pl.col(column).is_in(sorted(locations)).fill_null(False)
         if UNKNOWN in values:
             expr |= pl.col(column).is_null()
         return expr
@@ -147,24 +162,27 @@ def _object_type_match(values: list[str]) -> pl.Expr:
     return expr
 
 
-def passes(page_filter: PageFilter) -> pl.Expr:
+def passes(page_filter: PageFilter, derivation: Derivation | None = None) -> pl.Expr:
     """Boolean expression on `relation_properties`: does a relation pass all active filters?
 
     Args:
         page_filter: The filter bar's state.
+        derivation: The current derivation, for V and W of "[vehicles]" and "[storage units]"; None = empty.
 
     Returns:
         pl.Expr: True for passing relations.
     """
+    vehicles = derivation.context.vehicles if derivation else set()
+    storage = derivation.context.storage_units if derivation else set()
     expr = pl.lit(True)
     if page_filter.activities:
         expr &= _activity_match(page_filter.activities)
     if page_filter.exclude_activities:
         expr &= ~_activity_match(page_filter.exclude_activities)
     if page_filter.locations:
-        expr &= _location_match(page_filter.locations, page_filter.location_role)
+        expr &= _location_match(page_filter.locations, page_filter.location_role, vehicles, storage)
     if page_filter.exclude_locations:
-        expr &= ~_location_match(page_filter.exclude_locations, page_filter.location_role)
+        expr &= ~_location_match(page_filter.exclude_locations, page_filter.location_role, vehicles, storage)
     if page_filter.object_types:
         expr &= _object_type_match(page_filter.object_types)
     if page_filter.exclude_object_types:
@@ -182,7 +200,7 @@ def passing_relations(derivation: Derivation, page_filter: PageFilter) -> pl.Dat
     Returns:
         pl.DataFrame: Rows of `relation_properties` that pass.
     """
-    return relation_properties(derivation).filter(passes(page_filter))
+    return relation_properties(derivation).filter(passes(page_filter, derivation))
 
 
 class FilterOption(BaseModel):
@@ -197,7 +215,8 @@ class FilterOptions(BaseModel):
 
     Attributes:
         activities: Special event values first, then activities; counts are events.
-        locations: "[unknown]" first, then locations; counts are relations whose loc or ploc
+        locations: "[unknown]" first, then "[vehicles]" and "[storage units]" (if configured), then locations;
+            counts are relations whose loc or ploc
             is that location (the "either" role).
         object_types: Special handling-unit values first, then object types; counts are
             handling units with at least one relation.
@@ -240,6 +259,7 @@ def filter_options(derivation: Derivation) -> FilterOptions:
         {
             MOVEMENT_EVENTS: pl.col(c.IS_MOVEMENT),
             TRANSFORMATION_EVENTS: pl.col(c.IS_TRANSFORMATION),
+            PROCESSING_OPERATIONS: pl.col(c.IS_PROCESSING),
             **{v: pl.col("event_located") == loc for v, loc in EVENT_LOCATEDNESS.items()},
             AGREEING_EVENTS: pl.col("event_agreeing"),
             DISAGREEING_EVENTS: ~pl.col("event_agreeing"),
@@ -259,9 +279,17 @@ def filter_options(derivation: Derivation) -> FilterOptions:
         .sort(["count", "location"], descending=[True, False])
     )
     unknown = rel.filter(pl.col("loc").is_null() | pl.col("ploc").is_null()).height
+    location_specials = [
+        FilterOption(
+            value=value,
+            count=rel.filter(pl.col("loc").is_in(sorted(members)) | pl.col("ploc").is_in(sorted(members))).height,
+        )
+        for value, members in ((VEHICLES, derivation.context.vehicles), (STORAGE_UNITS, derivation.context.storage_units))
+        if members
+    ]
     return FilterOptions(
         activities=event_specials + _counted(rel, c.ACTIVITY, c.EVENT),
-        locations=[FilterOption(value=UNKNOWN, count=unknown)]
+        locations=[FilterOption(value=UNKNOWN, count=unknown), *location_specials]
         + [FilterOption(value=v, count=n) for v, n in per_location.rows()],
         object_types=hu_specials + _counted(rel, c.OBJECT_TYPE, c.HU),
     )

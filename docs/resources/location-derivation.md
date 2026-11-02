@@ -1,22 +1,23 @@
 # Location derivation
 
 Derives, for every hu-event relation, where the handling unit is (current location) and where it was before (previous location), plus agreement, locatedness and flags.
-Concept: `overview/Deriving Locations.md` (outside this repo); section names below refer to it.
+Concept: `overview/Deriving Locations.md` (outside this repo); section names below refer to it. The location context (high-level locations, vehicles, storage units, processing operations) and the flags F6-F10 come from `overview/module/Module Overview.md`, "Update Overview Page", and `overview/concepts/Visit Mappings.md`, "Specific new notations".
 Code: package `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/derivation/` (paths below are relative to it).
 Tests: `backend-modules/location-ocpm/tests/` against `data/running_example/` (run `uv run pytest`).
 
-Status: used by the configuration (iteration 3, `docs/pages/configuration.md`); no page shows its results yet.
+Status: used by the configuration (`docs/pages/configuration.md`) and the overview page (`docs/pages/overview.md`).
 
 ## Overview of the data flow
 
 | Step | File, function | Output |
 |---|---|---|
 | 1. User choices | `config.py`, `DerivationConfig` | one option per input, selected level |
-| 2. Resolve inputs | `inputs.py`, `resolve_inputs` | `relations` (one row per hu-event relation), `events`, notices, blocking errors |
+| 2. Resolve inputs | `inputs.py`, `resolve_inputs`; location context in `location_context.py` | `relations` (one row per hu-event relation), `events`, `context` (agg, V, W), notices, blocking errors |
 | 3. Requirements | `requirements.py`, `check_requirements` | blocking errors RQ1-RQ3 |
 | 4. Levels | `levels.py`, `add_loc_0` … `add_loc_3`, `add_before`, `add_ploc` | columns `loc^k`, `before^k`, `ploc^k` for k = 0..3 |
 | 5. Locatedness, agreement | `locatedness.py`, `agreement.py` | per relation, event, HU: located; per event: agreeing, eloc |
-| 6. Flags | `flags.py`, `f1_…` to `f5_…` | flagged events / HUs |
+| 6. High-level locations | `pipeline.py`, `add_high_level_columns`; `agreement.event_locations` on `hl^k` | columns `hl^k = agg(loc^k)`, `phl^k = agg(ploc^k)`; `Derivation.hl_event_locations` (agreement and eloc under hat-hl at the selected level) |
+| 7. Flags | `flags.py`, `f1_…` to `f10_…` | flagged events / HUs / locations |
 | All | `pipeline.py`, `derive` | `Derivation` |
 
 Conventions in all frames: column names are in `columns.py`; a null value is ⊥.
@@ -37,6 +38,9 @@ What it does: turns the user's choice per input into the sets HU, M, T and the p
 | Transformation events T (optional) | `Activities`, `AttributeValues`, `Qualifiers`, `EventTable` | `resolve_event_set` |
 | Target locations uloc (required) | `LocationAttribute`, `LocationQualifiers`, `LocationTable` | `resolve_locations` |
 | Pickup locations puloc (optional) | `LocationAttribute`, `LocationQualifiers`, `LocationTable` | `resolve_locations`, then restricted to M |
+| High-level locations agg (optional) | `HighLevelTable`, `HighLevelEventAttributes`, `HighLevelObjectAttribute`, `HighLevelO2O`, `HighLevelPattern` | `location_context.resolve_high_level_locations` |
+| Vehicles V, storage units W (optional) | `LocationList`, `LocationSetTable`, `LocationAttributeValues`, `LocationObjectTypes` | `location_context.resolve_location_set` |
+| Processing operations P (optional) | `ProcessingOperations` (a selection like T, plus `include_transformations`, default true); None = P = T | `location_context.resolve_processing` |
 
 Calculation and rules:
 - Empty values (null, NaN, `""`, `"NA"`) are never locations: `inputs.provided`. NaN is recognised as a float NaN or the text "nan"/"NaN".
@@ -51,7 +55,16 @@ Calculation and rules:
 - Tables are passed to `resolve_inputs` as a dict name → polars frame; the configuration names the table and its columns. In the app they are CSV uploads keyed by file name (`state.py`); Ocelescope's table resource can be added later.
 - E2O relations are made unique per (event, object) before building the relations, so an object related to an event via two qualifiers counts once.
 
-Output `ResolvedInputs.relations`: columns `event, hu, object_type, time, activity, is_movement, is_transformation, uloc, puloc`, sorted by hu, time, event. `ResolvedInputs.events` has the event columns for all events, including events without handling units.
+Location context rules (`location_context.py`):
+- agg may be partial: unmapped locations are their own high-level location (`visits.context.add_high_level_locations`); the notice "unmapped_locations" lists them.
+- Values that are not locations of L (provided target and pickup locations, `known_locations`) are dropped and reported ("unknown_locations_dropped").
+- A location with two different high-level locations is a blocking error ("ambiguous_high_level").
+- The object-attribute, o2o and object-type options need location objects (`location_objects`: the objects of the e2o-qualifier location inputs, with their names); otherwise blocking error "no_location_objects".
+- Naming pattern: `str.extract(pattern, 1)` on the location names; no match = unmapped; a pattern without a group or an invalid one is a blocking error ("invalid_pattern").
+- Table true/false columns count "true", "1", "yes", "y", "t", "x" (any case) as true (`TRUE_VALUES`).
+- The option set follows the playground (list, table, event attribute for vehicles; table, event attributes for agg), extended by the location-object options (Nina, 2026-11-02).
+
+Output `ResolvedInputs.relations`: columns `event, hu, object_type, time, activity, is_movement, is_transformation, is_processing, uloc, puloc`, sorted by hu, time, event. `ResolvedInputs.events` has the event columns for all events, including events without handling units.
 
 Example (running example, `data/running_example/README.md`): object types slab, coil; movement activities crane move, load truck, unload truck; transformation activities cast slab, roll, cut; attributes `to_loc`, `from_loc` → 28 relations, no notices. The same result via the CSV tables, via `event_group = transport`, via the qualifiers `produced`/`consumed` for T (tests in `test_inputs.py`), or via location objects A1, A2, B1, T related with the qualifiers `to`/`from` (`test_qualifier_locations.py`, which builds that log variant in the test).
 
@@ -91,7 +104,8 @@ Example: `data/running_example/expected/levels.csv` (the concept's table "Overvi
 
 How to change: each level is one function; a new level k needs a function `add_loc_k`, an entry in `columns.LEVELS`, a call in `pipeline.derive_levels`, the `level` literal in `DerivationConfig`, and expected values in `levels.csv`.
 
-Choice of t_1(hu) when several transformation events qualify (decided by Nina, 2026-10-28): 1. earliest time, 2. with an agreed location (eloc_{loc^2} ≠ ⊥; applied as a filter, as in the concept), 3. smallest event id.
+Choice of t_1(hu) when several transformation events qualify (decided by Nina, 2026-10-28 and 2026-11-02): 1. earliest time, 2. with an agreed location (eloc_{loc^2} ≠ ⊥; applied as a filter, as in the concept), 3. the first in seq: events with the same timestamp ordered by AS4 (`levels.as4_rank`: movements, then processing operations, then the rest; the same order as `visits/order.py`), then by event id. So the processing operations P can change loc^3, but only for tied transformation events before a handling unit's first movement. Without the column `is_processing`, P = T.
+Levels 1 and 2, before and ploc work on timestamps (time steps) and do not depend on the order of tied events.
 
 Alternatives considered: a row-by-row loop per handling unit (closer to the formulas, but far too slow on 2 GB logs); DuckDB SQL window functions (similar speed, harder to read and test step by step).
 
@@ -127,7 +141,15 @@ All at the selected level; the whole log.
 | F4 Location gap | `f4_location_gap` (`f4_location_gaps` lists the gaps) | handling units | c1 (e13: A2 ⇢ A1) |
 | F5 Movement disagreement | `f5_movement_disagreement` | events, with kind a / b | e7 (a), e11 (b) |
 
+| F6 Naming clash | `f6_naming_clashes` (`visits.context.naming_clashes`) | locations | – (none without agg; 0 with the location table) |
+| F7 Simultaneous processing | `f7_simultaneous_processing` (`waiting_times.waiting.simultaneous_processing`) | handling units | 0 |
+| F8 Tied high-level locations (RQ4) | `f8_tied_high_level_locations` (`visits.properties.rq4_violations` on `hl^k`) | handling units | 0 (shown only at Level 0) |
+| F9 Unlocated processing | `f9_unlocated_processing` | events | 0; at Level 0: e1, e3, e4, e15 (P = T plus label) |
+| F10 Vehicle and storage unit | `f10_vehicle_and_storage` | locations | 0 |
+
 "Already at the target" (F1, F3, F5 b) is ploc^k = uloc(e); ⊥ counts as a change (`flags._unchanged`).
+F1-F5 always use the low-level locations, also when the overview shows high-level locations: a movement inside one high-level location is correct.
+Which badges are shown: `overview/flag_badges.flag_counts` (F4 only with pickup locations, F6 only with high-level locations, F8 only at Level 0, F10 only with vehicles and storage units).
 Explore sections are not built yet.
 
 ## 7. Saved level mappings and the demo notebook
