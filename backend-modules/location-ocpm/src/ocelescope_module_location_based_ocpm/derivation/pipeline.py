@@ -47,7 +47,7 @@ class Derivation:
     Attributes:
         config: The configuration used.
         relations: One row per hu-event relation with the inputs (see `inputs.ResolvedInputs`) and,
-            for every level k, loc_k, before_k and ploc_k. Empty if there are blocking errors.
+            for every level k, loc^k, before^k and ploc^k. Empty if there are blocking errors.
         events: All events with M, T, uloc, puloc.
         event_locations: For every level k, agreement, eloc and locatedness per event
             (see `agreement.event_locations`).
@@ -73,17 +73,17 @@ class Derivation:
 
     @property
     def loc(self) -> str:
-        """Column of the selected current location loc = loc_k."""
+        """Column of the selected current location loc = loc^k."""
         return c.loc(self.level)
 
     @property
     def ploc(self) -> str:
-        """Column of the selected previous location ploc = ploc_k."""
+        """Column of the selected previous location ploc = ploc^k."""
         return c.ploc(self.level)
 
 
 def derive_levels(relations: pl.DataFrame, events: pl.DataFrame) -> tuple[pl.DataFrame, dict[int, pl.DataFrame]]:
-    """Add loc_k, before_k and ploc_k for all levels, and compute the event locations per level.
+    """Add loc^k, before^k and ploc^k for all levels, and compute the event locations per level.
 
     Args:
         relations: Resolved relations (requirements must hold).

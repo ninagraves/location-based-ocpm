@@ -22,7 +22,7 @@ def event_agreement(relations: pl.DataFrame, events: pl.DataFrame, location: str
         relations: Relations frame with columns event and `location`.
         events: All events (column event), so that events without handling units are included
             (as agreeing, eloc ⊥).
-        location: Column holding λ, e.g. "loc_2".
+        location: Column holding λ, e.g. "loc^2".
 
     Returns:
         pl.DataFrame: Columns event, n_locations (distinct locations ≠ ⊥), agreeing (bool), eloc,
@@ -50,7 +50,7 @@ def event_locations(relations: pl.DataFrame, events: pl.DataFrame, location: str
     Args:
         relations: Relations frame with columns event and `location`.
         events: All events (column event).
-        location: Column holding λ, e.g. "loc_2".
+        location: Column holding λ, e.g. "loc^2".
 
     Returns:
         pl.DataFrame: Columns event, n_relations, n_located, agreeing (bool), eloc, located.

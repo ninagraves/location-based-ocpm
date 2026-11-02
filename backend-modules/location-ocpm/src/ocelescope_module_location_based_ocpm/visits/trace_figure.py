@@ -135,7 +135,7 @@ def add_high_level_locations(
 
     Args:
         relations: One row per hu-event relation with the column `location` (null = ⊥).
-        location: Column of the low-level location, e.g. "loc_3".
+        location: Column of the low-level location, e.g. "loc^3".
         agg: Low-level location -> high-level location; None = identity for all.
         high_level: Name of the new column.
 

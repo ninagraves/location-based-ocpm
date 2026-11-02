@@ -1,6 +1,6 @@
 """Locatedness of hu-event relations, events and handling units (`overview/Deriving Locations.md`, box "Locatedness").
 
-All functions take a location column λ (e.g. "loc_3"), so they work on every level.
+All functions take a location column λ (e.g. "loc^3"), so they work on every level.
 """
 
 import polars as pl
@@ -38,7 +38,7 @@ def relation_locatedness(relations: pl.DataFrame, location: str) -> pl.DataFrame
 
     Args:
         relations: Relations frame with columns event, hu and `location`.
-        location: Column holding λ, e.g. "loc_3".
+        location: Column holding λ, e.g. "loc^3".
 
     Returns:
         pl.DataFrame: Columns event, hu, `location`, located (bool), in the order of `relations`.
@@ -53,7 +53,7 @@ def event_locatedness(relations: pl.DataFrame, events: pl.DataFrame, location: s
         relations: Relations frame with columns event and `location`.
         events: All events (column event), so that events without handling units are included
             (as unlocated).
-        location: Column holding λ, e.g. "loc_3".
+        location: Column holding λ, e.g. "loc^3".
 
     Returns:
         pl.DataFrame: Columns event, n_relations, n_located, located
@@ -79,7 +79,7 @@ def hu_locatedness(relations: pl.DataFrame, location: str) -> pl.DataFrame:
 
     Args:
         relations: Relations frame with columns hu and `location`.
-        location: Column holding λ, e.g. "loc_3".
+        location: Column holding λ, e.g. "loc^3".
 
     Returns:
         pl.DataFrame: Columns hu, n_relations, n_located, located, sorted by hu. Handling units

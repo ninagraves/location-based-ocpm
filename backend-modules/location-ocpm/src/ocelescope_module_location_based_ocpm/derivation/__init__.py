@@ -8,7 +8,7 @@ Data flow:
 2. `inputs` resolves them on an OCEL into one frame of hu-event relations (`Relations`),
    with reports and blocking errors.
 3. `requirements` checks RQ1-RQ3 (blocking).
-4. `levels` adds loc_0 to loc_3, before and ploc.
+4. `levels` adds loc^0 to loc^3, before and ploc.
 5. `locatedness` gives the locatedness of relations, events and handling units; `agreement` agreement and eloc; `flags` the flags F1-F5.
 6. `pipeline.derive` runs all steps.
 7. `level_files` saves and loads the mapping of each level (used by the notebooks).

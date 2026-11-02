@@ -23,8 +23,8 @@ def test_mapping_matches_expected_levels(derivation):
     for level in range(4):
         mapping = level_mapping(derivation, level)
         assert mapping.columns == MAPPING_COLUMNS
-        actual = mapping.select("hu", "event", pl.col("loc").alias(f"loc_{level}")).sort("hu", "event")
-        assert_frame_equal(actual, expected("levels").select("hu", "event", f"loc_{level}").sort("hu", "event"))
+        actual = mapping.select("hu", "event", pl.col("loc").alias(f"loc^{level}")).sort("hu", "event")
+        assert_frame_equal(actual, expected("levels").select("hu", "event", f"loc^{level}").sort("hu", "event"))
 
 
 def test_committed_files_are_up_to_date(derivation):
