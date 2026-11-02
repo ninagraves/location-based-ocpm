@@ -1,5 +1,7 @@
 """Tests of the trace figure helpers on the running example (draft for the visit concept)."""
 
+from collections import Counter
+
 import polars as pl
 from ocelescope_module_location_based_ocpm.visits.trace_figure import (
     ROW_FILL,
@@ -286,6 +288,50 @@ def test_visit_ids_shown_in_bars(derivation):
     assert ids(trace_figure(rel, visits.drop("visit_id"))) == set()
 
 
+def test_visit_locations_in_filled_bars(derivation):
+    """Filled bars show "<id> · <hl>" if it fits, else only hl, else nothing; ⊥ shows "⊥"; outlined bars keep their ids."""
+    rel = relations_for_figure(derivation.relations, derivation.loc, ["c1", "c5"], AGG)
+    visits = pl.DataFrame(
+        {
+            "visit_id": ["r1", "r2", "r3", "m1"],
+            "hu": ["c1", "c1", "c5", "c1"],
+            "high_level": ["A", "B", None, "A"],
+            "first_event": ["e3", "e7", "e16", "e3"],
+            "last_event": ["e11", "e7", "e17", "e11"],
+            "group": ["resolved", "resolved", "resolved", "maximal"],
+        }
+    )
+
+    def labels(**kwargs):
+        """Bar labels: bold annotations minus those of a figure without visit labels (event labels)."""
+        bold = Counter(
+            a.text
+            for a in trace_figure(rel, visits, **kwargs).layout.annotations
+            if a.text.startswith("<b>")
+        )
+        off = {k: v for k, v in kwargs.items() if k == "width"}
+        base = trace_figure(
+            rel, visits, show_visit_ids=False, show_visit_locations=False, **off
+        )
+        return bold - Counter(
+            a.text for a in base.layout.annotations if a.text.startswith("<b>")
+        )
+
+    assert labels(width=2400) == Counter(
+        ["<b>r1 · A</b>", "<b>r2 · B</b>", "<b>r3 · ⊥</b>", "<b>m1</b>"]
+    )
+    # narrower: the one-relation visit r2 (and c5's ⊥ visit) only has room for the location
+    assert labels(width=500) == Counter(
+        ["<b>r1 · A</b>", "<b>B</b>", "<b>⊥</b>", "<b>m1</b>"]
+    )
+    assert labels(width=2400, show_visit_ids=False) == Counter(
+        ["<b>A</b>", "<b>B</b>", "<b>⊥</b>"]
+    )
+    assert labels(width=2400, show_visit_locations=False) == Counter(
+        ["<b>r1</b>", "<b>r2</b>", "<b>r3</b>", "<b>m1</b>"]
+    )
+
+
 def test_ties_follow_as4_on_every_axis():
     """Events with the same timestamp: movement, then processing operation, then the rest (AS4), against the ids."""
     import datetime as dt
@@ -306,6 +352,7 @@ def test_ties_follow_as4_on_every_axis():
     for axis in ("trace position", "event order", "time"):
         rel = relations_for_figure(relations, axis=axis)
         assert rel.sort("x")["event"].to_list() == ["c", "b", "a", "d"], axis
+
 
 def test_processing_defaults_to_transformations_and_takes_given_events(derivation):
     """Without P, the transformation events are processing operations; with P, exactly the given events."""
@@ -358,29 +405,47 @@ def test_processing_drawn_as_stars_with_legend_entry(derivation):
 
 def test_every_other_handling_unit_shaded(derivation):
     """Rows 1, 3, ... get a full-width band in ROW_FILL; shade_rows=False draws none."""
-    rel = relations_for_figure(derivation.relations, derivation.loc, ["c1", "c2", "c3"], AGG, {"T"}, {"B1"})
+    rel = relations_for_figure(
+        derivation.relations, derivation.loc, ["c1", "c2", "c3"], AGG, {"T"}, {"B1"}
+    )
     bands = [s for s in trace_figure(rel).layout.shapes if s.fillcolor == ROW_FILL]
     assert len(bands) == 2
     assert all(b.xref == "paper" and b.x0 == 0 and b.x1 == 1 for b in bands)
     # The bands do not overlap and the first one starts at the top of the plot.
     top, second = sorted(bands, key=lambda b: -b.y1)
     assert top.y0 > second.y1 and top.y1 == ROW_TOP
-    assert not [s for s in trace_figure(rel, shade_rows=False).layout.shapes if s.fillcolor == ROW_FILL]
+    assert not [
+        s
+        for s in trace_figure(rel, shade_rows=False).layout.shapes
+        if s.fillcolor == ROW_FILL
+    ]
 
 
 def test_shape_legend_explains_markers_in_use(derivation):
     """The 'shape' legend group names the shapes that occur: processing (located or not), vehicle, storage unit."""
     rel = relations_for_figure(
-        derivation.relations, derivation.loc, ["c1", "c5"], AGG, {"T"}, {"B1"}, processing={"e4", "e16"}
+        derivation.relations,
+        derivation.loc,
+        ["c1", "c5"],
+        AGG,
+        {"T"},
+        {"B1"},
+        processing={"e4", "e16"},
     )
-    shapes = {t.name: t.marker.symbol for t in trace_figure(rel).data if t.legendgroup == "shape"}
+    shapes = {
+        t.name: t.marker.symbol
+        for t in trace_figure(rel).data
+        if t.legendgroup == "shape"
+    }
     assert shapes == {
         "processing operation": "star",
         "processing operation, not located": "asterisk-open",
         "vehicle": "circle-open",
         "storage unit": "diamond",
     }
-    plain = relations_for_figure(derivation.relations, derivation.loc, ["c1"], AGG, processing=())
+    plain = relations_for_figure(
+        derivation.relations, derivation.loc, ["c1"], AGG, processing=()
+    )
     assert not [t for t in trace_figure(plain).data if t.legendgroup == "shape"]
 
 
@@ -391,7 +456,10 @@ def test_metrics_in_legend_and_per_trace(derivation):
         rel,
         legend_metrics=[("N_vis = 3", "number of visits"), "N_loop = 0"],
         legend_metrics_title="metrics (S6)",
-        trace_metrics={"c1": [("N_vis = 2", "number of visits"), ("N_triv = 1", "trivial visits")], "c2": ["N_vis = 1"]},
+        trace_metrics={
+            "c1": [("N_vis = 2", "number of visits"), ("N_triv = 1", "trivial visits")],
+            "c2": ["N_vis = 1"],
+        },
     )
     new = [a for a in fig.layout.annotations if a.text.startswith(("N_", "<b>metrics"))]
     assert len(plain.layout.annotations) + 6 == len(fig.layout.annotations)
