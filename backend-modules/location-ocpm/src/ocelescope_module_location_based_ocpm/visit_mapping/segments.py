@@ -12,7 +12,7 @@ from ..derivation import columns as c
 from ..visits import columns as v
 from .sweep import Segment
 
-#: Column of a mapping visit: id of the maximal visit m(p) it lies in.
+#: Column of a mapping visit: id of the maximal visit m(i) it lies in.
 MAXIMAL_VISIT_ID = "maximal_visit_id"
 
 

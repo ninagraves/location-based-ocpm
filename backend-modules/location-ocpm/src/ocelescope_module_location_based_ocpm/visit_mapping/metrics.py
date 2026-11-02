@@ -7,14 +7,15 @@ it has a stop, otherwise a vehicle visit (all located relations on vehicles), a 
 | metric | column | definition |
 |---|---|---|
 | N_vis | n_visits | number of visits |
-| N_proc, sh_proc | n_conforming_processing, n_located_processing, sh_proc | processing relations at their visit's hl / all located processing relations |
+| N_proc, p_proc | n_conforming_processing, n_located_processing, p_proc | processing relations at their visit's hl / all located processing relations |
 | N_loop | n_loops | stays whose hl occurred in an earlier stay, with a stay at another hl in between (vehicle and transferring visits ignored, so A, T, A is no loop) |
 | N_triv | n_trivial | visits with one relation (Nina, note l. 143), not connecting (default, Nina 2026-11-02); optionally only without processing at its hl (note l. 709; Nina still to decide) |
 | N_veh, N_trans | n_vehicle_visits, n_transferring_visits | vehicle and transferring visits |
-| N_conn, sh_conn | n_connecting, sh_conn | vehicle or transferring visits whose two neighbours are stays at different hl / (N_veh + N_trans) |
+| p_vr | n_vehicle_relations_on_the_way, n_vehicle_relations, p_vr | relations at vehicles (loc ∈ V) in a vehicle or transferring visit / all relations at vehicles (Nina, 2026-11-02) |
+| N_conn, p_conn | n_connecting, p_conn | vehicle or transferring visits whose two neighbours are stays at different hl / (N_veh + N_trans) |
 | relations per visit | mean_relations, median_relations | |
 | duration | mean_duration, median_duration | d = time(exit event) - time(first event) |
-| sh_conf | n_conforming, n_relations, sh_conf | relations at their visit's hl / all relations |
+| p_conf | n_conforming, n_relations, p_conf | relations at their visit's hl / all relations |
 
 All steps are polars expressions (no loop over rows); the frames can be eager or lazy until `collect`.
 """
@@ -36,6 +37,7 @@ from .optimal import BOTTOM_VISIT, STAY, TRANSFERRING_VISIT, VEHICLE_VISIT
 KIND = "kind"
 SEQUENCE_INDEX = "j"
 N_CONFORMING_PROCESSING = "n_conforming_processing"
+N_VEHICLE_RELATIONS = "n_vehicle_relations"
 IS_LOOP = "is_loop"
 IS_CONNECTING = "is_connecting"
 IS_TRIVIAL = "is_trivial"
@@ -46,20 +48,23 @@ SUMMARY_COLUMNS = [
     "n_stays",
     "n_conforming_processing",
     "n_located_processing",
-    "sh_proc",
+    "p_proc",
     "n_loops",
     "n_trivial",
     "n_vehicle_visits",
     "n_transferring_visits",
     "n_connecting",
-    "sh_conn",
+    "p_conn",
+    "n_vehicle_relations_on_the_way",
+    "n_vehicle_relations",
+    "p_vr",
     "mean_relations",
     "median_relations",
     "mean_duration",
     "median_duration",
     "n_conforming",
     "n_relations",
-    "sh_conf",
+    "p_conf",
 ]
 
 
@@ -69,7 +74,7 @@ class MappingMetrics:
 
     Attributes:
         visits: One row per visit: hu, visit_id, high_level, j (index in the visit sequence), kind,
-            n_relations, n_at_location, n_conforming_processing, duration, is_loop, is_connecting, is_trivial.
+            n_relations, n_at_location, n_conforming_processing, n_vehicle_relations (loc ∈ V), duration, is_loop, is_connecting, is_trivial.
         per_hu: One row per handling unit with `SUMMARY_COLUMNS`.
         pooled: One row with `SUMMARY_COLUMNS`, pooled over the handling units.
     """
@@ -143,6 +148,7 @@ def visit_metrics(
         .sum()
         .cast(pl.Int64)
         .alias(N_CONFORMING_PROCESSING),
+        pl.col(v.ON_VEHICLE).sum().cast(pl.Int64).alias(N_VEHICLE_RELATIONS),
         pl.col(v.IS_STOP).any().alias("_has_stop"),
         located_not_vehicle.any().alias("_has_non_vehicle"),
     )
@@ -214,6 +220,7 @@ def visit_metrics(
         v.N_RELATIONS,
         v.N_AT_LOCATION,
         N_CONFORMING_PROCESSING,
+        N_VEHICLE_RELATIONS,
         v.DURATION,
         IS_LOOP,
         IS_CONNECTING,
@@ -248,6 +255,8 @@ def summarise(visits: pl.DataFrame, located_processing: pl.DataFrame, by: list[s
         (pl.col(KIND) == TRANSFERRING_VISIT).sum().cast(pl.Int64).alias("n_transferring_visits"),
         pl.col(IS_CONNECTING).sum().cast(pl.Int64).alias("n_connecting"),
         vehicle_like.sum().cast(pl.Int64).alias("_n_vehicle_like"),
+        pl.col(N_VEHICLE_RELATIONS).filter(vehicle_like).sum().cast(pl.Int64).alias("n_vehicle_relations_on_the_way"),
+        pl.col(N_VEHICLE_RELATIONS).sum().cast(pl.Int64).alias("n_vehicle_relations"),
         pl.col(v.N_RELATIONS).mean().alias("mean_relations"),
         pl.col(v.N_RELATIONS).median().alias("median_relations"),
         pl.col(v.DURATION).mean().alias("mean_duration"),
@@ -262,9 +271,10 @@ def summarise(visits: pl.DataFrame, located_processing: pl.DataFrame, by: list[s
             pl.lit(located_processing["n_located_processing"].sum()).cast(pl.Int64).alias("n_located_processing")
         )
     out = out.with_columns(pl.col("n_located_processing").fill_null(0)).with_columns(
-        _share("n_conforming_processing", "n_located_processing").alias("sh_proc"),
-        _share("n_connecting", "_n_vehicle_like").alias("sh_conn"),
-        _share("n_conforming", "n_relations").alias("sh_conf"),
+        _share("n_conforming_processing", "n_located_processing").alias("p_proc"),
+        _share("n_connecting", "_n_vehicle_like").alias("p_conn"),
+        _share("n_conforming", "n_relations").alias("p_conf"),
+        _share("n_vehicle_relations_on_the_way", "n_vehicle_relations").alias("p_vr"),
     )
     return out.select(*by, *SUMMARY_COLUMNS)
 
@@ -314,17 +324,18 @@ def mapping_metrics(
 METRIC_LABELS: dict[str, tuple[str, tuple[str, str] | None]] = {
     "n_visits": ("N_vis", None),
     "n_stays": ("N_stay", None),
-    "sh_proc": ("sh_proc", ("n_conforming_processing", "n_located_processing")),
+    "p_proc": ("p_proc", ("n_conforming_processing", "n_located_processing")),
     "n_loops": ("N_loop", None),
     "n_trivial": ("N_triv", None),
     "n_vehicle_visits": ("N_veh", None),
     "n_transferring_visits": ("N_trans", None),
-    "sh_conn": ("sh_conn", ("n_connecting", "n_vehicle_like")),
+    "p_conn": ("p_conn", ("n_connecting", "n_vehicle_like")),
+    "p_vr": ("p_vr", ("n_vehicle_relations_on_the_way", "n_vehicle_relations")),
     "mean_relations": ("mean |R|", None),
     "median_relations": ("median |R|", None),
     "mean_duration": ("mean d", None),
     "median_duration": ("median d", None),
-    "sh_conf": ("sh_conf", ("n_conforming", "n_relations")),
+    "p_conf": ("p_conf", ("n_conforming", "n_relations")),
 }
 
 #: Explanation of each metric, shown on mouse-over in the trace figure (Nina's note, "Evaluating mapping
@@ -332,7 +343,7 @@ METRIC_LABELS: dict[str, tuple[str, tuple[str, str] | None]] = {
 METRIC_EXPLANATIONS: dict[str, str] = {
     "n_visits": "number of visits, Σ_hu r(hu)<br>size of the mapping; per hu: r(hu)",
     "n_stays": "number of stays: visits with at least one stop<br>(a relation at the visit's hl, not on a vehicle)",
-    "sh_proc": (
+    "p_proc": (
         "located processing relations that are conforming in their visit,<br>divided by all located "
         "processing relations<br>correctly mapped processing operations"
     ),
@@ -349,27 +360,31 @@ METRIC_EXPLANATIONS: dict[str, str] = {
         "number of transferring visits (no stop, but relations not on vehicles)<br>how much of the mapping is "
         "\"on the way\""
     ),
-    "sh_conn": (
+    "p_conn": (
         "vehicle or transferring visits ν_j (1 < j < r) whose neighbours<br>ν_j-1, ν_j+1 are stays at different "
         "high-level locations,<br>divided by N_veh + N_trans<br>share of vehicle visits that separate \"before\" "
         "and \"after\""
+    ),
+    "p_vr": (
+        "relations at vehicles (loc ∈ V) that lie in a vehicle or transferring visit,<br>divided by all relations "
+        "at vehicles<br>how many vehicle relations are kept \"on the way\" instead of being absorbed into a stay"
     ),
     "mean_relations": "mean number of relations per visit, |R(ν)|<br>granularity",
     "median_relations": "median number of relations per visit, |R(ν)|<br>granularity",
     "mean_duration": "mean visit duration d(ν) = time(exit event) - time(entry event)",
     "median_duration": "median visit duration d(ν) = time(exit event) - time(entry event)",
-    "sh_conf": (
-        "relations conforming in their visit, Σ_ν |R_hl(ν)| / |E2HU|, i.e. 1 - sh_nc<br>"
+    "p_conf": (
+        "relations conforming in their visit, Σ_ν |R_hl(ν)| / |E2HU|, i.e. 1 - p_nc<br>"
         "events agreeing on the high-level location"
     ),
 }
 
 #: Metrics shown for the whole set, and per trace, by default.
 LEGEND_METRICS = (
-    "n_visits", "sh_proc", "n_loops", "n_trivial", "n_vehicle_visits", "n_transferring_visits", "sh_conn",
-    "mean_relations", "mean_duration", "sh_conf",
+    "n_visits", "p_proc", "n_loops", "n_trivial", "n_vehicle_visits", "n_transferring_visits", "p_conn", "p_vr",
+    "mean_relations", "mean_duration", "p_conf",
 )
-TRACE_METRICS = ("n_visits", "n_loops", "n_trivial", "sh_conf")
+TRACE_METRICS = ("n_visits", "n_loops", "n_trivial", "p_conf")
 
 
 def _format_value(row: dict, key: str) -> str:
@@ -398,7 +413,7 @@ def metric_lines(pooled: pl.DataFrame, keys: Sequence[str] = LEGEND_METRICS) -> 
         keys: Metrics to show, keys of `METRIC_LABELS`.
 
     Returns:
-        list[tuple[str, str]]: e.g. [("N_vis = 16", "number of visits, ..."), ("sh_proc = 13/13", ...), ...].
+        list[tuple[str, str]]: e.g. [("N_vis = 16", "number of visits, ..."), ("p_proc = 13/13", ...), ...].
     """
     row = pooled.row(0, named=True)
     return [(_format_value(row, key), METRIC_EXPLANATIONS[key]) for key in keys]

@@ -274,13 +274,13 @@ def test_pooled_metrics(key):
     assert (m["n_visits"], m["n_conforming_processing"], m["n_located_processing"]) == (n_vis, n_proc, 13)
     assert (m["n_loops"], m["n_trivial"], m["n_vehicle_visits"], m["n_transferring_visits"]) == (loops, trivial, veh, trans)
     assert m["n_connecting"] == conn
-    assert m["sh_conn"] == pytest.approx(conn / veh_like)
+    assert m["p_conn"] == pytest.approx(conn / veh_like)
     assert m["mean_relations"] == pytest.approx(mean_rel)
     assert m["median_relations"] == med_rel
     assert m["mean_duration"].total_seconds() / 3600 == pytest.approx(mean_d)
     assert m["median_duration"] == timedelta(hours=med_d)
     assert (m["n_conforming"], m["n_relations"]) == (conf, 54)
-    assert m["sh_proc"] == 1.0
+    assert m["p_proc"] == 1.0
 
 
 def test_trivial_options():
@@ -352,3 +352,15 @@ def test_save_and_load_mapping(tmp_path):
     assert path.name == "visit_mapping_level_3_kappa_3_S6.csv"
     loaded = load_mapping(tmp_path, 3, KAPPA, "S6")
     assert loaded.select(mapping.columns).equals(mapping.select(loaded.columns).select(mapping.columns))
+
+
+def test_share_of_vehicle_relations_on_the_way():
+    # Nina 2026-11-02: relations at vehicles in vehicle or transferring visits / all relations at vehicles
+    expected = {"S1": 3, "S2": 10, "S3": 9, "S4": 4, "S5": 3}
+    for key, n in expected.items():
+        pooled = derive_mapping_set(RELATIONS, **OPTIONS, strategy=key).metrics.pooled.row(0, named=True)
+        assert (pooled["n_vehicle_relations_on_the_way"], pooled["n_vehicle_relations"]) == (n, 10), key
+        assert pooled["p_vr"] == pytest.approx(n / 10)
+    for strategy in (nina_strategy(), nina_strategy(storage_tie_break=False)):
+        pooled = derive_mapping_set(RELATIONS, **OPTIONS, strategy=strategy).metrics.pooled
+        assert pooled["n_vehicle_relations_on_the_way"].item() == 4

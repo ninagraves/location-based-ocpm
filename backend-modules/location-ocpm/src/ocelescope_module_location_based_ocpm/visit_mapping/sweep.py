@@ -1,9 +1,9 @@
 """The sweep along one trace with a local rule (working note, sections 3.3 to 3.6 and 5.1).
 
-Per handling unit, start at the first position p. Take the maximal visit m(p) at the relation's own
-high-level location and walk along it from p. At each excursion ξ of m(p) that starts after p, a rule
-decides: absorb (the visit continues across ξ) or split (the visit ends before ξ). The segment from p to
-where the walk stopped (the end of m(p) if everything was absorbed) is one visit of V_map; continue at the
+Per handling unit, start at the first position i. Take the maximal visit m(i) at the relation's own
+high-level location and walk along it from i. At each excursion ξ of m(i) that starts after i, a rule
+decides: absorb (the visit continues across ξ) or split (the visit ends before ξ). The segment from i to
+where the walk stopped (the end of m(i) if everything was absorbed) is one visit of V_map; continue at the
 position after it.
 
 The result is always disjoint and covering (the segments partition the trace), and every mapping set can be
@@ -42,8 +42,8 @@ class SweepStep:
 
     Attributes:
         trace: The trace.
-        current: The current visit m(p).
-        entry: The position p where the sweep entered the current visit (need not be its first position).
+        current: The current visit m(i).
+        entry: The position i where the sweep entered the current visit (need not be its first position).
         start: First position of the excursion ξ.
         end: Last position of ξ.
     """
@@ -105,16 +105,16 @@ def sweep_trace(trace: Trace, rule: Rule) -> list[Segment]:
         list[Segment]: The visits of V_map(hu), in trace order; they partition the trace.
     """
     segments = []
-    p = 0
-    while p < len(trace):
-        current = trace.maximal[p]
+    i = 0
+    while i < len(trace):
+        current = trace.maximal[i]
         q = current.last
-        for start, end in excursions(trace, current, p):
-            if not rule(SweepStep(trace, current, p, start, end)):
+        for start, end in excursions(trace, current, i):
+            if not rule(SweepStep(trace, current, i, start, end)):
                 q = start - 1
                 break
-        segments.append(Segment(p, q, current.high_level, current.visit_id))
-        p = q + 1
+        segments.append(Segment(i, q, current.high_level, current.visit_id))
+        i = q + 1
     return segments
 
 

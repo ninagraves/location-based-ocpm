@@ -50,7 +50,7 @@ class Trace:
         high_levels: High-level locations hat-hl (None = ⊥).
         on_vehicle: loc ∈ V.
         is_processing: e ∈ P (wherever it happens).
-        maximal: The maximal visit m(p) at the relation's own high-level location, per position.
+        maximal: The maximal visit m(i) at the relation's own high-level location, per position.
         visits: All maximal visits of the trace, by visit id.
         storage_high_levels: High-level locations that contain a storage unit, {agg(w) | w ∈ W} (for the
             storage tie-break of S6).

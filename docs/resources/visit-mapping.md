@@ -1,7 +1,7 @@
 # Visit mapping sets
 
 Status: implemented in the backend package and demoed in `notebooks/visit_mapping.ipynb`; not used by any page yet.
-Concept: `overview/Single Level Visit Mappings.md` (outside this repo), sections on mapping sets, the strategies S1 to S6 and "Evaluating mapping sets" (l. 701–731); reasoning in the working note `claude_notes/visit-mapping-sets.md`, sections 3 to 7 (there the lexicographic strategy is called S7).
+Concept: `overview/Single Level Visit Mappings.md` (outside this repo; relative metrics are written $p_x$, positions in the sweep $i$), sections on mapping sets, the strategies S1 to S6 and "Evaluating mapping sets" (l. 701–731); reasoning in the working note `claude_notes/visit-mapping-sets.md`, sections 3 to 7 (there the lexicographic strategy is called S7).
 Code: `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/visit_mapping/` (paths below are relative to it).
 Tests: `backend-modules/location-ocpm/tests/test_visit_mapping.py` (extended running example and extra traces, `data/mapping_example/`).
 Input: the maximal visits (`docs/resources/visits.md`).
@@ -11,7 +11,7 @@ Input: the maximal visits (`docs/resources/visits.md`).
 A **mapping set** $\mathcal{V}_{map}$: visits that are disjoint and covering, i.e. every hu-event relation lies in exactly one visit.
 Per handling unit it is a segmentation of its trace into consecutive visits, a **visit sequence**; consecutive visits have different high-level locations.
 A **strategy** decides which segmentation is taken (six predefined ones, or your own).
-**Evaluation metrics** describe a mapping set, per visit, per handling unit and pooled: number of visits, conforming processing, loops, trivial visits, vehicle and transferring visits, connecting visits, relations per visit, durations, conforming relations.
+**Evaluation metrics** describe a mapping set, per visit, per handling unit and pooled: number of visits, conforming processing, loops, trivial visits, vehicle and transferring visits, connecting visits, vehicle relations kept on the way, relations per visit, durations, conforming relations.
 The trace figure can show the metrics of the whole set and of each trace, with their definitions on mouse-over (`docs/resources/trace-figure.md`).
 
 ## 2. How it is calculated
@@ -20,7 +20,7 @@ The trace figure can show the metrics of the whole set and of each trace, with t
 |---|---|---|
 | Maximal visits | `visits/maximal.py`, `derive_maximal_visits` | relations with position, high_level, visit_id; $\mathcal{V}_{max}$ |
 | Inputs of the strategies | `traces.py`, `add_mapping_inputs` | on_vehicle ($loc \in V$), is_processing_event ($e \in P$) |
-| One trace per hu | `traces.py`, `split_traces`, `storage_high_levels` | `Trace` (lists by 0-based position, $m(p)$ per position) |
+| One trace per hu | `traces.py`, `split_traces`, `storage_high_levels` | `Trace` (lists by 0-based position, $m(i)$ per position) |
 | Local strategies | `sweep.py`, `sweep_trace(trace, rule)` | segments; the rule decides absorb/split per excursion |
 | Global strategies | `optimal.py`, `optimal_segmentation(trace, strategy)` | the best segmentation by criteria (dynamic programme) |
 | Choosing a strategy | `strategies.py`, `resolve_strategy`, `segment_trace` | key, rule or strategy object → segments |
@@ -31,9 +31,9 @@ The trace figure can show the metrics of the whole set and of each trace, with t
 | All | `pipeline.py`, `derive_mapping_set`, `map_traces`, `compare_strategies` | `MappingAnalysis`; comparison table |
 | Files | `mapping_files.py`, `save_mapping`, `load_mapping` | `visit_mapping_level_{k}_kappa_{κ}_{strategy}.csv` |
 
-**The sweep** (local strategies; working note 3.3): start at $p = 1$; take the maximal visit $m(p)$ at the relation's own high-level location and walk along it from $p$; at each excursion $\xi$ of $m(p)$ after $p$, the rule decides absorb (continue) or split (stop before $\xi$); output the segment and continue after it.
+**The sweep** (local strategies; working note 3.3): start at $i = 1$; take the maximal visit $m(i)$ at the relation's own high-level location and walk along it from $i$; at each excursion $\xi$ of $m(i)$ after $i$, the rule decides absorb (continue) or split (stop before $\xi$); output the segment and continue after it.
 Every result is disjoint and covering, and every mapping set is the result of some decision sequence (working note 4.3).
-A rule gets a `SweepStep`: trace, current visit $m(p)$, entry $p$, start and end of $\xi$, its positions and its inner visits $\{m(e) \mid e \in \xi\}$.
+A rule gets a `SweepStep`: trace, current visit $m(i)$, entry $i$, start and end of $\xi$, its positions and its inner visits $\{m(e) \mid e \in \xi\}$.
 
 | key | strategy | rule / criteria |
 |---|---|---|
@@ -44,7 +44,7 @@ A rule gets a `SweepStep`: trace, current visit $m(p)$, entry $p$, start and end
 | S5 | cost-optimal | weighted: n_visits + λ · n_nonconforming (`cost_optimal(lam=1.0)`) |
 | S6 | integrating domain knowledge | hard rule, then lexicographic: max n_conforming_processing, min n_stays, min n_nonconforming, min n_vehicle_visits, max n_storage_stay_relations (storage tie-break), max duration_sq (`nina_strategy(storage_tie_break=True)`) |
 
-**Global strategies** (`optimal.py`): among all segmentations, the best one by criteria that are sums over the visits, so a dynamic programme over the positions finds it: $g(p) = \text{best}_{q}\,(c([p, q]) \oplus g(q + 1))$ over valid segments $[p, q]$ (inside $m(p)$, ending at its $hl$, neighbours not at its $hl$).
+**Global strategies** (`optimal.py`): among all segmentations, the best one by criteria that are sums over the visits, so a dynamic programme over the positions finds it: $g(i) = \text{best}_{q}\,(c([i, q]) \oplus g(q + 1))$ over valid segments $[i, q]$ (inside $m(i)$, ending at its $hl$, neighbours not at its $hl$).
 Criteria (`CRITERIA`; per segment, with a direction):
 
 | key | per segment | direction |
@@ -68,16 +68,17 @@ Ties: the segmentation whose first visit is longest, then the next (S1-like, "lo
 | metric | column(s) | definition |
 |---|---|---|
 | $N_{vis}$ | n_visits | number of visits |
-| $sh_{proc}$ | n_conforming_processing / n_located_processing | processing relations at their visit's $hl$ / located processing relations |
+| $p_{proc}$ | n_conforming_processing / n_located_processing | processing relations at their visit's $hl$ / located processing relations |
 | $N_{loop}$ | n_loops | stays whose $hl$ occurred in an earlier stay, with the previous stay elsewhere (vehicle and transferring visits ignored, so A, T, A is no loop) |
 | $N_{triv}$ | n_trivial | visits with one relation; by default not connecting ones; optionally only without processing at their $hl$ |
 | $N_{veh}$, $N_{trans}$ | n_vehicle_visits, n_transferring_visits | |
-| $sh_{conn}$ | n_connecting / ($N_{veh} + N_{trans}$) | vehicle or transferring visits $\nu_j$ ($1 < j < r$) whose neighbours are stays at different $hl$ |
+| $p_{conn}$ | n_connecting / ($N_{veh} + N_{trans}$) | vehicle or transferring visits $\nu_j$ ($1 < j < r$) whose neighbours are stays at different $hl$ |
+| $p_{vr}$ | n_vehicle_relations_on_the_way / n_vehicle_relations | relations at vehicles ($loc \in V$) in a vehicle or transferring visit / all relations at vehicles (Nina, 2026-11-02): how many vehicle relations are kept "on the way" instead of being absorbed into a stay |
 | relations per visit | mean_relations, median_relations | |
 | duration | mean_duration, median_duration | |
-| $sh_{conf}$ | n_conforming / n_relations | relations at their visit's $hl$ |
+| $p_{conf}$ | n_conforming / n_relations | relations at their visit's $hl$ |
 
-Complexity: the sweep is linear per trace; the dynamic programme tries all ends inside $m(p)$ for every start, each segment counted in linear time (straightforward version, Nina's rule: modular first; with prefix sums it becomes linear). Both loop over the traces in Python; the metrics are polars expressions.
+Complexity: the sweep is linear per trace; the dynamic programme tries all ends inside $m(i)$ for every start $i$, each segment counted in linear time (straightforward version, Nina's rule: modular first; with prefix sums it becomes linear). Both loop over the traces in Python; the metrics are polars expressions.
 
 Decisions taken in the implementation:
 - Strategy names follow Nina's note (S6 = the lexicographic strategy); `"S7"` (its number in the working note) is an alias.
@@ -85,7 +86,7 @@ Decisions taken in the implementation:
 - S6: the storage tie-break is on by default (Nina, 2026-11-02): it picks (A e26) (B e31–e34) for b7 (Nina was indifferent) and A, B, B, B, B, B for x2 (her lean); `storage_tie_break=False` gives the longer visit (b7: (A e26–e33) (B e34); x2: A, A, A, A, A, B).
 - Trivial: one relation ($|\sigma| = 1$, note l. 143), connecting visits excluded by default (Nina, 2026-11-02, `trivial_excludes_connecting`). Whether trivial also requires "no processing at its $hl$" (note l. 709) is still open with Nina; `trivial_without_processing=True` gives it.
 - ⊥ relations do not make a visit a transferring visit (they are not located); a ⊥ visit is its own kind and never infeasible.
-- $sh_{proc}$ counts processing relations only at $hl \in HL$ (⊥ visits have none).
+- $p_{proc}$ counts processing relations only at $hl \in HL$ (⊥ visits have none).
 - Durations of criteria are in hours (`duration_sq`); for weighted strategies the weights have to take this unit into account.
 
 ## 3. Example
@@ -93,7 +94,8 @@ Decisions taken in the implementation:
 Extended running example (`data/mapping_example/`, κ = 3, $V = \{T\}$, $W = \{B1\}$, $P = \{e1, e3, e4, e15, e22, e26, e35\}$):
 - S6 hits all of Nina's targets: b1 (A e3–e11) (T e13–e14); b2 (A e3–e11) (B e12–e15); b4 (B e15–e21); s2 (A e22–e26); b6 (A e26–e30); b7 (A e26) (B e31–e34); b8 (A e35–e37) (T e38) (B e39–e41).
 - S1 (= S5 with λ = 1) misses only b8: (A e35–e40) (B e41); S4 misses b1 ((A e3–e5) (B e7) (T e8–e14)) and b8 ((A e35) (B e36–e41)); S3 hits only b2; S2 none.
-- Metrics (Nina's note l. 720–731; S6 without the storage tie-break, trivial without processing, connecting included): S1 15 visits, $sh_{proc}$ 13/13, 0 loops, 3 trivial, 2/0 vehicle/transferring visits, $sh_{conn}$ 0/2, 3.6/3 relations per visit, 4/4 h, $sh_{conf}$ 39/54; S6 16, 13/13, 0, 3, 3/0, 1/3, 3.38/3, 3.75/3 h, 40/54; S2 39, 13/13, 12, 24, 9/0, 6/9, 1.38/1, 1.54/1 h, 54/54.
+- Metrics (Nina's note l. 720–731; S6 without the storage tie-break, trivial without processing, connecting included): S1 15 visits, $p_{proc}$ 13/13, 0 loops, 3 trivial, 2/0 vehicle/transferring visits, $p_{conn}$ 0/2, 3.6/3 relations per visit, 4/4 h, $p_{conf}$ 39/54; S6 16, 13/13, 0, 3, 3/0, 1/3, 3.38/3, 3.75/3 h, 40/54; S2 39, 13/13, 12, 24, 9/0, 6/9, 1.38/1, 1.54/1 h, 54/54.
+- $p_{vr}$ (vehicle relations kept on the way, of 10): S1 3, S2 10, S3 9, S4 4, S5 3, S6 4 (with or without the storage tie-break; b7's e32 is absorbed into a stay either way).
 - Extra traces with S6: x1 A T B T A, x2 A B B B B B, x3 A A A T B B, x4 A A A B B, x5 A A A A T B, y1 A A A B B, y2 A B B B, y3 A A A A A B, y4 A B B B B B, y5 (A g22–g26) (T g27) (B g28); all as Nina resolved them.
 
 ## 4. Filtering

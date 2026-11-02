@@ -2,11 +2,11 @@
 
 Among all mapping sets of a handling unit (all segmentations of its trace into visits), take the best one by
 criteria that are sums over the visits. Because they are sums, a dynamic programme over the positions finds
-the optimum: g(p) = best over valid segments [p, q] of c([p, q]) ⊕ g(q + 1), g(n) = 0.
+the optimum: g(i) = best over valid segments [i, q] of c([i, q]) ⊕ g(q + 1), g(n) = 0.
 
-Valid segment [p, q] at h = hat-hl(p): it lies inside the maximal visit m(p), hat-hl(q) = h, and its
-neighbours are not at h (p = 0 or hat-hl(p - 1) ≠ h; q = n - 1 or hat-hl(q + 1) ≠ h). Its deviating
-infixes are those of m(p), so they respect the tolerance.
+Valid segment [i, q] at h = hat-hl(i): it lies inside the maximal visit m(i), hat-hl(q) = h, and its
+neighbours are not at h (i = 0 or hat-hl(i - 1) ≠ h; q = n - 1 or hat-hl(q + 1) ≠ h). Its deviating
+infixes are those of m(i), so they respect the tolerance.
 
 Combination of the criteria:
 - lexicographic: an ordered list of criteria; the cost is the vector of their (signed) sums, compared in order;
@@ -20,7 +20,7 @@ uninterrupted runs are always feasible, so there is always a solution.
 
 How to add a criterion: add a `Criterion` to `CRITERIA` (a function of `SegmentStats` and a direction).
 
-Complexity: for every start p all ends q inside m(p) are tried, so O(Σ_p |m(p)|) segment evaluations per
+Complexity: for every start i all ends q inside m(i) are tried, so O(Σ_i |m(i)|) segment evaluations per
 trace, each linear in the segment (straightforward version; prefix sums would make it linear overall).
 """
 
@@ -267,20 +267,20 @@ def optimal_segmentation(trace: Trace, strategy: GlobalStrategy) -> tuple[list[S
     width = 1 if strategy.mode == "weighted" else len(strategy.criteria)
     best: list[tuple[tuple[float, ...], int] | None] = [None] * (n + 1)
     best[n] = (tuple(0.0 for _ in range(width)), n)
-    for p in range(n - 1, -1, -1):
-        for q in reversed(valid_ends(trace, p)):  # longest first: ties keep the longer segment (S1)
+    for i in range(n - 1, -1, -1):
+        for q in reversed(valid_ends(trace, i)):  # longest first: ties keep the longer segment (S1)
             rest = best[q + 1]
-            cost = segment_cost(segment_stats(trace, p, q), strategy)
+            cost = segment_cost(segment_stats(trace, i, q), strategy)
             if rest is None or cost is None:
                 continue
             total = _add(cost, rest[0])
-            if best[p] is None or _key(total) < _key(best[p][0]):
-                best[p] = (total, q)
+            if best[i] is None or _key(total) < _key(best[i][0]):
+                best[i] = (total, q)
     if best[0] is None:  # cannot happen: the uninterrupted runs are always feasible
         raise RuntimeError(f"No feasible segmentation for {trace.hu}.")
-    segments, p = [], 0
-    while p < n:
-        q = best[p][1]
-        segments.append(Segment(p, q, trace.high_levels[p], trace.maximal[p].visit_id))
-        p = q + 1
+    segments, i = [], 0
+    while i < n:
+        q = best[i][1]
+        segments.append(Segment(i, q, trace.high_levels[i], trace.maximal[i].visit_id))
+        i = q + 1
     return segments, best[0][0]
