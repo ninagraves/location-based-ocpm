@@ -1,10 +1,10 @@
-"""Current locations loc^0 to loc^3, before_λ and ploc_λ (`overview/Deriving Locations.md`, "Deriving Current locations").
+"""Current locations loc^0 to loc^3, before_ℓ and ploc_ℓ (`overview/Deriving Locations.md`, "Deriving Current locations").
 
 All functions take the relations frame (one row per hu-event relation, see `inputs.ResolvedInputs`)
 and return it with one more column. A null value is ⊥.
 
 Time ties: several events of one handling unit can share a timestamp. Level 1 uses ≤ on time,
-so all relations of a handling unit at one timestamp get the same loc^1; before_λ uses < on time.
+so all relations of a handling unit at one timestamp get the same loc^1; before_ℓ uses < on time.
 Both are computed on "time steps" (one row per handling unit and timestamp).
 """
 
