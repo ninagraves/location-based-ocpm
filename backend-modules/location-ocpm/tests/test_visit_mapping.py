@@ -416,7 +416,7 @@ def test_trivial_counts_with_sigma_one():
 
 
 def test_both_trivial_metrics_with_defaults():
-    """Nina's note (2026-11-02): N_triv and N_triv^np, connecting visits excluded, S6 with the storage tie-break."""
+    """Nina's note (2026-11-02): N^ν_triv and N^ν_{triv,np}, connecting visits excluded, S6 with the storage tie-break."""
     expected = {
         "S1": (3, 3),
         "S2": (22, 18),
@@ -515,9 +515,25 @@ def test_share_of_vehicle_relations_on_the_way():
             pooled["n_vehicle_relations_on_the_way"],
             pooled["n_vehicle_relations"],
         ) == (n, 10), key
-        assert pooled["p_vr"] == pytest.approx(n / 10)
+        assert pooled["p_vehicle_relations"] == pytest.approx(n / 10)
     for strategy in (domain_knowledge(), domain_knowledge(storage_tie_break=False)):
         pooled = derive_mapping_set(
             RELATIONS, **OPTIONS, strategy=strategy
         ).metrics.pooled
         assert pooled["n_vehicle_relations_on_the_way"].item() == 4
+
+
+def test_metric_labels_follow_the_notation():
+    """N for counts, p for shares, entity as superscript, description as subscript (Nina, 2026-11-02)."""
+    from ocelescope_module_location_based_ocpm.visit_mapping.metrics import (
+        metric_lines,
+        trace_metric_lines,
+    )
+
+    analysis = derive_mapping_set(RELATIONS, **OPTIONS, strategy="S6")
+    texts = [text for text, _ in metric_lines(analysis.metrics.pooled)]
+    assert texts[0] == "N<sup>ν</sup> = 16"
+    assert any(t.startswith("p<sup>r</sup><sub>veh</sub> = ") for t in texts)
+    keys = ["n_trivial_without_processing"]
+    lines = trace_metric_lines(analysis.metrics.per_hu, keys=keys)
+    assert lines["b8"][0][0].startswith("N<sup>ν</sup><sub>triv,np</sub> = ")

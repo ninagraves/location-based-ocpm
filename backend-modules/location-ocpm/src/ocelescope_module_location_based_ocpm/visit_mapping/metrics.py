@@ -4,19 +4,22 @@ For a handling unit, its visits in V_map form a visit sequence ⟨ν_1, ..., ν_
 it has a stop, otherwise a vehicle visit (all located relations on vehicles), a transferring visit, or a
 ⊥ visit. Per visit, per handling unit and pooled over the given handling units:
 
+Notation (Nina, 2026-11-02): N for counts, p for shares; the counted entity as superscript (ν visits, r relations,
+hu handling units), the description as subscript.
+
 | metric | column | definition |
 |---|---|---|
-| N_vis | n_visits | number of visits |
-| N_proc, p_proc | n_conforming_processing, n_located_processing, p_proc | processing relations at their visit's hl / all located processing relations |
-| N_loop | n_loops | stays whose hl occurred in an earlier stay, with a stay at another hl in between (vehicle and transferring visits ignored, so A, T, A is no loop) |
-| N_triv | n_trivial | visits with one relation (Nina, concept note, "Properties"), not connecting (default, Nina 2026-11-02) |
-| N_triv^np | n_trivial_without_processing | trivial visits without a processing operation at their hl (Nina, 2026-11-02) |
-| N_veh, N_trans | n_vehicle_visits, n_transferring_visits | vehicle and transferring visits |
-| p_vr | n_vehicle_relations_on_the_way, n_vehicle_relations, p_vr | relations at vehicles (loc ∈ V) in a vehicle or transferring visit / all relations at vehicles (Nina, 2026-11-02) |
-| N_conn, p_conn | n_connecting, p_conn | vehicle or transferring visits whose two neighbours are stays at different hl / (N_veh + N_trans) |
+| N^ν | n_visits | number of visits |
+| N^r_proc, p^r_proc | n_conforming_processing, n_located_processing, p_proc | processing relations at their visit's hl / all located processing relations |
+| N^ν_loop | n_loops | stays whose hl occurred in an earlier stay, with a stay at another hl in between (vehicle and transferring visits ignored, so A, T, A is no loop) |
+| N^ν_triv | n_trivial | visits with one relation (Nina, concept note, "Properties"), not connecting (default, Nina 2026-11-02) |
+| N^ν_{triv,np} | n_trivial_without_processing | trivial visits without a processing operation at their hl (Nina, 2026-11-02) |
+| N^ν_veh, N^ν_trans | n_vehicle_visits, n_transferring_visits | vehicle and transferring visits |
+| p^r_veh | n_vehicle_relations_on_the_way, n_vehicle_relations, p_vehicle_relations | relations at vehicles (loc ∈ V) in a vehicle or transferring visit / all relations at vehicles (Nina, 2026-11-02) |
+| N^ν_conn, p^ν_conn | n_connecting, p_conn | vehicle or transferring visits whose two neighbours are stays at different hl / (N^ν_veh + N^ν_trans) |
 | relations per visit | mean_relations, median_relations | |
 | duration | mean_duration, median_duration | d = time(exit event) - time(first event) |
-| p_conf | n_conforming, n_relations, p_conf | relations at their visit's hl / all relations |
+| p^r_conf | n_conforming, n_relations, p_conf | relations at their visit's hl / all relations |
 
 All steps are polars expressions (no loop over rows); the frames can be eager or lazy until `collect`.
 """
@@ -70,7 +73,7 @@ SUMMARY_COLUMNS = [
     "p_conn",
     "n_vehicle_relations_on_the_way",
     "n_vehicle_relations",
-    "p_vr",
+    "p_vehicle_relations",
     "mean_relations",
     "median_relations",
     "mean_duration",
@@ -264,7 +267,9 @@ def summarise(
         _share("n_conforming_processing", "n_located_processing").alias("p_proc"),
         _share("n_connecting", "_n_vehicle_like").alias("p_conn"),
         _share("n_conforming", "n_relations").alias("p_conf"),
-        _share("n_vehicle_relations_on_the_way", "n_vehicle_relations").alias("p_vr"),
+        _share("n_vehicle_relations_on_the_way", "n_vehicle_relations").alias(
+            "p_vehicle_relations"
+        ),
     )
     return out.select(*by, *SUMMARY_COLUMNS)
 
@@ -312,21 +317,27 @@ def mapping_metrics(
 
 #: How each summary metric is shown in a figure: label, and for shares the numerator and denominator columns.
 METRIC_LABELS: dict[str, tuple[str, tuple[str, str] | None]] = {
-    "n_visits": ("N_vis", None),
-    "n_stays": ("N_stay", None),
-    "p_proc": ("p_proc", ("n_conforming_processing", "n_located_processing")),
-    "n_loops": ("N_loop", None),
-    "n_trivial": ("N_triv", None),
-    "n_trivial_without_processing": ("N_triv^np", None),
-    "n_vehicle_visits": ("N_veh", None),
-    "n_transferring_visits": ("N_trans", None),
-    "p_conn": ("p_conn", ("n_connecting", "n_vehicle_like")),
-    "p_vr": ("p_vr", ("n_vehicle_relations_on_the_way", "n_vehicle_relations")),
+    "n_visits": ("N<sup>ν</sup>", None),
+    "n_stays": ("N<sup>ν</sup><sub>stay</sub>", None),
+    "p_proc": (
+        "p<sup>r</sup><sub>proc</sub>",
+        ("n_conforming_processing", "n_located_processing"),
+    ),
+    "n_loops": ("N<sup>ν</sup><sub>loop</sub>", None),
+    "n_trivial": ("N<sup>ν</sup><sub>triv</sub>", None),
+    "n_trivial_without_processing": ("N<sup>ν</sup><sub>triv,np</sub>", None),
+    "n_vehicle_visits": ("N<sup>ν</sup><sub>veh</sub>", None),
+    "n_transferring_visits": ("N<sup>ν</sup><sub>trans</sub>", None),
+    "p_conn": ("p<sup>ν</sup><sub>conn</sub>", ("n_connecting", "n_vehicle_like")),
+    "p_vehicle_relations": (
+        "p<sup>r</sup><sub>veh</sub>",
+        ("n_vehicle_relations_on_the_way", "n_vehicle_relations"),
+    ),
     "mean_relations": ("mean |R|", None),
     "median_relations": ("median |R|", None),
     "mean_duration": ("mean d", None),
     "median_duration": ("median d", None),
-    "p_conf": ("p_conf", ("n_conforming", "n_relations")),
+    "p_conf": ("p<sup>r</sup><sub>conf</sub>", ("n_conforming", "n_relations")),
 }
 
 #: Explanation of each metric, shown on mouse-over in the trace figure (Nina's note, "Evaluating mapping
@@ -357,10 +368,10 @@ METRIC_EXPLANATIONS: dict[str, str] = {
     ),
     "p_conn": (
         "vehicle or transferring visits ν_j (1 < j < r) whose neighbours<br>ν_j-1, ν_j+1 are stays at different "
-        'high-level locations,<br>divided by N_veh + N_trans<br>share of vehicle visits that separate "before" '
+        'high-level locations,<br>divided by N<sup>ν</sup><sub>veh</sub> + N<sup>ν</sup><sub>trans</sub><br>share of vehicle visits that separate "before" '
         'and "after"'
     ),
-    "p_vr": (
+    "p_vehicle_relations": (
         "relations at vehicles (loc ∈ V) that lie in a vehicle or transferring visit,<br>divided by all relations "
         'at vehicles<br>how many vehicle relations are kept "on the way" instead of being absorbed into a stay'
     ),
@@ -369,13 +380,13 @@ METRIC_EXPLANATIONS: dict[str, str] = {
     "mean_duration": "mean visit duration d(ν) = time(exit event) - time(entry event)",
     "median_duration": "median visit duration d(ν) = time(exit event) - time(entry event)",
     "p_conf": (
-        "relations conforming in their visit, Σ_ν |R_hl(ν)| / |E2HU|, i.e. 1 - p_nc<br>"
+        "relations conforming in their visit, Σ_ν |R_hl(ν)| / |E2HU|, i.e. 1 - p<sup>r</sup><sub>nc</sub><br>"
         "events agreeing on the high-level location"
     ),
 }
 
-#: Metrics shown for the whole set, and per trace, by default (N_triv; pass keys with
-#: "n_trivial_without_processing" to show N_triv^np instead).
+#: Metrics shown for the whole set, and per trace, by default (N^ν_triv; pass keys with
+#: "n_trivial_without_processing" to show N^ν_{triv,np} instead).
 LEGEND_METRICS = (
     "n_visits",
     "p_proc",
@@ -384,7 +395,7 @@ LEGEND_METRICS = (
     "n_vehicle_visits",
     "n_transferring_visits",
     "p_conn",
-    "p_vr",
+    "p_vehicle_relations",
     "mean_relations",
     "mean_duration",
     "p_conf",
@@ -420,7 +431,7 @@ def metric_lines(
         keys: Metrics to show, keys of `METRIC_LABELS`.
 
     Returns:
-        list[tuple[str, str]]: e.g. [("N_vis = 16", "number of visits, ..."), ("p_proc = 13/13", ...), ...].
+        list[tuple[str, str]]: e.g. [("N<sup>ν</sup> = 16", "number of visits, ..."), ("p<sup>r</sup><sub>proc</sub> = 13/13", ...), ...].
     """
     row = pooled.row(0, named=True)
     return [(_format_value(row, key), METRIC_EXPLANATIONS[key]) for key in keys]
@@ -437,7 +448,7 @@ def trace_metric_lines(
         keys: Metrics to show, keys of `METRIC_LABELS`.
 
     Returns:
-        dict[str, list[tuple[str, str]]]: hu -> e.g. [("N_vis = 3", "number of visits, ..."), ...].
+        dict[str, list[tuple[str, str]]]: hu -> e.g. [("N<sup>ν</sup> = 3", "number of visits, ..."), ...].
     """
     return {
         row[c.HU]: [(_format_value(row, key), METRIC_EXPLANATIONS[key]) for key in keys]

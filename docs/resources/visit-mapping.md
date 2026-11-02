@@ -1,7 +1,7 @@
 # Visit mapping sets
 
 Status: implemented in the backend package and demoed in `notebooks/visit_mapping.ipynb`; not used by any page yet.
-Concept: `overview/concepts/Visit Mappings.md` (outside this repo; relative metrics are written $p_x$, positions in the sweep $i$), sections on mapping sets, the strategies S1 to S6 and "Evaluating mapping sets"; reasoning in the working note `claude_notes/visit-mapping-sets.md`, sections 3 to 7 (there the lexicographic strategy is called S7).
+Concept: `overview/concepts/Visit Mappings.md` (outside this repo; metrics are written $N$ for counts and $p$ for shares, with the counted entity as superscript ($\nu$ visits, $r$ relations, $hu$ handling units) and the description as subscript, e.g. $N^{\nu}_{triv,np}$, $p^{r}_{veh}$; positions in the sweep $i$), sections on mapping sets, the strategies S1 to S6 and "Evaluating mapping sets"; reasoning in the working note `claude_notes/visit-mapping-sets.md`, sections 3 to 7 (there the lexicographic strategy is called S7).
 Code: `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/visit_mapping/` (paths below are relative to it).
 Tests: `backend-modules/location-ocpm/tests/test_visit_mapping.py` (extended running example and extra traces, `data/mapping_example/`).
 Input: the maximal visits (`docs/resources/visits.md`).
@@ -69,17 +69,17 @@ Ties: the segmentation whose first visit is longest, then the next (S1-like, "lo
 
 | metric | column(s) | definition |
 |---|---|---|
-| $N_{vis}$ | n_visits | number of visits |
-| $p_{proc}$ | n_conforming_processing / n_located_processing | processing relations at their visit's $hl$ / located processing relations |
-| $N_{loop}$ | n_loops | stays whose $hl$ occurred in an earlier stay, with the previous stay elsewhere (vehicle and transferring visits ignored, so A, T, A is no loop) |
-| $N_{triv}$ | n_trivial | visits with one relation; by default not connecting ones |
-| $N_{triv}^{np}$ | n_trivial_without_processing | trivial visits without a processing operation at their $hl$ |
-| $N_{veh}$, $N_{trans}$ | n_vehicle_visits, n_transferring_visits | |
-| $p_{conn}$ | n_connecting / ($N_{veh} + N_{trans}$) | vehicle or transferring visits $\nu_j$ ($1 < j < r$) whose neighbours are stays at different $hl$ |
-| $p_{vr}$ | n_vehicle_relations_on_the_way / n_vehicle_relations | relations at vehicles ($loc \in V$) in a vehicle or transferring visit / all relations at vehicles (Nina, 2026-11-02): how many vehicle relations are kept "on the way" instead of being absorbed into a stay |
+| $N^{\nu}$ | n_visits | number of visits |
+| $p^{r}_{proc}$ | n_conforming_processing / n_located_processing | processing relations at their visit's $hl$ / located processing relations |
+| $N^{\nu}_{loop}$ | n_loops | stays whose $hl$ occurred in an earlier stay, with the previous stay elsewhere (vehicle and transferring visits ignored, so A, T, A is no loop) |
+| $N^{\nu}_{triv}$ | n_trivial | visits with one relation; by default not connecting ones |
+| $N^{\nu}_{triv,np}$ | n_trivial_without_processing | trivial visits without a processing operation at their $hl$ |
+| $N^{\nu}_{veh}$, $N^{\nu}_{trans}$ | n_vehicle_visits, n_transferring_visits | |
+| $p^{\nu}_{conn}$ | n_connecting / ($N^{\nu}_{veh} + N^{\nu}_{trans}$) | vehicle or transferring visits $\nu_j$ ($1 < j < r$) whose neighbours are stays at different $hl$ |
+| $p^{r}_{veh}$ | n_vehicle_relations_on_the_way / n_vehicle_relations | relations at vehicles ($loc \in V$) in a vehicle or transferring visit / all relations at vehicles (Nina, 2026-11-02): how many vehicle relations are kept "on the way" instead of being absorbed into a stay |
 | relations per visit | mean_relations, median_relations | |
 | duration | mean_duration, median_duration | |
-| $p_{conf}$ | n_conforming / n_relations | relations at their visit's $hl$ |
+| $p^{r}_{conf}$ | n_conforming / n_relations | relations at their visit's $hl$ |
 
 Complexity: the sweep is linear per trace; the dynamic programme tries all ends inside $m(i)$ for every start $i$, each segment counted in linear time (straightforward version, Nina's rule: modular first; with prefix sums it becomes linear). Both loop over the traces in Python; the metrics are polars expressions.
 
@@ -89,9 +89,9 @@ Decisions taken in the implementation:
 - Names follow the concept: S6 is `domain_knowledge(storage_tie_break=True)` ("integrating domain knowledge"); the kinds of visits (stay, vehicle, transferring, ⊥) and trivial come from `visits.properties` and are the same for every visit set.
 - The visits table of a mapping set is built by `visits.maximal.visit_table`, the same function as for the maximal visits; the metrics use `visits.properties.visit_properties`.
 - S6: the storage tie-break is on by default (Nina, 2026-11-02): it picks (A e26) (B e31–e34) for b7 (Nina was indifferent) and A, B, B, B, B, B for x2 (her lean); `storage_tie_break=False` gives the longer visit (b7: (A e26–e33) (B e34); x2: A, A, A, A, A, B).
-- Trivial: one relation ($|\sigma| = 1$, concept note, "Properties"), connecting visits excluded by default (Nina, 2026-11-02, `trivial_excludes_connecting`). Nina, 2026-11-02: both are reported, $N_{triv}$ ($|\sigma| = 1$, not connecting) and $N_{triv}^{np}$ (additionally no processing operation at its $hl$); the figure shows $N_{triv}$ by default and $N_{triv}^{np}$ if its key is passed to `metric_lines` / `trace_metric_lines`. Running example with the defaults (S6 with the storage tie-break), $N_{triv}$ / $N_{triv}^{np}$: S1 3/3, S2 22/18, S3 21/17, S4 4/2, S5 3/3, S6 2/1.
+- Trivial: one relation ($|\sigma| = 1$, concept note, "Properties"), connecting visits excluded by default (Nina, 2026-11-02, `trivial_excludes_connecting`). Nina, 2026-11-02: both are reported, $N^{\nu}_{triv}$ ($|\sigma| = 1$, not connecting) and $N^{\nu}_{triv,np}$ (additionally no processing operation at its $hl$); the figure shows $N^{\nu}_{triv}$ by default and $N^{\nu}_{triv,np}$ if its key is passed to `metric_lines` / `trace_metric_lines`. Running example with the defaults (S6 with the storage tie-break), $N^{\nu}_{triv}$ / $N^{\nu}_{triv,np}$: S1 3/3, S2 22/18, S3 21/17, S4 4/2, S5 3/3, S6 2/1.
 - ⊥ relations do not make a visit a transferring visit (they are not located); a ⊥ visit is its own kind and never infeasible.
-- $p_{proc}$ counts processing relations only at $hl \in HL$ (⊥ visits have none).
+- $p^{r}_{proc}$ counts processing relations only at $hl \in HL$ (⊥ visits have none).
 - Durations of criteria are in hours (`duration_sq`); for weighted strategies the weights have to take this unit into account.
 
 ## 3. Example
@@ -99,8 +99,8 @@ Decisions taken in the implementation:
 Extended running example (`data/mapping_example/`, κ = 3, $V = \{T\}$, $W = \{B1\}$, $P = \{e1, e3, e4, e15, e22, e26, e35\}$):
 - S6 hits all of Nina's targets: b1 (A e3–e11) (T e13–e14); b2 (A e3–e11) (B e12–e15); b4 (B e15–e21); s2 (A e22–e26); b6 (A e26–e30); b7 (A e26) (B e31–e34); b8 (A e35–e37) (T e38) (B e39–e41).
 - S1 (= S5 with λ = 0.5) misses only b8: (A e35–e40) (B e41); S4 misses b1 ((A e3–e5) (B e7) (T e8–e14)) and b8 ((A e35) (B e36–e41)); S3 hits only b2; S2 none.
-- Metrics (Nina's concept note, "Evaluating mapping sets"; S6 without the storage tie-break, connecting visits counted as trivial, trivial = $N_{triv}^{np}$): S1 15 visits, $p_{proc}$ 13/13, 0 loops, 3 trivial, 2/0 vehicle/transferring visits, $p_{conn}$ 0/2, 3.6/3 relations per visit, 4/4 h, $p_{conf}$ 39/54; S6 16, 13/13, 0, 3, 3/0, 1/3, 3.38/3, 3.75/3 h, 40/54; S2 39, 13/13, 12, 24, 9/0, 6/9, 1.38/1, 1.54/1 h, 54/54.
-- $p_{vr}$ (vehicle relations kept on the way, of 10): S1 3, S2 10, S3 9, S4 4, S5 3, S6 4 (with or without the storage tie-break; b7's e32 is absorbed into a stay either way).
+- Metrics (Nina's concept note, "Evaluating mapping sets"; S6 without the storage tie-break, connecting visits counted as trivial, trivial = $N^{\nu}_{triv,np}$): S1 15 visits, $p^{r}_{proc}$ 13/13, 0 loops, 3 trivial, 2/0 vehicle/transferring visits, $p^{\nu}_{conn}$ 0/2, 3.6/3 relations per visit, 4/4 h, $p^{r}_{conf}$ 39/54; S6 16, 13/13, 0, 3, 3/0, 1/3, 3.38/3, 3.75/3 h, 40/54; S2 39, 13/13, 12, 24, 9/0, 6/9, 1.38/1, 1.54/1 h, 54/54.
+- $p^{r}_{veh}$ (vehicle relations kept on the way, of 10): S1 3, S2 10, S3 9, S4 4, S5 3, S6 4 (with or without the storage tie-break; b7's e32 is absorbed into a stay either way).
 - Extra traces with S6: x1 A T B T A, x2 A B B B B B, x3 A A A T B B, x4 A A A B B, x5 A A A A T B, y1 A A A B B, y2 A B B B, y3 A A A A A B, y4 A B B B B B, y5 (A g22–g26) (T g27) (B g28); all as Nina resolved them.
 
 ## 4. Filtering
@@ -113,7 +113,7 @@ Parameters of `derive_mapping_set`:
 - `strategy` (default `"S6"`): `"S1"` to `"S6"` (`"S7"` = `"S6"`), a rule (a function `SweepStep -> bool`), or a `GlobalStrategy` (`lexicographic`, `weighted`, `cost_optimal(lam)`, `domain_knowledge(storage_tie_break)`).
 - `kappa`, `agg`, `vehicles`, `processing`, `ignore_vehicles`: as for the maximal visits.
 - `storage_units` ($W$): only for the storage tie-break of S6.
-- `trivial_excludes_connecting` (default `True`): connecting visits are never trivial (both $N_{triv}$ and $N_{triv}^{np}$).
+- `trivial_excludes_connecting` (default `True`): connecting visits are never trivial (both $N^{\nu}_{triv}$ and $N^{\nu}_{triv,np}$).
 
 `mapping_metrics(relations, mapping, vehicles, processing, location, handling_units, ...)` takes any mapping (with first/last position or first/last event) for one or several handling units.
 

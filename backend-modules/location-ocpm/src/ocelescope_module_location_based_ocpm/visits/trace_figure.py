@@ -15,6 +15,7 @@ The figure is built in small steps, each a function of its own:
 `relations_for_figure` runs steps 1 to 3 (including 2b) on a relations frame (a saved location mapping or `Derivation.relations`).
 """
 
+import re
 from collections.abc import Collection, Mapping, Sequence
 from datetime import timedelta
 from typing import Literal
@@ -499,6 +500,11 @@ def _metric_text(line: str | tuple[str, str]) -> str:
     return line if isinstance(line, str) else line[0]
 
 
+def _visible_length(text: str) -> int:
+    """Number of shown characters of a text with HTML tags (e.g. N<sup>ν</sup><sub>triv</sub>: 6)."""
+    return len(re.sub(r"<[^>]+>", "", text))
+
+
 def _metric_annotation(
     line: str | tuple[str, str],
     x,
@@ -645,7 +651,11 @@ def trace_figure(
     if trace_metrics:
         # Room for the texts right of the traces: extend the axis so that the widest text fits.
         text_px = (
-            max(len(_metric_text(m)) for ms in trace_metrics.values() for m in ms)
+            max(
+                _visible_length(_metric_text(m))
+                for ms in trace_metrics.values()
+                for m in ms
+            )
             * METRIC_CHAR_PX
         )
         text_px += LABEL_PADDING_PX

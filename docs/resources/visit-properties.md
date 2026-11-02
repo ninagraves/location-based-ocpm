@@ -18,7 +18,7 @@ Per visit:
 Per pair of visits: "contained in" or "overlaps", with the number of shared relations.
 Per excursion: its first and last event and position, its length and its excursion locations.
 Per handling unit: whether its visit set is **disjoint**, **hl-disjoint**, **covering**.
-For the whole set (and per handling unit): $N$, $p_{cov}$, $N_{int}$ / $p_{int}$, $N_{con}$, $N_{ov}$, $N_{dis}$ / $p_{dis}$, $N_{>1}$ / $p_{>1}$, $N_{nc}$ / $p_{nc}$, $p_{\Vert}$.
+For the whole set (and per handling unit): $N^{\nu}$, $p^{r}_{cov}$, $N^{\nu}_{int}$ / $p^{\nu}_{int}$, $N^{\nu}_{con}$, $N^{\nu}_{ov}$, $N^{hu}_{dis}$ / $p^{hu}_{dis}$, $N^{r}_{>1}$ / $p^{r}_{>1}$, $N^{r}_{nc}$ / $p^{r}_{nc}$, $p^{r}_{\Vert}$.
 Flag: **RQ4** violations, relations of a handling unit with the same timestamp at different (high-level) locations.
 
 ## 2. How it is calculated
@@ -54,15 +54,15 @@ Decisions taken in the implementation:
 - Identical intervals (only possible in a hand-written set with two rows for the same visit) are contained in each other.
 - An excursion must lie strictly inside the visit (as in the note); for maximal visits and mapping sets the first and last relation are at $hl$ anyway.
 - Excursion locations write ⊥ as "⊥".
-- $N_{dis}$ / $p_{dis}$: $|HU|$ = all handling units of the relations; a handling unit without visits counts as not disjoint.
+- $N^{hu}_{dis}$ / $p^{hu}_{dis}$: $|HU|$ = all handling units of the relations; a handling unit without visits counts as not disjoint.
 - RQ4 compares high_level by default (the note: "theoretically sufficient"); `column="loc"` checks the stricter version. Null (⊥) counts as a value, so a tie between a located and an unlocated relation is a violation.
 
 ## 3. Example
 
-Running example of the note ($\vts = \vmax$, $\kappa_{max} = 3$): $N = 24$, $p_{cov} = 1$, $N_{int} = 12$ ($p_{int} = 1/2$), $N_{con} = 9$, $N_{ov} = 6$, $HU_{dis} = \{s1, b3, b5\}$ ($p_{dis} = 3/10$), $N_{>1} = N_{nc} = 21$, $p_{\Vert} = 11/54$; all reproduced by the tests.
+Running example of the note ($\vts = \vmax$, $\kappa_{max} = 3$): $N^{\nu} = 24$, $p^{r}_{cov} = 1$, $N^{\nu}_{int} = 12$ ($p^{\nu}_{int} = 1/2$), $N^{\nu}_{con} = 9$, $N^{\nu}_{ov} = 6$, $HU_{dis} = \{s1, b3, b5\}$ ($p^{hu}_{dis} = 3/10$), $N^{r}_{>1} = N^{r}_{nc} = 21$, $p^{r}_{\Vert} = 11/54$; all reproduced by the tests.
 Pairs: $m_3 \sqsubseteq m_2$, $m_2 \Vert m_4$, $m_{18} \sqsubseteq m_{17} \sqsubseteq m_{16}$.
 Excursions: $m_2$ ⟨e7, e8⟩ with locations {B, T}; $m_{16}$ ⟨e27, e28, e29⟩ of length 3 with {B, T}; $m_{10}$ two excursions ⟨e18⟩ and ⟨e20⟩.
-The S6 mapping set has $N = 16$, is disjoint and covering for every handling unit ($p_{dis} = 1$, $N_{>1} = 0$).
+The S6 mapping set has $N^{\nu} = 16$, is disjoint and covering for every handling unit ($p^{hu}_{dis} = 1$, $N^{r}_{>1} = 0$).
 
 ## 4. Filtering
 

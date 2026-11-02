@@ -16,7 +16,8 @@ Per visit (`visit_properties`):
   relative to the visit set itself (`visit_pairs`).
 
 Per handling unit and for the whole set (`set_properties`, `set_metrics`): disjoint, hl-disjoint, covering,
-and N, p_cov, N_int / p_int, N_con, N_ov, N_dis / p_dis, N_>1 / p_>1, N_nc / p_nc, p_∥.
+and N^ν, p^r_cov, N^ν_int / p^ν_int, N^ν_con, N^ν_ov, N^hu_dis / p^hu_dis, N^r_>1 / p^r_>1, N^r_nc / p^r_nc,
+p^r_∥ (N counts, p shares; superscript = counted entity: ν visits, r relations, hu handling units).
 """
 
 from collections.abc import Collection
@@ -408,15 +409,15 @@ def set_metrics(
 
     | metric | column | definition |
     |---|---|---|
-    | N | n_visits | number of visits |
-    | p_cov | n_covered / n_relations, p_cov | relations in some visit / all relations E2HU |
-    | N_int, p_int | n_interrupted, p_int | interrupted visits, / N |
-    | N_con | n_contained | visits contained in another visit |
-    | N_ov | n_overlapping | visits overlapping another visit |
-    | N_dis, p_dis | n_disjoint_hus / n_hus, p_dis | handling units whose visits are disjoint, / all hus of the relations |
-    | N_>1, p_>1 | n_in_several_visits, p_several | relations in more than one visit, / all relations |
-    | N_nc, p_nc | n_nonconforming, p_nc | relations non-conforming in at least one visit, / all relations |
-    | p_∥ | n_overlapping_relations, p_overlap | relations shared by two overlapping visits, / all relations |
+    | N^ν | n_visits | number of visits |
+    | p^r_cov | n_covered / n_relations, p_cov | relations in some visit / all relations E2HU |
+    | N^ν_int, p^ν_int | n_interrupted, p_int | interrupted visits, / N^ν |
+    | N^ν_con | n_contained | visits contained in another visit |
+    | N^ν_ov | n_overlapping | visits overlapping another visit |
+    | N^hu_dis, p^hu_dis | n_disjoint_hus / n_hus, p_dis | handling units whose visits are disjoint, / all hus of the relations |
+    | N^r_>1, p^r_>1 | n_in_several_visits, p_several | relations in more than one visit, / all relations |
+    | N^r_nc, p^r_nc | n_nonconforming, p_nc | relations non-conforming in at least one visit, / all relations |
+    | p^r_∥ | n_overlapping_relations, p_overlap | relations shared by two overlapping visits, / all relations |
 
     Args:
         visits: The visit set (visit_id, hu, first_position, last_position, n_relations, n_at_location).
