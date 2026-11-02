@@ -24,7 +24,14 @@ HERE = Path(__file__).parent
 START = datetime(2026, 1, 1, 0, 0)
 
 #: Object id -> object type.
-OBJECTS = {"s1": "slab", "c1": "coil", "c2": "coil", "c3": "coil", "c4": "coil", "c5": "coil"}
+OBJECTS = {
+    "s1": "slab",
+    "c1": "coil",
+    "c2": "coil",
+    "c3": "coil",
+    "c4": "coil",
+    "c5": "coil",
+}
 
 #: Event id -> (time, activity, target location (uloc), pickup location (puloc)); None = not provided.
 EVENTS = {
@@ -69,7 +76,7 @@ RELATIONS = {
 }
 
 #: E2O qualifiers at transformation events (all other relations get "handled").
-#: Data only: the concept does not use consumed/produced yet.
+#: Also written to inputs/transformation_roles.csv (used by the object timeline).
 QUALIFIERS = {
     ("e1", "s1"): "produced",
     ("e3", "s1"): "consumed",
@@ -79,9 +86,20 @@ QUALIFIERS = {
     ("e15", "c4"): "produced",
 }
 
+#: Location context (draft for the visit concept; input format not decided yet):
+#: location -> (high-level location agg(l) or None = not mapped (identity), vehicle (l ∈ V), storage unit (l ∈ W)).
+LOCATIONS = {
+    "A1": ("A", False, False),
+    "A2": ("A", False, False),
+    "B1": ("B", False, True),
+    "T": (None, True, False),
+}
+
 #: Movement events M and transformation events T, by activity.
 MOVEMENT_ACTIVITIES = ["crane move", "load truck", "unload truck"]
 TRANSFORMATION_ACTIVITIES = ["cast slab", "roll", "cut"]
+#: Processing operations P, by activity (object timeline and trace figure; input format not decided yet).
+PROCESSING_ACTIVITIES = ["cast slab", "roll", "label", "cut"]
 
 
 def event_group(activity: str) -> str:
@@ -123,7 +141,9 @@ def build_frames() -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
         ],
         schema_overrides={"to_loc": pl.String, "from_loc": pl.String},
     )
-    objects = pl.DataFrame({"ocel:oid": list(OBJECTS), "ocel:type": list(OBJECTS.values())})
+    objects = pl.DataFrame(
+        {"ocel:oid": list(OBJECTS), "ocel:type": list(OBJECTS.values())}
+    )
     relations = pl.DataFrame(
         [
             {
@@ -145,20 +165,54 @@ def build_input_tables() -> dict[str, pl.DataFrame]:
 
     Returns:
         dict[str, pl.DataFrame]: File name (without `.csv`) -> table: handling units,
-        movement events, transformation events, target locations, pickup locations.
+        movement events, transformation events, target locations, pickup locations, and the
+        processing operations P, consumed/produced roles at the transformation events (columns event,
+        hu, role), and the location context (columns location, high_level, is_vehicle, is_storage; draft).
     """
-    rows = [(eid, activity, uloc, puloc) for eid, (_, activity, uloc, puloc) in EVENTS.items()]
+    rows = [
+        (eid, activity, uloc, puloc)
+        for eid, (_, activity, uloc, puloc) in EVENTS.items()
+    ]
     return {
         "handling_units": pl.DataFrame({"object": list(OBJECTS)}),
-        "movement_events": pl.DataFrame({"event": [e for e, a, _, _ in rows if a in MOVEMENT_ACTIVITIES]}),
+        "movement_events": pl.DataFrame(
+            {"event": [e for e, a, _, _ in rows if a in MOVEMENT_ACTIVITIES]}
+        ),
         "transformation_events": pl.DataFrame(
             {"event": [e for e, a, _, _ in rows if a in TRANSFORMATION_ACTIVITIES]}
         ),
         "target_locations": pl.DataFrame(
-            {"event": [e for e, _, u, _ in rows if u], "location": [u for _, _, u, _ in rows if u]}
+            {
+                "event": [e for e, _, u, _ in rows if u],
+                "location": [u for _, _, u, _ in rows if u],
+            }
         ),
         "pickup_locations": pl.DataFrame(
-            {"event": [e for e, _, _, p in rows if p], "location": [p for _, _, _, p in rows if p]}
+            {
+                "event": [e for e, _, _, p in rows if p],
+                "location": [p for _, _, _, p in rows if p],
+            }
+        ),
+        "processing_events": pl.DataFrame(
+            {"event": [e for e, a, _, _ in rows if a in PROCESSING_ACTIVITIES]}
+        ),
+        "transformation_roles": pl.DataFrame(
+            [(e, hu, role) for (e, hu), role in QUALIFIERS.items()],
+            schema=["event", "hu", "role"],
+            orient="row",
+        ),
+        "locations": pl.DataFrame(
+            [
+                (loc, high, vehicle, storage)
+                for loc, (high, vehicle, storage) in LOCATIONS.items()
+            ],
+            schema={
+                "location": pl.String,
+                "high_level": pl.String,
+                "is_vehicle": pl.Boolean,
+                "is_storage": pl.Boolean,
+            },
+            orient="row",
         ),
     }
 
@@ -168,7 +222,9 @@ def main() -> None:
     events, objects, relations = build_frames()
     log_path = HERE / "running_example.sqlite"
     log_path.unlink(missing_ok=True)
-    OCEL.from_frames(events=events, objects=objects, relations=relations).write(log_path)
+    OCEL.from_frames(events=events, objects=objects, relations=relations).write(
+        log_path
+    )
     (HERE / "inputs").mkdir(exist_ok=True)
     for name, table in build_input_tables().items():
         table.write_csv(HERE / "inputs" / f"{name}.csv")

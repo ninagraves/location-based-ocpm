@@ -152,10 +152,10 @@ def event_segments(events: pl.DataFrame) -> list[Segment]:
 
 
 def first_levels(relations: pl.DataFrame) -> pl.Series:
-    """Lowest level k with loc_k ≠ ⊥ per relation, as text ("0" to "3", "⊥" if none).
+    """Lowest level k with loc^k ≠ ⊥ per relation, as text ("0" to "3", "⊥" if none).
 
     Args:
-        relations: Relations frame with the columns loc_0 to loc_3.
+        relations: Relations frame with the columns loc^0 to loc^3.
 
     Returns:
         pl.Series: Named "first_level", one value per relation.

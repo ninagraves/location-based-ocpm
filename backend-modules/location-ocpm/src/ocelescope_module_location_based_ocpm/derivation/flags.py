@@ -1,6 +1,6 @@
 """Flags F1-F5 (`overview/Deriving Locations.md`, section "Flags (whole log)").
 
-All flags use the selected level k: loc = loc_k, ploc = ploc_k, before = before_{loc_k}.
+All flags use the selected level k: loc = loc^k, ploc = ploc^k, before = before_{loc^k}.
 They are always computed on the whole log (never filtered).
 """
 
@@ -10,15 +10,15 @@ from . import columns as c
 
 
 def at_target(level: int) -> pl.Expr:
-    """True where the handling unit was already at the target: ploc_k((e, hu)) = uloc(e).
+    """True where the handling unit was already at the target: ploc^k((e, hu)) = uloc(e).
 
-    ⊥ counts as a change: if ploc_k or uloc is ⊥, the expression is False.
+    ⊥ counts as a change: if ploc^k or uloc is ⊥, the expression is False.
 
     Args:
         level: Selected level k.
 
     Returns:
-        pl.Expr: Boolean expression on a relations frame with columns uloc and ploc_k.
+        pl.Expr: Boolean expression on a relations frame with columns uloc and ploc^k.
     """
     return (pl.col(c.ploc(level)) == pl.col(c.ULOC)).fill_null(False)
 
@@ -27,7 +27,7 @@ def f1_partial_movement(relations: pl.DataFrame, level: int) -> pl.Series:
     """F1: movement events at which at least one handling unit was already at the target.
 
     Args:
-        relations: Relations frame with columns event, is_movement, uloc, ploc_k.
+        relations: Relations frame with columns event, is_movement, uloc, ploc^k.
         level: Selected level k.
 
     Returns:
@@ -65,7 +65,7 @@ def f3_mixed_pickup(relations: pl.DataFrame, level: int) -> pl.Series:
     events with a provided pickup location are never flagged.
 
     Args:
-        relations: Relations frame with columns event, is_movement, uloc, puloc, ploc_k.
+        relations: Relations frame with columns event, is_movement, uloc, puloc, ploc^k.
         level: Selected level k.
 
     Returns:
@@ -82,10 +82,10 @@ def f3_mixed_pickup(relations: pl.DataFrame, level: int) -> pl.Series:
 
 def f4_location_gaps(relations: pl.DataFrame, level: int) -> pl.DataFrame:
     """F4 gaps: hu-event relations where the provided pickup location differs from the handling
-    unit's last known location before_{loc_k} (a first known location, ⊥, is not a gap).
+    unit's last known location before_{loc^k} (a first known location, ⊥, is not a gap).
 
     Args:
-        relations: Relations frame with columns hu, event, puloc, before_k.
+        relations: Relations frame with columns hu, event, puloc, before^k.
         level: Selected level k.
 
     Returns:
@@ -103,7 +103,7 @@ def f4_location_gap(relations: pl.DataFrame, level: int) -> pl.Series:
     """F4: handling units with at least one location gap (see `f4_location_gaps`).
 
     Args:
-        relations: Relations frame with columns hu, event, puloc, before_k.
+        relations: Relations frame with columns hu, event, puloc, before^k.
         level: Selected level k.
 
     Returns:
@@ -116,11 +116,11 @@ def f5_movement_disagreement(relations: pl.DataFrame, level: int) -> pl.DataFram
     """F5: events whose movement classification disagrees with the locations.
 
     (a) location change without movement: e ∈ dom(uloc) \\ M where some handling unit's
-        before_{loc_k} is neither ⊥ nor uloc(e);
-    (b) movement without location change: e ∈ M where every handling unit has ploc_k = uloc(e).
+        before_{loc^k} is neither ⊥ nor uloc(e);
+    (b) movement without location change: e ∈ M where every handling unit has ploc^k = uloc(e).
 
     Args:
-        relations: Relations frame with columns event, is_movement, uloc, before_k, ploc_k.
+        relations: Relations frame with columns event, is_movement, uloc, before^k, ploc^k.
         level: Selected level k.
 
     Returns:

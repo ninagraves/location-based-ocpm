@@ -28,3 +28,8 @@ Tests live in `backend-modules/location-ocpm/tests/` and compare the derivation 
 Demo notebooks live in `notebooks/` and import the package from the workspace `.venv`; `ipykernel` is in the `dev` group, so `uv sync` makes `.venv` usable as a Jupyter kernel.
 - PyCharm: set `.venv/bin/python` as the project interpreter (Settings → Project → Python Interpreter → Add Interpreter → Local → existing environment), open the notebook and run it with that interpreter.
 - Browser: `uv run --with jupyter jupyter lab notebooks/<name>.ipynb` from the repository root.
+
+Notebook outputs are never committed: `.gitattributes` runs the `nbstripout` filter (dev group) on `*.ipynb`, which removes outputs, execution counts and `metadata.language_info` and keeps cell ids (settings in `[tool.nbstripout]` in `pyproject.toml`).
+Install the filter once per clone: `uv run nbstripout --install` (it writes the filter command into `.git/config`; without it, git ignores the filter).
+After running a notebook, `git status` may still list it as modified although `git diff` is empty (git has not yet re-checked the file); `git add <notebook>` clears that.
+If a pull refuses because of a notebook with only outputs, discard them with `git restore notebooks/<name>.ipynb` and pull again.

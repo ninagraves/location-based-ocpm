@@ -64,7 +64,7 @@ export const KeyNumbers = ({ ocelId }: { ocelId: string }) => {
         label="Relations with a known location"
         value={`${num(data.located_relations)} of ${num(data.relations)}`}
         filtered={f && `${num(f.located_relations)} of ${num(f.relations)}`}
-        sub={`${pct(data.located_relations / data.relations)} · loc at Level ${data.level}`}
+        sub={pct(data.located_relations / data.relations)}
       />
       <Tile
         label="Movement events"
