@@ -20,6 +20,11 @@ hu handling units), the description as subscript.
 | relations per visit | mean_relations, median_relations | |
 | duration | mean_duration, median_duration | d = time(exit event) - time(first event) |
 | p^r_conf | n_conforming, n_relations, p_conf | relations at their visit's hl / all relations |
+| p^e_agr | n_agreeing, n_events, p_agr | events agreeing under the visit mapping vl_V / all events (also per hu: its events) |
+| N^e_agr,lost, N^e_agr,gain | n_agr_lost, n_agr_gain | events agreeing under \\hat{hl} but not under vl_V, and vice versa (pooled only; `visits.visit_location`) |
+
+The direction in which each metric is better (↑, ↓, or – for descriptive ones) is `METRIC_DIRECTIONS`; it is
+shown in the hovers of the trace figure.
 
 All steps are polars expressions (no loop over rows); the frames can be eager or lazy until `collect`.
 """
@@ -48,6 +53,11 @@ from ..visits.properties import (
 )
 from ..visits.sequence import add_positions
 from ..visits.shifts import add_stops
+from ..visits.visit_location import (
+    AGREEMENT_METRIC_COLUMNS,
+    agreement_changes,
+    agreement_metrics,
+)
 
 #: Columns of the per-visit metrics.
 SEQUENCE_INDEX = "j"
@@ -57,8 +67,8 @@ IS_CONNECTING = "is_connecting"
 IS_TRIVIAL = "is_trivial"
 IS_TRIVIAL_WITHOUT_PROCESSING = "is_trivial_without_processing"
 
-#: Columns of the summaries (per handling unit and pooled).
-SUMMARY_COLUMNS = [
+#: Columns of the summaries computed from the per-visit metrics (`summarise`).
+VISIT_SUMMARY_COLUMNS = [
     "n_visits",
     "n_stays",
     "n_conforming_processing",
@@ -82,6 +92,9 @@ SUMMARY_COLUMNS = [
     "n_relations",
     "p_conf",
 ]
+#: Columns of the summaries (per handling unit and pooled): the visit summaries and the agreement metrics
+#: (n_agr_lost and n_agr_gain are null per handling unit).
+SUMMARY_COLUMNS = [*VISIT_SUMMARY_COLUMNS, *AGREEMENT_METRIC_COLUMNS]
 
 
 @dataclass
@@ -93,11 +106,15 @@ class MappingMetrics:
             n_relations, n_at_location, n_conforming_processing, n_vehicle_relations (loc ∈ V), duration, is_loop, is_connecting, is_trivial.
         per_hu: One row per handling unit with `SUMMARY_COLUMNS`.
         pooled: One row with `SUMMARY_COLUMNS`, pooled over the handling units.
+        events: One row per event: agreement under \\hat{hl} and under vl_V and its change ("lost", "gained",
+            null; `visits.visit_location.agreement_changes`); None if the set is not disjoint and covering
+            (then the agreement metrics are null).
     """
 
     visits: pl.DataFrame
     per_hu: pl.DataFrame
     pooled: pl.DataFrame
+    events: pl.DataFrame | None = None
 
 
 def visit_metrics(
@@ -271,7 +288,47 @@ def summarise(
             "p_vehicle_relations"
         ),
     )
-    return out.select(*by, *SUMMARY_COLUMNS)
+    return out.select(*by, *VISIT_SUMMARY_COLUMNS)
+
+
+def agreement_summaries(
+    relations: pl.DataFrame, mapping: pl.DataFrame
+) -> tuple[pl.DataFrame | None, pl.DataFrame, pl.DataFrame]:
+    """Agreement under vl_V, pooled and per handling unit (`visits.visit_location`).
+
+    Args:
+        relations: Relations with hu, event, position, high_level.
+        mapping: The visits with first/last position.
+
+    Returns:
+        tuple: (events, per_hu, pooled): `agreement_changes` (None if the set is not disjoint and covering),
+        one row per hu with `AGREEMENT_METRIC_COLUMNS` (p^e_agr over the events of the hu, lost/gain null),
+        one row with `AGREEMENT_METRIC_COLUMNS`. All metrics are null if the set is not disjoint and covering.
+    """
+    hus = relations.select(c.HU).unique()
+    try:
+        changes = agreement_changes(relations, mapping)
+    except ValueError:
+        nulls = [
+            pl.lit(None, pl.Float64 if col == "p_agr" else pl.Int64).alias(col)
+            for col in AGREEMENT_METRIC_COLUMNS
+        ]
+        return None, hus.with_columns(nulls), pl.select(nulls)
+    per_hu = (
+        relations.select(c.HU, c.EVENT)
+        .unique()
+        .join(changes, on=c.EVENT)
+        .group_by(c.HU)
+        .map_groups(
+            lambda g: agreement_metrics(g).with_columns(
+                pl.lit(g[c.HU][0]).alias(c.HU),
+                pl.lit(None, pl.Int64).alias("n_agr_lost"),
+                pl.lit(None, pl.Int64).alias("n_agr_gain"),
+            )
+        )
+        .select(c.HU, *AGREEMENT_METRIC_COLUMNS)
+    )
+    return changes, per_hu, agreement_metrics(changes)
 
 
 def mapping_metrics(
@@ -310,9 +367,12 @@ def mapping_metrics(
         relations, mapping, vehicles, processing, location, trivial_excludes_connecting
     )
     located = located_processing(relations, processing)
-    return MappingMetrics(
-        visits, summarise(visits, located, [c.HU]), summarise(visits, located, [])
+    events, agr_per_hu, agr_pooled = agreement_summaries(
+        relations, with_positions(mapping, relations)
     )
+    per_hu = summarise(visits, located, [c.HU]).join(agr_per_hu, on=c.HU, how="left")
+    pooled = pl.concat([summarise(visits, located, []), agr_pooled], how="horizontal")
+    return MappingMetrics(visits, per_hu.select(c.HU, *SUMMARY_COLUMNS), pooled, events)
 
 
 #: How each summary metric is shown in a figure: label, and for shares the numerator and denominator columns.
@@ -338,6 +398,38 @@ METRIC_LABELS: dict[str, tuple[str, tuple[str, str] | None]] = {
     "mean_duration": ("mean d", None),
     "median_duration": ("median d", None),
     "p_conf": ("p<sup>r</sup><sub>conf</sub>", ("n_conforming", "n_relations")),
+    "p_agr": ("p<sup>e</sup><sub>agr</sub>", ("n_agreeing", "n_events")),
+    "n_agr_lost": ("N<sup>e</sup><sub>agr,lost</sub>", None),
+    "n_agr_gain": ("N<sup>e</sup><sub>agr,gain</sub>", None),
+}
+
+#: The direction in which each metric is better (Nina, 2026-11-02): ↑ higher, ↓ lower, – descriptive.
+UP, DOWN, DESCRIPTIVE = "↑", "↓", "–"
+METRIC_DIRECTIONS: dict[str, str] = {
+    "n_visits": DESCRIPTIVE,
+    "n_stays": DESCRIPTIVE,
+    "p_proc": UP,
+    "n_loops": DOWN,
+    "n_trivial": DOWN,
+    "n_trivial_without_processing": DOWN,
+    "n_vehicle_visits": DESCRIPTIVE,
+    "n_transferring_visits": DOWN,
+    "p_conn": UP,
+    "p_vehicle_relations": UP,
+    "mean_relations": DESCRIPTIVE,
+    "median_relations": DESCRIPTIVE,
+    "mean_duration": DESCRIPTIVE,
+    "median_duration": DESCRIPTIVE,
+    "p_conf": DESCRIPTIVE,
+    "p_agr": UP,
+    "n_agr_lost": DOWN,
+    "n_agr_gain": UP,
+}
+#: Text of each direction in the hovers.
+DIRECTION_TEXT = {
+    UP: "better: ↑ (higher)",
+    DOWN: "better: ↓ (lower)",
+    DESCRIPTIVE: "descriptive (–)",
 }
 
 #: Explanation of each metric, shown on mouse-over in the trace figure (Nina's note, "Evaluating mapping
@@ -383,7 +475,32 @@ METRIC_EXPLANATIONS: dict[str, str] = {
         "relations conforming in their visit, Σ_ν |R_hl(ν)| / |E2HU|, i.e. 1 - p<sup>r</sup><sub>nc</sub><br>"
         "events agreeing on the high-level location"
     ),
+    "p_agr": (
+        "events agreeing under the visit mapping vl_V (relation → hl of its visit),<br>divided by all events "
+        "with a hu relation, |E<sub>t</sub><sup>+</sup>(vl_V)| / |E|<br>how consistently the mapping locates the events"
+    ),
+    "n_agr_lost": (
+        "events agreeing under the high-level locations but not under vl_V,<br>|E<sub>t</sub><sup>+</sup>(hl) \\ "
+        "E<sub>t</sub><sup>+</sup>(vl_V)|<br>events the mapping breaks"
+    ),
+    "n_agr_gain": (
+        "events agreeing under vl_V but not under the high-level locations,<br>|E<sub>t</sub><sup>+</sup>(vl_V) \\ "
+        "E<sub>t</sub><sup>+</sup>(hl)|<br>events the mapping repairs"
+    ),
 }
+
+
+def explanation(key: str) -> str:
+    """The hover text of a metric: its explanation and the direction in which it is better.
+
+    Args:
+        key: A key of `METRIC_EXPLANATIONS`.
+
+    Returns:
+        str: e.g. "number of loops ...<br>better: ↓ (lower)".
+    """
+    return f"{METRIC_EXPLANATIONS[key]}<br>{DIRECTION_TEXT[METRIC_DIRECTIONS[key]]}"
+
 
 #: Metrics shown for the whole set, and per trace, by default (N^ν_triv; pass keys with
 #: "n_trivial_without_processing" to show N^ν_{triv,np} instead).
@@ -399,6 +516,8 @@ LEGEND_METRICS = (
     "mean_relations",
     "mean_duration",
     "p_conf",
+    "p_agr",
+    "n_agr_lost",
 )
 TRACE_METRICS = ("n_visits", "n_loops", "n_trivial", "p_conf")
 
@@ -434,7 +553,7 @@ def metric_lines(
         list[tuple[str, str]]: e.g. [("N<sup>ν</sup> = 16", "number of visits, ..."), ("p<sup>r</sup><sub>proc</sub> = 13/13", ...), ...].
     """
     row = pooled.row(0, named=True)
-    return [(_format_value(row, key), METRIC_EXPLANATIONS[key]) for key in keys]
+    return [(_format_value(row, key), explanation(key)) for key in keys]
 
 
 def trace_metric_lines(
@@ -451,6 +570,6 @@ def trace_metric_lines(
         dict[str, list[tuple[str, str]]]: hu -> e.g. [("N<sup>ν</sup> = 3", "number of visits, ..."), ...].
     """
     return {
-        row[c.HU]: [(_format_value(row, key), METRIC_EXPLANATIONS[key]) for key in keys]
+        row[c.HU]: [(_format_value(row, key), explanation(key)) for key in keys]
         for row in per_hu.iter_rows(named=True)
     }

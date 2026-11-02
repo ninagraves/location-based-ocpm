@@ -39,6 +39,7 @@ from .properties import (
     with_positions,
 )
 from .shifts import add_stops, shift_summary, transfers
+from .visit_location import agreement_changes, agreement_metrics
 
 
 @dataclass
@@ -72,6 +73,10 @@ class VisitAnalysis:
         overview: One row per visit with all overview columns (`overview.visit_overview`).
         rq4_violations: Flag (RQ4): relations of a handling unit with the same timestamp at different
             high-level locations (`properties.rq4_violations`); empty if RQ4 holds.
+        agreement: One row per event: agreement under \\hat{hl} and under the visit mapping vl_V, and its
+            change (`visit_location.agreement_changes`); None if the set is not disjoint and covering (e.g. V_max).
+        agreement_metrics: One row with p^e_agr, N^e_agr,lost, N^e_agr,gain (`visit_location.agreement_metrics`);
+            None like `agreement`.
     """
 
     relations: pl.DataFrame
@@ -92,6 +97,8 @@ class VisitAnalysis:
     processing_statistics: pl.DataFrame
     overview: pl.DataFrame
     rq4_violations: pl.DataFrame
+    agreement: pl.DataFrame | None = None
+    agreement_metrics: pl.DataFrame | None = None
 
 
 def analyse_visit_set(
@@ -182,6 +189,10 @@ def analyse_visit_set(
         waiting.summary if waiting is not None else None,
         per_activity if waiting is not None else None,
     )
+    try:
+        agreement = agreement_changes(rel, table)
+    except ValueError:  # vl_V is only defined for disjoint and covering sets
+        agreement = None
     locations = rel.select(pl.col(location).drop_nulls().unique()).to_series().to_list()
     return VisitAnalysis(
         relations=rel,
@@ -202,6 +213,10 @@ def analyse_visit_set(
         processing_statistics=per_activity,
         overview=overview,
         rq4_violations=rq4_violations(rel),
+        agreement=agreement,
+        agreement_metrics=agreement_metrics(agreement)
+        if agreement is not None
+        else None,
     )
 
 

@@ -28,11 +28,12 @@ Input: any set of visits and its relations; the shifts (`docs/resources/shifts.m
 | Transfer targets | `overview.py`, `transfer_targets(transfer_relations, location)` | per visit, category and target |
 | Processing statistics | `overview.py`, `processing_statistics(waiting_times)` | per visit and activity |
 | Overview | `overview.py`, `visit_overview(visits, inside_outside, statistics, waiting_summary, processing)` | one row per visit |
+| Visit mapping, agreement | `visit_location.py`, `agreement_changes`, `agreement_metrics` | per event: agreeing under $\hat{hl}$ and $vl_{\mathcal{V}}$, change; one row of metrics (`docs/resources/visit-mapping.md`) |
 | Any visit set | `pipeline.py`, `analyse_visit_set(relations, visits, ...)` | `VisitAnalysis` with all frames, incl. waiting times (`waiting`) |
 | Maximal visits | `pipeline.py`, `analyse_visits(relations, ...)` | derives $\vmax$, then `analyse_visit_set` |
 | Mapping set | `visit_mapping/pipeline.py`, `analyse_mapping(mapping_analysis, ...)` | `analyse_visit_set` on $\vts_{map}$ |
 
-`VisitAnalysis` holds: relations, visits (table, properties, shift summary), visit_relations (with stops and dwell times), transfers, naming_clashes, excursions, pairs, set_properties, set_metrics, set_metrics_per_hu, time_at_locations, time_at_high_levels, transfer_statistics, transfer_targets, waiting (`WaitingAnalysis` or None), processing_statistics, overview, rq4_violations.
+`VisitAnalysis` holds: relations, visits (table, properties, shift summary), visit_relations (with stops and dwell times), transfers, naming_clashes, excursions, pairs, set_properties, set_metrics, set_metrics_per_hu, time_at_locations, time_at_high_levels, transfer_statistics, transfer_targets, waiting (`WaitingAnalysis` or None), processing_statistics, overview, rq4_violations, agreement and agreement_metrics (both None if the set is not disjoint and covering, e.g. $\mathcal{V}_{max}$).
 
 Decisions taken in the implementation:
 - The target of a relation in a vehicle shift is its vehicle ($loc$); in an external shift its high-level location (a truck that is its own high-level location appears as such).

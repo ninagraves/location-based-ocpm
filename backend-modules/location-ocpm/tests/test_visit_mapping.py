@@ -10,7 +10,13 @@ import polars as pl
 import pytest
 
 from ocelescope_module_location_based_ocpm.derivation.level_files import MAPPING_SCHEMA
-from ocelescope_module_location_based_ocpm.visit_mapping.metrics import mapping_metrics
+from ocelescope_module_location_based_ocpm.visit_mapping.metrics import (
+    DIRECTION_TEXT,
+    METRIC_DIRECTIONS,
+    METRIC_LABELS,
+    mapping_metrics,
+    metric_lines,
+)
 from ocelescope_module_location_based_ocpm.visit_mapping.optimal import (
     lexicographic,
     optimal_segmentation,
@@ -31,6 +37,13 @@ from ocelescope_module_location_based_ocpm.visit_mapping.strategies import (
 )
 from ocelescope_module_location_based_ocpm.visit_mapping.traces import split_traces
 from ocelescope_module_location_based_ocpm.visits.context import location_context
+from ocelescope_module_location_based_ocpm.visits.visit_location import (
+    AGREEING_HIGH_LEVEL,
+    GAINED,
+    LOST,
+    changed_events,
+    visit_location,
+)
 
 DATA = Path(__file__).parents[3] / "data" / "mapping_example"
 RELATIONS = pl.read_csv(DATA / "relations.csv", schema=MAPPING_SCHEMA)
@@ -537,3 +550,73 @@ def test_metric_labels_follow_the_notation():
     keys = ["n_trivial_without_processing"]
     lines = trace_metric_lines(analysis.metrics.per_hu, keys=keys)
     assert lines["b8"][0][0].startswith("N<sup>ν</sup><sub>triv,np</sub> = ")
+
+
+#: Agreement under vl_V per strategy (Nina, 2026-11-02): (n_agreeing, lost events, gained events); |E| = 41,
+#: under the high-level locations 40 events agree (only e14 does not).
+AGREEMENT = {
+    "S1": (39, {"e8"}, set()),
+    "S2": (40, set(), set()),
+    "S3": (39, {"e8"}, set()),
+    "S4": (37, {"e8", "e9", "e11"}, set()),
+    "S5": (39, {"e8"}, set()),
+    "S6": (39, {"e8"}, set()),
+}
+
+
+@pytest.mark.parametrize("key", AGREEMENT)
+def test_agreement_under_the_visit_mapping(analyses, key):
+    n_agreeing, lost, gained = AGREEMENT[key]
+    metrics = by_key(analyses, key).metrics
+    row = metrics.pooled.row(0, named=True)
+    assert (row["n_events"], row["n_agreeing"]) == (41, n_agreeing)
+    assert row["p_agr"] == pytest.approx(n_agreeing / 41)
+    assert (row["n_agr_lost"], row["n_agr_gain"]) == (len(lost), len(gained))
+    assert set(changed_events(metrics.events, LOST)) == lost
+    assert set(changed_events(metrics.events, GAINED)) == gained
+    assert metrics.events.filter(~pl.col(AGREEING_HIGH_LEVEL))["event"].to_list() == [
+        "e14"
+    ]
+
+
+def test_visit_mapping_is_the_hl_of_the_containing_visit(analyses):
+    analysis = by_key(analyses, "S6")
+    located = visit_location(analysis.relations, analysis.mapping)
+    assert located.height == analysis.relations.height
+    # vl_V(r) = hl(r) iff r is conforming in its visit
+    differs = located.filter(pl.col("vl").ne_missing(pl.col("high_level")))
+    row = analysis.metrics.pooled.row(0, named=True)
+    assert differs.height == row["n_relations"] - row["n_conforming"]
+    # (e8, b1) is on T, inside b1's visit to A
+    assert ("b1", "e8", "T", "A") in differs[["hu", "event", "high_level", "vl"]].rows()
+    # ⊥ visit: b5 stays at ⊥
+    assert located.filter(pl.col("hu") == "b5")["vl"].null_count() == 2
+
+
+def test_visit_mapping_refuses_non_disjoint_or_non_covering_sets(analyses):
+    analysis = by_key(analyses, "S6")
+    with pytest.raises(ValueError, match="disjoint"):
+        visit_location(analysis.relations, analysis.maximal_visits)
+    with pytest.raises(ValueError, match="covering"):
+        visit_location(
+            analysis.relations, analysis.mapping.filter(pl.col("hu") != "b1")
+        )
+    # the metrics are null instead of failing
+    partial = mapping_metrics(
+        analysis.relations,
+        analysis.mapping.filter(pl.col("hu") != "b1"),
+        handling_units=["b1", "b2"],
+    )
+    assert partial.events is None and partial.pooled["p_agr"].item() is None
+
+
+def test_every_metric_has_a_direction_in_its_hover(analyses):
+    lines = metric_lines(by_key(analyses, "S6").metrics.pooled, tuple(METRIC_LABELS))
+    assert set(METRIC_DIRECTIONS) == set(METRIC_LABELS)
+    assert all(
+        DIRECTION_TEXT[METRIC_DIRECTIONS[k]] in hover
+        for k, (_, hover) in zip(METRIC_LABELS, lines)
+    )
+    assert dict(lines)["p<sup>e</sup><sub>agr</sub> = 39/41"].endswith(
+        "better: ↑ (higher)"
+    )

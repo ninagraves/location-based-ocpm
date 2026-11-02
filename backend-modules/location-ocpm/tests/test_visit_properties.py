@@ -305,6 +305,18 @@ def test_analyse_mapping_is_disjoint_and_covering():
         and analysis.set_properties["is_covering"].all()
     )
     assert analysis.waiting is not None and analysis.overview.height == 16
+    # the visit mapping vl_V and the agreement under it (only defined for disjoint and covering sets)
+    agreement = analysis.agreement_metrics.row(0, named=True)
+    assert (
+        agreement["n_events"],
+        agreement["n_agreeing"],
+        agreement["n_agr_lost"],
+    ) == (41, 39, 1)
+    assert mapping.metrics.pooled["p_agr"].item() == agreement["p_agr"]
+
+
+def test_no_visit_mapping_for_the_maximal_visits(vmax):
+    assert vmax.agreement is None and vmax.agreement_metrics is None
 
 
 def test_hand_written_visit_set(vmax):

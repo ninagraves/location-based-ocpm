@@ -11,7 +11,8 @@ Input: the maximal visits (`docs/resources/visits.md`).
 A **mapping set** $\mathcal{V}_{map}$: visits that are disjoint and covering, i.e. every hu-event relation lies in exactly one visit.
 Per handling unit it is a segmentation of its trace into consecutive visits, a **visit sequence**; consecutive visits have different high-level locations.
 A **strategy** decides which segmentation is taken (six predefined ones, or your own).
-**Evaluation metrics** describe a mapping set, per visit, per handling unit and pooled: number of visits, conforming processing, loops, trivial visits, vehicle and transferring visits, connecting visits, vehicle relations kept on the way, relations per visit, durations, conforming relations.
+**Evaluation metrics** describe a mapping set, per visit, per handling unit and pooled: number of visits, conforming processing, loops, trivial visits, vehicle and transferring visits, connecting visits, vehicle relations kept on the way, relations per visit, durations, conforming relations, and the agreement of the events under the visit mapping $vl_{\mathcal{V}}$ (events agreeing, events the mapping breaks or repairs).
+Every metric has a direction in which it is better (↑, ↓, or – for descriptive metrics), shown on mouse-over.
 The trace figure can show the metrics of the whole set and of each trace, with their definitions on mouse-over (`docs/resources/trace-figure.md`).
 
 ## 2. How it is calculated
@@ -27,7 +28,9 @@ The trace figure can show the metrics of the whole set and of each trace, with t
 | Segments frame | `segments.py`, `segments_frame` | hu, high_level, first/last position (from 1), maximal_visit_id |
 | Visits table | `segments.py`, `mapping_visits` | the columns of the maximal visits (events, times, duration, counts, interrupted) |
 | Metrics | `metrics.py`, `visit_metrics`, `summarise`, `mapping_metrics` | per visit, per hu, pooled |
-| Figure texts | `metrics.py`, `metric_lines`, `trace_metric_lines` | (text, explanation) pairs for the trace figure |
+| Visit mapping, agreement | `visits/visit_location.py`, `visit_location`, `agreement_changes`, `agreement_metrics`; `metrics.agreement_summaries` | $vl_{\mathcal{V}}$ per relation; agreement per event under $\hat{hl}$ and $vl_{\mathcal{V}}$; $p^{e}_{agr}$, $N^{e}_{agr,lost}$, $N^{e}_{agr,gain}$ |
+| Figure texts | `metrics.py`, `metric_lines`, `trace_metric_lines`, `explanation` | (text, explanation with direction) pairs for the trace figure |
+
 | All | `pipeline.py`, `derive_mapping_set`, `map_traces`, `compare_strategies` | `MappingAnalysis`; comparison table |
 | Shifts, waiting times, overview on V_map | `pipeline.py`, `analyse_mapping` | `VisitAnalysis` of `visits.pipeline.analyse_visit_set` (`docs/resources/visit-overview.md`) |
 | Files | `mapping_files.py`, `save_mapping`, `load_mapping` | `visit_mapping_level_{k}_kappa_{κ}_{strategy}.csv` |
@@ -80,6 +83,15 @@ Ties: the segmentation whose first visit is longest, then the next (S1-like, "lo
 | relations per visit | mean_relations, median_relations | |
 | duration | mean_duration, median_duration | |
 | $p^{r}_{conf}$ | n_conforming / n_relations | relations at their visit's $hl$ |
+| $p^{e}_{agr}$ | n_agreeing / n_events | $|E_t^+(vl_{\mathcal{V}})| / |E|$, events agreeing under the visit mapping / events with a hu relation; per hu over its events |
+| $N^{e}_{agr,lost}$ | n_agr_lost | $|E_t^+(\hat{hl}) \setminus E_t^+(vl_{\mathcal{V}})|$: events the mapping breaks (pooled only) |
+| $N^{e}_{agr,gain}$ | n_agr_gain | $|E_t^+(vl_{\mathcal{V}}) \setminus E_t^+(\hat{hl})|$: events the mapping repairs (pooled only) |
+
+**Direction** (`METRIC_DIRECTIONS`, Nina, 2026-11-02; shown in the hovers, no primary/secondary split): ↑ $p^{r}_{proc}$, $p^{\nu}_{conn}$, $p^{r}_{veh}$, $p^{e}_{agr}$, $N^{e}_{agr,gain}$; ↓ $N^{\nu}_{loop}$, $N^{\nu}_{triv}$, $N^{\nu}_{triv,np}$, $N^{\nu}_{trans}$, $N^{e}_{agr,lost}$; – (descriptive) $N^{\nu}$, $N^{\nu}_{stay}$, $N^{\nu}_{veh}$, $|R(\nu)|$, $d(\nu)$, $p^{r}_{conf}$.
+
+**Visit mapping** $vl_{\mathcal{V}}$ (concept note, "Visit-based location function"; `visits/visit_location.py`): every relation gets the $hl$ of the unique visit containing it, so $vl_{\mathcal{V}}(r) = \hat{hl}(r)$ iff $r$ is conforming; ⊥ relations in an excursion get the visit's $hl$, the relations of a ⊥ visit get ⊥.
+It is only defined for disjoint and covering sets: `visit_location` raises a `ValueError` otherwise (e.g. for $\mathcal{V}_{max}$, where (e8, b1) lies in $m_2$ (A) and $m_4$ (T)); `mapping_metrics` then reports the agreement metrics as null and `analyse_visit_set` sets `agreement` to None.
+Agreement is `derivation.agreement.event_agreement` with $\ell = vl_{\mathcal{V}}$ (the same definition as for the derived locations, no copy); $E$ = the events with at least one hu relation.
 
 Complexity: the sweep is linear per trace; the dynamic programme tries all ends inside $m(i)$ for every start $i$, each segment counted in linear time (straightforward version, Nina's rule: modular first; with prefix sums it becomes linear). Both loop over the traces in Python; the metrics are polars expressions.
 
@@ -100,6 +112,7 @@ Extended running example (`data/mapping_example/`, κ = 3, $V = \{T\}$, $W = \{B
 - S6 hits all of Nina's targets: b1 (A e3–e11) (T e13–e14); b2 (A e3–e11) (B e12–e15); b4 (B e15–e21); s2 (A e22–e26); b6 (A e26–e30); b7 (A e26) (B e31–e34); b8 (A e35–e37) (T e38) (B e39–e41).
 - S1 (= S5 with λ = 0.5) misses only b8: (A e35–e40) (B e41); S4 misses b1 ((A e3–e5) (B e7) (T e8–e14)) and b8 ((A e35) (B e36–e41)); S3 hits only b2; S2 none.
 - Metrics (Nina's concept note, "Evaluating mapping sets"; S6 without the storage tie-break, connecting visits counted as trivial, trivial = $N^{\nu}_{triv,np}$): S1 15 visits, $p^{r}_{proc}$ 13/13, 0 loops, 3 trivial, 2/0 vehicle/transferring visits, $p^{\nu}_{conn}$ 0/2, 3.6/3 relations per visit, 4/4 h, $p^{r}_{conf}$ 39/54; S6 16, 13/13, 0, 3, 3/0, 1/3, 3.38/3, 3.75/3 h, 40/54; S2 39, 13/13, 12, 24, 9/0, 6/9, 1.38/1, 1.54/1 h, 54/54.
+- Agreement ($|E| = 41$; under $\hat{hl}$ 40 events agree, only e14 does not): $p^{e}_{agr}$ S1 39/41, S2 40/41, S3 39/41, S4 37/41, S5 39/41, S6 39/41; lost S1, S3, S5, S6 {e8}, S4 {e8, e9, e11}, S2 none; no strategy repairs an event (gain 0).
 - $p^{r}_{veh}$ (vehicle relations kept on the way, of 10): S1 3, S2 10, S3 9, S4 4, S5 3, S6 4 (with or without the storage tie-break; b7's e32 is absorbed into a stay either way).
 - Extra traces with S6: x1 A T B T A, x2 A B B B B B, x3 A A A T B B, x4 A A A B B, x5 A A A A T B, y1 A A A B B, y2 A B B B, y3 A A A A A B, y4 A B B B B B, y5 (A g22–g26) (T g27) (B g28); all as Nina resolved them.
 
@@ -120,7 +133,7 @@ Parameters of `derive_mapping_set`:
 ## 6. Where it lives in the code
 
 See the table in section 2; every function has a docstring with its parameters and return value.
-`MappingAnalysis` holds relations, maximal_visits, mapping, metrics (`MappingMetrics`: visits, per_hu, pooled) and the strategy's name.
+`MappingAnalysis` holds relations, maximal_visits, mapping, metrics (`MappingMetrics`: visits, per_hu, pooled, events = agreement per event) and the strategy's name.
 The mapping visits have the columns of the maximal visits, so `visits.maximal.visit_relations`, `visits.shifts` and `waiting_times.analyse_waiting_times` work on them; `analyse_mapping` runs all of them, plus the properties, dwell times and the overview, in one call.
 
 ## 7. How to change it
@@ -129,7 +142,8 @@ The mapping visits have the columns of the maximal visits, so `visits.maximal.vi
 - **A new criterion**: add a `Criterion` to `optimal.CRITERIA` (a function of `SegmentStats`, a direction, a description); if it needs more counts, add them to `SegmentStats` and `segment_stats`.
 - **Another order or weights for S6 / S5**: `strategies.S6_CRITERIA`, `strategies.DEFAULT_LAMBDA`, or a custom strategy.
 - **Another tie-break**: the comparison in `optimal.optimal_segmentation` (ends are tried longest first, only a strictly better cost replaces).
-- **Another definition of a metric**: the expressions in `metrics.visit_metrics` (kinds, loops, connecting, trivial) and `metrics.summarise`; texts and mouse-over explanations in `METRIC_LABELS` and `METRIC_EXPLANATIONS`.
+- **Another definition of a metric**: the expressions in `metrics.visit_metrics` (kinds, loops, connecting, trivial) and `metrics.summarise`; texts, mouse-over explanations and directions in `METRIC_LABELS`, `METRIC_EXPLANATIONS` and `METRIC_DIRECTIONS`.
+- **Agreement under another location function**: `visits.visit_location.agreement_changes` compares $\hat{hl}$ with $vl_{\mathcal{V}}$; pass another column as `high_level` to compare with e.g. $loc$.
 - **Faster global strategies**: prefix counts per maximal visit in `segment_stats`, so each segment costs O(1).
 - After a change: `uv run pytest`, re-run `notebooks/visit_mapping.ipynb`, adapt `tests/test_visit_mapping.py`.
 
