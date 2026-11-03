@@ -2,6 +2,8 @@
 
 One row per activity with kept events. Events, role, handling units per event, located and agreed
 describe the kept events as a whole; typical location counts passing relations only; share at location appears only with a location filter (concept section "Filter Effect").
+In high-level mode, typical and top locations are high-level locations (with their locations for the hover) and
+agreement is under hat-hl (concept "Update Overview Page", sections 6 and 9).
 """
 
 import polars as pl
@@ -10,7 +12,7 @@ from pydantic import BaseModel
 from ocelescope_module_location_based_ocpm.derivation import columns as c
 from ocelescope_module_location_based_ocpm.derivation.locatedness import FULLY, PARTIALLY, UNLOCATED
 from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation
-from ocelescope_module_location_based_ocpm.overview.filters import PageFilter, passing_relations
+from ocelescope_module_location_based_ocpm.overview.filters import PageFilter, event_table, passing_relations
 from ocelescope_module_location_based_ocpm.overview.key_numbers import TypeCount
 
 #: Number of locations in an expanded row.
@@ -26,6 +28,7 @@ class Typical(BaseModel):
         total: Relations counted (the denominator of the share).
         distinct: Number of distinct values.
         tied: Number of values sharing the highest count (1 if there is no tie).
+        members: High-level mode: the value's locations with their counts, largest first; else empty.
     """
 
     value: str
@@ -33,13 +36,21 @@ class Typical(BaseModel):
     total: int
     distinct: int
     tied: int
+    members: list["ValueShare"] = []
 
 
 class ValueShare(BaseModel):
-    """A value with its count (the share is count / total of the list's owner)."""
+    """A value with its count (the share is count / total of the list's owner).
+
+    Attributes:
+        value: The value.
+        count: Its count.
+        members: High-level mode: the high-level location's locations with their counts, largest first.
+    """
 
     value: str
     count: int
+    members: list["ValueShare"] = []
 
 
 class ActivityRow(BaseModel):
@@ -52,6 +63,7 @@ class ActivityRow(BaseModel):
         movement_share: Share of the events that are movement events.
         transformation_share: Share that are transformation events; None if no transformation
             events are configured.
+        processing_share: Share that are processing operations; None if P is empty.
         hus_median: Median number of handling units per event (whole event).
         hus_max: Maximum number of handling units per event.
         object_types: Object types of the events' handling units, counted as hu-event relations.
@@ -72,6 +84,7 @@ class ActivityRow(BaseModel):
     share_at_location: float | None
     movement_share: float
     transformation_share: float | None
+    processing_share: float | None = None
     hus_median: float
     hus_max: int
     object_types: list[TypeCount]
@@ -94,12 +107,14 @@ class ActivityProfile(BaseModel):
         level: The selected level.
         kept_events: All kept events (denominator of the share at location).
         location_filter: True if a location filter is set (the share at location is shown).
+        location_mode: "low" or "high": the level of the typical and top locations.
     """
 
     rows: list[ActivityRow]
     level: int
     kept_events: int
     location_filter: bool
+    location_mode: str = "low"
 
 
 def ranked(frame: pl.DataFrame, value: str) -> pl.DataFrame:
@@ -128,22 +143,58 @@ def ranked(frame: pl.DataFrame, value: str) -> pl.DataFrame:
     )
 
 
-def _typicals(counted: pl.DataFrame) -> dict[str, Typical]:
-    """The typical value per activity from the output of `ranked`."""
+Members = dict[tuple[str, str], list[ValueShare]]
+
+
+def members_of(passing: pl.DataFrame, value: str, member: str) -> Members:
+    """The members (e.g. locations) of each value (e.g. high-level location) per activity, with counts.
+
+    Args:
+        passing: Rows with columns activity, `value` and `member`.
+        value: The grouping column (e.g. hl).
+        member: The member column (e.g. loc).
+
+    Returns:
+        Members: (activity, value) → members, largest first (ties alphabetical).
+    """
+    counted = (
+        passing.filter(pl.col(value).is_not_null())
+        .group_by(c.ACTIVITY, value, member)
+        .agg(pl.len().alias("count"))
+        .sort([c.ACTIVITY, value, "count", member], descending=[False, False, True, False])
+    )
+    result: Members = {}
+    for activity, group, name, count in counted.select(c.ACTIVITY, value, member, "count").rows():
+        result.setdefault((activity, str(group)), []).append(ValueShare(value=str(name), count=count))
+    return result
+
+
+def _typicals(counted: pl.DataFrame, members: Members | None = None) -> dict[str, Typical]:
+    """The typical value per activity from the output of `ranked` (with its members in high-level mode)."""
+    members = members or {}
     top = counted.filter(pl.col("rank") == 0)
     return {
         row[c.ACTIVITY]: Typical(
-            value=str(row["value"]), count=row["count"], total=row["total"], distinct=row["distinct"], tied=row["tied"]
+            value=str(row["value"]),
+            count=row["count"],
+            total=row["total"],
+            distinct=row["distinct"],
+            tied=row["tied"],
+            members=members.get((row[c.ACTIVITY], str(row["value"])), []),
         )
         for row in top.iter_rows(named=True)
     }
 
 
-def _tops(counted: pl.DataFrame) -> dict[str, list[ValueShare]]:
-    """The `TOP` most frequent values per activity from the output of `ranked`."""
+def _tops(counted: pl.DataFrame, members: Members | None = None) -> dict[str, list[ValueShare]]:
+    """The `TOP` most frequent values per activity from the output of `ranked` (with members in high-level mode)."""
+    members = members or {}
     tops: dict[str, list[ValueShare]] = {}
     for row in counted.filter(pl.col("rank") < TOP).iter_rows(named=True):
-        tops.setdefault(row[c.ACTIVITY], []).append(ValueShare(value=str(row["value"]), count=row["count"]))
+        key = (row[c.ACTIVITY], str(row["value"]))
+        tops.setdefault(row[c.ACTIVITY], []).append(
+            ValueShare(value=key[1], count=row["count"], members=members.get(key, []))
+        )
     return tops
 
 
@@ -158,12 +209,16 @@ def activity_profile(derivation: Derivation, page_filter: PageFilter | None = No
         ActivityProfile: Rows most events first, ties alphabetical.
     """
     page_filter = page_filter or PageFilter()
+    high = page_filter.high and derivation.has_high_level
     passing = passing_relations(derivation, page_filter)
     kept = passing.select(c.EVENT).unique()
     events = (
-        derivation.event_locations[derivation.level]
+        event_table(derivation, high)
         .join(kept, on=c.EVENT, how="semi")
-        .join(derivation.events.select(c.EVENT, c.ACTIVITY, c.IS_MOVEMENT, c.IS_TRANSFORMATION, c.ULOC), on=c.EVENT)
+        .join(
+            derivation.events.select(c.EVENT, c.ACTIVITY, c.IS_MOVEMENT, c.IS_TRANSFORMATION, c.IS_PROCESSING, c.ULOC),
+            on=c.EVENT,
+        )
     )
     per_activity = (
         events.group_by(c.ACTIVITY)
@@ -171,6 +226,7 @@ def activity_profile(derivation: Derivation, page_filter: PageFilter | None = No
             pl.len().alias("events"),
             pl.col(c.IS_MOVEMENT).mean().alias("movement_share"),
             pl.col(c.IS_TRANSFORMATION).mean().alias("transformation_share"),
+            pl.col(c.IS_PROCESSING).mean().alias("processing_share"),
             pl.col("n_relations").median().alias("hus_median"),
             pl.col("n_relations").max().alias("hus_max"),
             pl.col(c.ULOC).is_not_null().sum().alias("provided"),
@@ -192,11 +248,14 @@ def activity_profile(derivation: Derivation, page_filter: PageFilter | None = No
     object_types: dict[str, list[TypeCount]] = {}
     for activity, object_type, count in types.rows():
         object_types.setdefault(activity, []).append(TypeCount(object_type=object_type, count=count))
-    locations = ranked(passing, "loc")
-    typical_locations, top_locations = _typicals(locations), _tops(locations)
+    location = "hl" if high else "loc"
+    locations = ranked(passing, location)
+    members = members_of(passing, "hl", "loc") if high else None
+    typical_locations, top_locations = _typicals(locations, members), _tops(locations, members)
 
     location_filter = bool(page_filter.locations or page_filter.exclude_locations)
     with_t = derivation.config.transformation_events is not None
+    with_p = bool(derivation.events[c.IS_PROCESSING].any())
     rows = [
         ActivityRow(
             activity=row[c.ACTIVITY],
@@ -204,6 +263,7 @@ def activity_profile(derivation: Derivation, page_filter: PageFilter | None = No
             share_at_location=row["events"] / kept.height if location_filter else None,
             movement_share=row["movement_share"],
             transformation_share=row["transformation_share"] if with_t else None,
+            processing_share=row["processing_share"] if with_p else None,
             hus_median=row["hus_median"],
             hus_max=row["hus_max"],
             object_types=object_types.get(row[c.ACTIVITY], []),
@@ -219,4 +279,10 @@ def activity_profile(derivation: Derivation, page_filter: PageFilter | None = No
         )
         for row in per_activity.iter_rows(named=True)
     ]
-    return ActivityProfile(rows=rows, level=derivation.level, kept_events=kept.height, location_filter=location_filter)
+    return ActivityProfile(
+        rows=rows,
+        level=derivation.level,
+        kept_events=kept.height,
+        location_filter=location_filter,
+        location_mode="high" if high else "low",
+    )

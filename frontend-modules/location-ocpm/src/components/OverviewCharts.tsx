@@ -14,10 +14,20 @@ import {
   type GetBarChartMode,
   type GetHeatmapEvents,
   useGetBarChart,
+  useGetFilterOptions,
   useGetHeatmap,
 } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
-import { type FilterKey, filterParams, filterRequest, type PageFilter, usePageFilter, withValue } from "../lib/filters";
+import {
+  type FilterKey,
+  filterParams,
+  filterRequest,
+  HIGH_LEVEL_PREFIX,
+  type PageFilter,
+  useLocationContext,
+  usePageFilter,
+  withValue,
+} from "../lib/filters";
 import { num, pct } from "../lib/format";
 import { usePageState } from "../lib/pageState";
 import { categoricalColour, OTHER, plotlyScale, type Scheme, SEQUENTIAL, STATUS, UI } from "../lib/palette";
@@ -47,7 +57,10 @@ const INFO = {
   huLocation:
     "by location: a handling unit's only known location over its whole trace; '[several locations]' if it has two or more, '–' if it has none (⊥ does not count). Locatedness is also over the whole trace.",
   end: "top 10: the 10 largest bars, the rest summed into a grey 'other' bar. bottom 10: the 10 smallest bars, the rest left out. Also applies to both axes of the heatmap.",
-  events: "Keep all relations or events, only those of movement events, or only those of transformation events.",
+  events:
+    "Keep all relations or events, only those of movement events, of transformation events or of processing operations.",
+  locationType:
+    "by location type (relations only): vehicle, storage unit, vehicle and storage unit or other, by the low-level location of the relation ('–' for ⊥).",
 };
 
 /** Filter list a value of a dimension goes to on a click (none: no filter matches). */
@@ -57,6 +70,8 @@ const FILTER_OF: Record<string, FilterKey | undefined> = {
   object_type: "object_types",
   locatedness: "activities",
   agreement: "activities",
+  low_location: "locations",
+  location_type: "locations",
 };
 
 /** Filter values of handling unit locatedness (Handling unit types chart). */
@@ -75,6 +90,12 @@ const EVENT_VALUES: Record<string, string> = {
   "not agreeing": "[disagreeing events]",
 };
 
+/** Filter values of the location types; "other" and "vehicle and storage unit" have none. */
+const TYPE_VALUES: Record<string, string> = { vehicle: "[vehicles]", "storage unit": "[storage units]" };
+
+/** "by" values that only count relations (offered only for relations, see `overview_charts.RELATION_ONLY`). */
+const RELATION_ONLY: readonly string[] = ["location_type", "low_location"];
+
 /** "by" values that are event properties: fixed status colours as in the data overview charts. */
 const EVENT_PROPERTIES: readonly string[] = ["locatedness", "agreement"];
 
@@ -86,11 +107,14 @@ const BY_OPTIONS: Record<GetBarChartChart, { value: GetBarChartBy; label: string
     { value: "object_type", label: "object type" },
     { value: "locatedness", label: "locatedness" },
     { value: "agreement", label: "agreement" },
+    { value: "location_type", label: "location type" },
   ],
   locations: [
     { value: "none", label: "none" },
     { value: "activity", label: "activity" },
     { value: "object_type", label: "object type" },
+    { value: "location_type", label: "location type" },
+    { value: "low_location", label: "low-level location" },
   ],
   hu_types: [
     { value: "locatedness", label: "locatedness" },
@@ -100,6 +124,7 @@ const BY_OPTIONS: Record<GetBarChartChart, { value: GetBarChartBy; label: string
   activity_types: [
     { value: "location", label: "location" },
     { value: "locatedness", label: "locatedness" },
+    { value: "location_type", label: "location type" },
     { value: "none", label: "none" },
   ],
 };
@@ -152,10 +177,24 @@ const CHARTS: Record<
  * dimension's include list ("–" as "[unknown]"; locatedness and agreement as their special
  * activity values, handling unit locatedness ("hu_locatedness") as its special object type
  * values; "other", "[several types]", "[several locations]" and "not tested" add nothing).
- * Chart locations are loc (post), so a location switches the role "pre" to "post".
+ * Chart locations are loc (post), so a location switches the role "pre" to "post". In high-level mode, a
+ * high-level location adds its entry ("[high-level] A", standing for all its locations), a low-level location
+ * segment its location; a location type adds "[vehicles]" or "[storage units]".
  */
 const useAddValues = (ocelId: string) => {
   const [, setFilter] = usePageFilter(ocelId);
+  const { high } = useLocationContext(ocelId);
+  const { data: options } = useGetFilterOptions(ocelId);
+  // High-level locations with an entry of their own in the location picker (not a location that is its own only member).
+  const groups = new Set((options?.high_level_locations ?? []).map((g) => g.label));
+  const locationValue = (dimension: string, value: string) =>
+    value === MISSING
+      ? "[unknown]"
+      : dimension === "location_type"
+        ? TYPE_VALUES[value]
+        : dimension === "location" && high && groups.has(value)
+          ? HIGH_LEVEL_PREFIX + value
+          : value;
   return (pairs: [string, string][]) =>
     setFilter((f) =>
       pairs.reduce<PageFilter>((acc, [dimension, value]) => {
@@ -165,8 +204,8 @@ const useAddValues = (ocelId: string) => {
             ? HU_VALUES[value]
             : EVENT_PROPERTIES.includes(dimension)
               ? EVENT_VALUES[value]
-              : key === "locations" && value === MISSING
-                ? "[unknown]"
+              : key === "locations"
+                ? locationValue(dimension, value)
                 : value;
         if (!key || !filterValue || NO_FILTER.includes(value)) return acc;
         const next = withValue(acc, key, filterValue);
@@ -180,7 +219,8 @@ const useAddValues = (ocelId: string) => {
  * agreement keep their status colours (`STATUS`).
  */
 const colourOf = (value: string, colours: string[], scheme: Scheme, by: string) => {
-  if (EVENT_PROPERTIES.includes(by) && value !== OTHER_LABEL && STATUS[scheme][value]) return STATUS[scheme][value];
+  if ((EVENT_PROPERTIES.includes(by) || by === "location_type") && value !== OTHER_LABEL && STATUS[scheme][value])
+    return STATUS[scheme][value];
   const index = colours.indexOf(value);
   return index < 0 ? OTHER[scheme] : categoricalColour(index, scheme);
 };
@@ -302,19 +342,26 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
   const addValues = useAddValues(ocelId);
   const { ref, width } = useElementSize();
   const { measures, modes, unit: fixedUnit, sub: fixedSub } = CHARTS[chart];
+  const { high, withTypes } = useLocationContext(ocelId);
   const mostLocations = modes && settings.mode === "locations";
   // With "# locations", only "by" values whose segments add up to the bar are offered.
   const locationsBy: readonly string[] = ["none", "location", "activity"];
-  const by = mostLocations && !locationsBy.includes(settings.by) ? "none" : settings.by;
   // Charts without the switch always count relations (or handling units, ignored by the backend).
   const measure = measures ? settings.measure : "relations";
+  const byOptions = BY_OPTIONS[chart].filter(
+    (o) =>
+      (!mostLocations || locationsBy.includes(o.value)) &&
+      (o.value !== "location_type" || withTypes) &&
+      (o.value !== "low_location" || high) &&
+      (!RELATION_ONLY.includes(o.value) || measure === "relations"),
+  );
+  const by = byOptions.some((o) => o.value === settings.by) ? settings.by : "none";
   const { data, error } = useGetBarChart(
     ocelId,
     { ...filterParams(filter), chart, measure, by, mode: settings.mode, end },
     { request: filterRequest },
   );
   const set = (change: Partial<Settings>) => setSettings((s) => ({ ...s, ...change }));
-  const byOptions = BY_OPTIONS[chart].filter((o) => !mostLocations || locationsBy.includes(o.value));
   const byLabel = byOptions.find((o) => o.value === by)?.label ?? "";
   const unit = mostLocations ? "locations" : (fixedUnit ?? measure);
   const labelChars = Math.max(6, Math.floor(width / 4 / CHAR_WIDTH));
@@ -494,7 +541,12 @@ const HeatmapCard = ({ ocelId, end }: { ocelId: string; end: End }) => {
             <Control info={INFO.events}>
               <SegmentedControl
                 size="xs"
-                data={["all", "movements", "transformations"]}
+                data={[
+                  { value: "all", label: "all" },
+                  { value: "movements", label: "movements" },
+                  { value: "transformations", label: "transformations" },
+                  { value: "processing", label: "processing operations" },
+                ]}
                 value={settings.events}
                 onChange={(v) => set({ events: v as GetHeatmapEvents })}
               />

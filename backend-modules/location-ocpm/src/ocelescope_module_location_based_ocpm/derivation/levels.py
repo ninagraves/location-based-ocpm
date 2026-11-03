@@ -144,17 +144,40 @@ def add_loc_2(relations: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def as4_rank(columns: list[str]) -> pl.Expr:
+    """AS4 group of an event among events with the same timestamp (`overview/Deriving Locations.md`, AS4):
+    0 = movement (also if it is a processing operation), 1 = processing operation, 2 = any other event.
+
+    The same order as `visits/order.py` (`tie_rank`), read from the columns of a relations frame.
+
+    Args:
+        columns: Columns of the frame; without is_processing, P = T (is_transformation).
+
+    Returns:
+        pl.Expr: UInt8 group.
+    """
+    processing = c.IS_PROCESSING if c.IS_PROCESSING in columns else c.IS_TRANSFORMATION
+    return (
+        pl.when(pl.col(c.IS_MOVEMENT).fill_null(False))
+        .then(pl.lit(0, pl.UInt8))
+        .when(pl.col(processing).fill_null(False))
+        .then(pl.lit(1, pl.UInt8))
+        .otherwise(pl.lit(2, pl.UInt8))
+    )
+
+
 def add_loc_3(relations: pl.DataFrame, eloc_2: pl.DataFrame) -> pl.DataFrame:
     """Level 3 (transformation locations): loc^2 where known, else the agreed Level 2 location of the
     handling unit's earliest transformation event t_1(hu) before its first movement with eloc_{loc^2} ≠ ⊥.
 
-    Choice of t_1(hu) (Nina, 2026-10-28): 1. earliest time, 2. among those, only events with an agreed
-    location (eloc ≠ ⊥; this is a filter, so a disagreeing transformation never blocks a later one),
-    3. smallest event id.
+    Choice of t_1(hu) (Nina, 2026-10-28 and 2026-11-02): 1. earliest time, 2. among those, only events with an
+    agreed location (eloc ≠ ⊥; this is a filter, so a disagreeing transformation never blocks a later one),
+    3. the first in seq, i.e., ties by AS4 (`as4_rank`: processing operations before other events, then by
+    event id).
 
     Args:
         relations: Relations frame with columns hu, time, event, is_transformation, is_movement,
-            uloc, puloc, loc^2.
+            uloc, puloc, loc^2, and is_processing (if missing, P = T).
         eloc_2: Agreed event locations under loc^2, columns event, eloc (see `agreement.event_locations`).
 
     Returns:
@@ -167,8 +190,9 @@ def add_loc_3(relations: pl.DataFrame, eloc_2: pl.DataFrame) -> pl.DataFrame:
         .filter(pl.col("t_m").is_null() | (pl.col(c.TIME) < pl.col("t_m")))
         .join(eloc_2, on=c.EVENT, how="inner")
         .filter(pl.col("eloc").is_not_null())
-        .sort(c.TIME, c.EVENT)
-        .group_by(c.HU)
+        .with_columns(as4_rank(relations.columns).alias("_rank"))
+        .sort(c.TIME, "_rank", c.EVENT)
+        .group_by(c.HU, maintain_order=True)
         .agg(pl.col("eloc").first().alias("l_t"))
     )
     return (

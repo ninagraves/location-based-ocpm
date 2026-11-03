@@ -1,4 +1,5 @@
-// Configuration form: the inputs of overview/Deriving Locations.md, section "input data".
+// Configuration form: the inputs of overview/Deriving Locations.md, section "input data", and the location
+// context of overview/module/Module Overview.md ("Update Overview Page", section 1).
 // Documented in docs/pages/configuration.md.
 import {
   Alert,
@@ -11,18 +12,22 @@ import {
   Select,
   SimpleGrid,
   Stack,
+  Switch,
   Table,
+  TagsInput,
   Text,
+  TextInput,
   Title,
   Tooltip,
 } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { DownloadIcon, FolderOpenIcon, InfoIcon, UploadIcon } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { DropTarget } from "./DropTarget";
 import {
   type ApplyResult,
   type DerivationConfig,
+  type LocationOptions,
   type Message,
   type TableInfo,
   type ValueCount,
@@ -30,6 +35,7 @@ import {
   getListTablesQueryKey,
   useApplyConfig,
   useGetAttributeValues,
+  useGetLocations,
   useGetOptions,
   useListTables,
   useUploadTable,
@@ -60,6 +66,33 @@ type LocationsDraft = TableEntries & {
   location_column: string | null;
 };
 
+type HighLevelDraft = {
+  option: "none" | "table" | "event_attributes" | "object_attribute" | "o2o" | "pattern";
+  table: string | null;
+  location_column: string | null;
+  high_level_column: string | null;
+  low_attribute: string | null;
+  high_attribute: string | null;
+  attribute: string | null;
+  qualifiers: string[];
+  name_attribute: string | null;
+  pattern: string;
+};
+
+type LocationSetDraft = {
+  option: "none" | "locations" | "table" | "attribute_values" | "object_types";
+  locations: string[];
+  table: string | null;
+  location_column: string | null;
+  flag_column: string | null;
+  attribute: string | null;
+  values: string[];
+  object_types: string[];
+};
+
+/** Processing operations: a selection like the transformation events ("none" = no further events), plus T. */
+type ProcessingDraft = EventSetDraft & { include_transformations: boolean };
+
 /** Everything the form holds. */
 export type ConfigDraft = {
   handling_units: {
@@ -73,7 +106,35 @@ export type ConfigDraft = {
   target_locations: LocationsDraft;
   pickup_locations: LocationsDraft;
   level: Level;
+  high_level_locations: HighLevelDraft;
+  vehicles: LocationSetDraft;
+  storage_units: LocationSetDraft;
+  processing_operations: ProcessingDraft;
 };
+
+const emptyHighLevel = (): HighLevelDraft => ({
+  option: "none",
+  table: null,
+  location_column: null,
+  high_level_column: null,
+  low_attribute: null,
+  high_attribute: null,
+  attribute: null,
+  qualifiers: [],
+  name_attribute: null,
+  pattern: "",
+});
+
+const emptyLocationSet = (): LocationSetDraft => ({
+  option: "none",
+  locations: [],
+  table: null,
+  location_column: null,
+  flag_column: null,
+  attribute: null,
+  values: [],
+  object_types: [],
+});
 
 const emptyEvents = (option: EventSetDraft["option"]): EventSetDraft => ({
   option,
@@ -103,7 +164,55 @@ export const emptyDraft = (): ConfigDraft => ({
   target_locations: emptyLocations("attribute"),
   pickup_locations: emptyLocations("none"),
   level: 3,
+  high_level_locations: emptyHighLevel(),
+  vehicles: emptyLocationSet(),
+  storage_units: emptyLocationSet(),
+  processing_operations: { ...emptyEvents("none"), include_transformations: true },
 });
+
+const highLevelToConfig = (d: HighLevelDraft): DerivationConfig["high_level_locations"] => {
+  switch (d.option) {
+    case "table":
+      return {
+        option: "table",
+        table: d.table ?? "",
+        location_column: d.location_column ?? "",
+        high_level_column: d.high_level_column ?? "",
+      };
+    case "event_attributes":
+      return { option: "event_attributes", low_attribute: d.low_attribute ?? "", high_attribute: d.high_attribute ?? "" };
+    case "object_attribute":
+      return { option: "object_attribute", attribute: d.attribute ?? "" };
+    case "o2o":
+      return { option: "o2o", qualifiers: d.qualifiers, name_attribute: d.name_attribute };
+    case "pattern":
+      return { option: "pattern", pattern: d.pattern };
+    default:
+      return null;
+  }
+};
+
+const locationSetToConfig = (d: LocationSetDraft): DerivationConfig["vehicles"] => {
+  switch (d.option) {
+    case "locations":
+      return { option: "locations", locations: d.locations };
+    case "table":
+      return { option: "table", table: d.table ?? "", location_column: d.location_column ?? "", flag_column: d.flag_column };
+    case "attribute_values":
+      return { option: "attribute_values", attribute: d.attribute ?? "", values: d.values };
+    case "object_types":
+      return { option: "object_types", object_types: d.object_types };
+    default:
+      return null;
+  }
+};
+
+/** null (P = T) unless the user selected events or switched the transformation events off. */
+const processingToConfig = (d: ProcessingDraft): DerivationConfig["processing_operations"] => {
+  const selection = eventsToConfig(d);
+  if (!selection && d.include_transformations) return null;
+  return { selection, include_transformations: d.include_transformations };
+};
 
 const eventsToConfig = (d: EventSetDraft) => {
   switch (d.option) {
@@ -149,6 +258,10 @@ export const toConfig = (d: ConfigDraft): DerivationConfig => ({
   target_locations: locationsToConfig(d.target_locations) as DerivationConfig["target_locations"],
   pickup_locations: locationsToConfig(d.pickup_locations),
   level: d.level,
+  high_level_locations: highLevelToConfig(d.high_level_locations),
+  vehicles: locationSetToConfig(d.vehicles),
+  storage_units: locationSetToConfig(d.storage_units),
+  processing_operations: processingToConfig(d.processing_operations),
 });
 
 /** The form, filled with a configuration (e.g. the applied one, or one loaded from a file). */
@@ -165,6 +278,16 @@ export const fromConfig = (config: DerivationConfig): ConfigDraft => {
     ? ({ ...emptyLocations("attribute"), ...config.pickup_locations } as LocationsDraft)
     : emptyLocations("none");
   draft.level = (config.level ?? 3) as Level;
+  if (config.high_level_locations) draft.high_level_locations = { ...emptyHighLevel(), ...config.high_level_locations } as HighLevelDraft;
+  if (config.vehicles) draft.vehicles = { ...emptyLocationSet(), ...config.vehicles } as LocationSetDraft;
+  if (config.storage_units) draft.storage_units = { ...emptyLocationSet(), ...config.storage_units } as LocationSetDraft;
+  const processing = config.processing_operations;
+  if (processing)
+    draft.processing_operations = {
+      ...emptyEvents("none"),
+      ...(processing.selection ?? {}),
+      include_transformations: processing.include_transformations ?? true,
+    } as ProcessingDraft;
   return draft;
 };
 
@@ -190,6 +313,23 @@ export const missingEntries = (d: ConfigDraft): string[] => {
   };
   locations("Target locations", d.target_locations);
   locations("Pickup locations", d.pickup_locations);
+  events("Processing operations", d.processing_operations);
+  const h = d.high_level_locations;
+  if (h.option === "table" && !(h.table && h.location_column && h.high_level_column))
+    missing.push("High-level locations: select a table, its location column and its high-level column.");
+  if (h.option === "event_attributes" && !(h.low_attribute && h.high_attribute))
+    missing.push("High-level locations: select the two event attributes.");
+  if (h.option === "object_attribute" && !h.attribute) missing.push("High-level locations: select an object attribute.");
+  if (h.option === "o2o" && !h.qualifiers.length) missing.push("High-level locations: select o2o qualifiers.");
+  if (h.option === "pattern" && !h.pattern.trim()) missing.push("High-level locations: enter a pattern.");
+  const sets = (name: string, v: LocationSetDraft) => {
+    if (v.option === "locations" && !v.locations.length) missing.push(`${name}: pick locations.`);
+    if (v.option === "table" && !(v.table && v.location_column)) missing.push(`${name}: select a table and its location column.`);
+    if (v.option === "attribute_values" && !(v.attribute && v.values.length)) missing.push(`${name}: select an attribute and values.`);
+    if (v.option === "object_types" && !v.object_types.length) missing.push(`${name}: select object types.`);
+  };
+  sets("Vehicles", d.vehicles);
+  sets("Storage units", d.storage_units);
   return missing;
 };
 
@@ -282,6 +422,42 @@ const INFO: Record<string, ReactNode> = {
           agreeing transformation event is.
         </>,
         "Flags always use the selected level.",
+      ]}
+    />
+  ),
+  highLevel: (
+    <Lines
+      lines={[
+        "Groups locations into high-level locations, e.g. bays A1 and A2 into hall A (agg).",
+        "Partial mappings are fine: a location without a high-level location is its own high-level location.",
+        "A location with two different high-level locations is a blocking error; an unmapped location whose name is a high-level location of others is flagged (F6).",
+        "Naming pattern: a regular expression with one group; the group is the high-level location, e.g. ^([A-Z]+) maps A1 to A.",
+      ]}
+    />
+  ),
+  vehicles: (
+    <Lines
+      lines={[
+        "Locations that are vehicles, e.g. trucks or forklifts (V). Optional.",
+        "Event attribute: the target locations of the events with the selected values are vehicles.",
+        "A location that is both a vehicle and a storage unit is flagged (F10).",
+      ]}
+    />
+  ),
+  storage: (
+    <Lines
+      lines={[
+        "Locations that are storage units, e.g. racks or buffers (W). Optional.",
+        "Taking a handling unit out of a storage unit resets the waiting clock of the visits.",
+      ]}
+    />
+  ),
+  processing: (
+    <Lines
+      lines={[
+        "Events at which a handling unit is actually processed (P), e.g. roll, cut, label. Optional.",
+        "Default: the transformation events (none if there are none). Tick the box to add the transformation events to a selection.",
+        "Events with the same timestamp are ordered movements first, then processing operations, then the rest (AS4); Level 3 uses this order.",
       ]}
     />
   ),
@@ -648,6 +824,183 @@ const LocationFields = ({
   </Stack>
 );
 
+/** High-level locations: table, two event attributes, location-object attribute, o2o relations, naming pattern. */
+const HighLevelFields = ({
+  value: d,
+  onChange,
+  tables,
+  eventAttributes,
+  objectAttributes,
+  o2oQualifiers,
+  hasObjects,
+}: SectionProps<HighLevelDraft> & {
+  eventAttributes: string[];
+  objectAttributes: string[];
+  o2oQualifiers: ValueCount[] | undefined;
+  hasObjects: boolean;
+}) => (
+  <Stack gap={6}>
+    <SegmentedControl
+      size="xs"
+      data={[
+        { value: "none", label: "none" },
+        { value: "table", label: "table" },
+        { value: "event_attributes", label: "event attributes" },
+        ...(hasObjects
+          ? [
+              { value: "object_attribute", label: "object attribute" },
+              { value: "o2o", label: "o2o relation" },
+            ]
+          : []),
+        { value: "pattern", label: "naming pattern" },
+      ]}
+      value={d.option}
+      onChange={(option) => onChange({ ...d, option: option as HighLevelDraft["option"] })}
+    />
+    {d.option === "table" && (
+      <TableColumns
+        tables={tables}
+        table={d.table}
+        onTable={(table) => onChange({ ...d, table, location_column: null, high_level_column: null })}
+        columns={[
+          { label: "Location column", value: d.location_column, onChange: (location_column) => onChange({ ...d, location_column }) },
+          { label: "High-level column", value: d.high_level_column, onChange: (high_level_column) => onChange({ ...d, high_level_column }) },
+        ]}
+      />
+    )}
+    {d.option === "event_attributes" && (
+      <Group grow align="flex-start">
+        <Select size="xs" label="Low-level location" data={eventAttributes} value={d.low_attribute} onChange={(low_attribute) => onChange({ ...d, low_attribute })} searchable />
+        <Select size="xs" label="High-level location" data={eventAttributes} value={d.high_attribute} onChange={(high_attribute) => onChange({ ...d, high_attribute })} searchable />
+      </Group>
+    )}
+    {d.option === "object_attribute" && (
+      <Select
+        size="xs"
+        data={objectAttributes}
+        value={d.attribute}
+        onChange={(attribute) => onChange({ ...d, attribute })}
+        placeholder="Select the attribute of the location objects"
+        searchable
+      />
+    )}
+    {d.option === "o2o" && (
+      <Group grow align="flex-start">
+        <CountPicker label="O2o qualifiers" data={o2oQualifiers} value={d.qualifiers} onChange={(q) => onChange({ ...d, qualifiers: q })} placeholder="e.g. part of" />
+        <Select
+          size="xs"
+          label="High-level name"
+          data={[{ value: "", label: "object id" }, ...objectAttributes.map((a) => ({ value: a, label: `attribute "${a}"` }))]}
+          value={d.name_attribute ?? ""}
+          onChange={(v) => onChange({ ...d, name_attribute: v || null })}
+          allowDeselect={false}
+        />
+      </Group>
+    )}
+    {d.option === "pattern" && (
+      <TextInput size="xs" value={d.pattern} onChange={(e) => onChange({ ...d, pattern: e.currentTarget.value })} placeholder="^([A-Z]+)" />
+    )}
+  </Stack>
+);
+
+/** Vehicles or storage units: locations (picked or typed in), table, event attribute, location-object types. */
+const LocationSetFields = ({
+  value: d,
+  onChange,
+  ocelId,
+  tables,
+  eventAttributes,
+  locations,
+  hasObjects,
+  valueLabel,
+}: SectionProps<LocationSetDraft> & {
+  eventAttributes: string[];
+  locations: LocationOptions | undefined;
+  hasObjects: boolean;
+  valueLabel: string;
+}) => (
+  <Stack gap={6}>
+    <SegmentedControl
+      size="xs"
+      data={[
+        { value: "none", label: "none" },
+        { value: "locations", label: "locations" },
+        { value: "table", label: "table" },
+        { value: "attribute_values", label: "event attribute" },
+        ...(hasObjects ? [{ value: "object_types", label: "object types" }] : []),
+      ]}
+      value={d.option}
+      onChange={(option) => onChange({ ...d, option: option as LocationSetDraft["option"] })}
+    />
+    {d.option === "locations" && (
+      <TagsInput
+        size="xs"
+        data={(locations?.locations ?? []).map((v) => v.value)}
+        value={d.locations}
+        onChange={(picked) => onChange({ ...d, locations: picked })}
+        placeholder="Pick or type locations"
+        clearable
+      />
+    )}
+    {d.option === "table" && (
+      <TableColumns
+        tables={tables}
+        table={d.table}
+        onTable={(table) => onChange({ ...d, table, location_column: null, flag_column: null })}
+        columns={[
+          { label: "Location column", value: d.location_column, onChange: (location_column) => onChange({ ...d, location_column }) },
+          { label: "True/false column (optional)", value: d.flag_column, onChange: (flag_column) => onChange({ ...d, flag_column }) },
+        ]}
+      />
+    )}
+    {d.option === "attribute_values" && (
+      <Group grow align="flex-start">
+        <Select size="xs" label="Event attribute" data={eventAttributes} value={d.attribute} onChange={(attribute) => onChange({ ...d, attribute, values: [] })} searchable />
+        <AttributeValuePicker ocelId={ocelId} attribute={d.attribute} value={d.values} onChange={(values) => onChange({ ...d, values })} label={valueLabel} />
+      </Group>
+    )}
+    {d.option === "object_types" && (
+      <CountPicker
+        data={locations?.location_object_types}
+        value={d.object_types}
+        onChange={(object_types) => onChange({ ...d, object_types })}
+        placeholder="Select object types of the location objects"
+      />
+    )}
+  </Stack>
+);
+
+/** Downloads a CSV with one row per location and empty columns high_level, is_vehicle, is_storage. */
+const downloadTemplate = (locations: LocationOptions | undefined) => {
+  const escape = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+  const rows = (locations?.locations ?? []).map((v) => v.value).sort();
+  const csv = ["location,high_level,is_vehicle,is_storage", ...rows.map((r) => `${escape(r)},,,`)].join("\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "locations.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
+/** The locations L of the current target and pickup inputs (for pickers and the template), refreshed on change. */
+const useFormLocations = (ocelId: string, draft: ConfigDraft): LocationOptions | undefined => {
+  const { mutate, data } = useGetLocations();
+  // Only complete location inputs are sent (an incomplete one would just report what is missing).
+  const complete = (l: LocationsDraft) =>
+    (l.option === "attribute" && !!l.attribute) ||
+    (l.option === "qualifiers" && l.qualifiers.length > 0) ||
+    (l.option === "table" && !!(l.table && l.event_column && l.location_column));
+  const target = complete(draft.target_locations) ? locationsToConfig(draft.target_locations) : null;
+  const pickup = complete(draft.pickup_locations) ? locationsToConfig(draft.pickup_locations) : null;
+  const key = JSON.stringify([target, pickup]);
+  useEffect(() => {
+    if (target) mutate({ ocelId, data: { target_locations: target, pickup_locations: pickup } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ocelId, key]);
+  return target ? data : undefined;
+};
+
 // endregion
 // region Download and load
 
@@ -704,6 +1057,8 @@ export const ConfigForm = ({
   const set = <K extends keyof ConfigDraft>(key: K) => (value: ConfigDraft[K]) => setDraft((d) => ({ ...d, [key]: value }));
   const missing = missingEntries(draft);
   const eventAttributes = options?.event_attributes ?? [];
+  const locations = useFormLocations(ocelId, draft);
+  const hasObjects = draft.target_locations.option === "qualifiers" || draft.pickup_locations.option === "qualifiers";
 
   const load = async (file: File | null) => {
     if (!file) return;
@@ -836,6 +1191,87 @@ export const ConfigForm = ({
             eventAttributes={eventAttributes}
             objectAttributes={options?.object_attributes ?? []}
             optional
+          />
+        </Section>
+      </SimpleGrid>
+
+      <Group justify="space-between">
+        <Text fw={600}>Location context (optional)</Text>
+        <Tooltip
+          label="A CSV with one row per location and empty columns high_level, is_vehicle, is_storage. Fill it in, upload it once and pick it in the three inputs below."
+          multiline
+          w={320}
+        >
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            leftSection={<DownloadIcon size={12} />}
+            disabled={!locations?.locations?.length}
+            onClick={() => downloadTemplate(locations)}
+          >
+            Location template
+          </Button>
+        </Tooltip>
+      </Group>
+      {locations?.problems?.length ? (
+        <Text size="xs" c="dimmed">
+          Locations cannot be listed yet: {locations.problems.join(" ")}
+        </Text>
+      ) : null}
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+        <Section title="High-level locations" info={INFO.highLevel} hint="Without them, every location is its own high-level location.">
+          <HighLevelFields
+            value={draft.high_level_locations}
+            onChange={set("high_level_locations")}
+            ocelId={ocelId}
+            tables={tables}
+            eventAttributes={eventAttributes}
+            objectAttributes={options?.object_attributes ?? []}
+            o2oQualifiers={options?.o2o_qualifiers}
+            hasObjects={hasObjects}
+          />
+        </Section>
+        <Section title="Processing operations" info={INFO.processing} hint="Default: the transformation events.">
+          <EventSetFields
+            value={draft.processing_operations}
+            onChange={(v) => set("processing_operations")({ ...draft.processing_operations, ...v })}
+            ocelId={ocelId}
+            tables={tables}
+            activities={options?.activities}
+            qualifiers={options?.qualifiers}
+            eventAttributes={eventAttributes}
+            optional
+            valueLabel='Values meaning "processing"'
+          />
+          <Switch
+            size="xs"
+            label="and all transformation events"
+            checked={draft.processing_operations.include_transformations}
+            onChange={(e) => set("processing_operations")({ ...draft.processing_operations, include_transformations: e.currentTarget.checked })}
+          />
+        </Section>
+        <Section title="Vehicles" info={INFO.vehicles} hint="Locations that are vehicles.">
+          <LocationSetFields
+            value={draft.vehicles}
+            onChange={set("vehicles")}
+            ocelId={ocelId}
+            tables={tables}
+            eventAttributes={eventAttributes}
+            locations={locations}
+            hasObjects={hasObjects}
+            valueLabel='Values whose targets are vehicles'
+          />
+        </Section>
+        <Section title="Storage units" info={INFO.storage} hint="Locations that are storage units.">
+          <LocationSetFields
+            value={draft.storage_units}
+            onChange={set("storage_units")}
+            ocelId={ocelId}
+            tables={tables}
+            eventAttributes={eventAttributes}
+            locations={locations}
+            hasObjects={hasObjects}
+            valueLabel='Values whose targets are storage units'
           />
         </Section>
       </SimpleGrid>

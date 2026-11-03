@@ -15,6 +15,8 @@ from ocelescope_backend.app.dependencies import ApiOcel, ApiSession
 from ocelescope_module_location_based_ocpm.api_models import (
     ApplyResult,
     ConfigState,
+    LocationOptions,
+    LocationRequest,
     LogOptions,
     Message,
     TableInfo,
@@ -208,6 +210,38 @@ def get_options(ocel: ApiOcel) -> LogOptions:
         qualifiers=_counts(ocel.e2o.pl, OCEL_QUALIFIER),
         event_attributes=[name for name in events.collect_schema().names() if not name.startswith("ocel:")],
         object_attributes=ocel.objects.static_attribute_names,
+        o2o_qualifiers=_counts(ocel.o2o.pl, OCEL_QUALIFIER),
+    )
+
+
+@router.post("/{ocel_id}/locations", operation_id="getLocations")
+def get_locations(ocel: ApiOcel, body: LocationRequest, state: State) -> LocationOptions:
+    """The locations L of the given target and pickup inputs, with their number of events, and the object types
+    of the location objects; used by the location-context pickers and the location template."""
+    from ocelescope_module_location_based_ocpm.derivation.inputs import _log_events, resolve_locations
+    from ocelescope_module_location_based_ocpm.derivation.location_context import location_objects
+
+    events = _log_events(ocel)
+    frames, problems = [], []
+    for option, name in ((body.target_locations, "Target locations"), (body.pickup_locations, "Pickup locations")):
+        if option is None:
+            continue
+        try:
+            located, _, errors = resolve_locations(events, option, state.frames(), name, ocel)
+        except KeyError as error:
+            problems.append(str(error.args[0]))
+            continue
+        problems += [e.message for e in errors]
+        frames.append(located)
+    if not frames:
+        return LocationOptions(problems=problems)
+    located = pl.concat(frames).unique()
+    config = DerivationConfig.model_construct(target_locations=body.target_locations, pickup_locations=body.pickup_locations)
+    objects = location_objects(ocel, config)
+    return LocationOptions(
+        locations=_counts(located.lazy(), "location"),
+        location_object_types=_counts(objects.lazy(), "object_type") if objects.height else [],
+        problems=problems,
     )
 
 

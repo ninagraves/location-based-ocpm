@@ -15,10 +15,11 @@ import { useScheme } from "./plots";
 const INFO = {
   events: "Kept events of the activity.",
   share: "Share of all kept events that belong to this activity (only with a location filter).",
-  role: "M: share of the events that are movement events; T: share that are transformation events ('–' if none are configured).",
+  role: "M: share of the events that are movement events; T: share that are transformation events ('–' if none are configured); P: share that are processing operations ('–' if there are none).",
   hus: "Median (max) number of handling units per event; hover a cell for the object types, counted as hu-event relations. Sorted by max.",
   location:
     "Most frequent location after the event among the hu-event relations of this activity with a known location (relations without a location are not counted). Ties: alphabetically first, with the number of tied locations. 'provided x/y': x of the y events have a location from the input.",
+  high: "High-level mode: the high-level locations of the relations; hover a cell for their locations. Agreement is under the high-level locations.",
   located: "Fully located events (partially located, unlocated) and the share of fully located events. Sorted by the share.",
   agreed:
     "Agreeing events: no two handling units of the event have different known locations; this includes events with fewer than two located handling units. In brackets: only events with at least two located handling units, where agreement is actually tested.",
@@ -32,7 +33,7 @@ const sortValue: Record<SortKey, (r: ActivityRow) => number | string> = {
   activity: (r) => r.activity,
   events: (r) => r.events,
   share: (r) => r.share_at_location ?? 0,
-  role: (r) => r.movement_share * 2 + (r.transformation_share ?? 0),
+  role: (r) => r.movement_share * 4 + (r.transformation_share ?? 0) * 2 + (r.processing_share ?? 0),
   hus: (r) => r.hus_max,
   located: (r) => r.fully_located / r.events,
   agreed: (r) => r.agreed,
@@ -46,6 +47,10 @@ const sorted = (rows: ActivityRow[], sort: Sort) =>
     if (order !== 0) return sort.descending ? -order : order;
     return b.events - a.events || a.activity.localeCompare(b.activity);
   });
+
+/** Hover of a high-level location: its locations with their counts, e.g. "A2 4 · A1 1". */
+const membersText = (v: { members?: ValueShare[] }) =>
+  v.members?.length ? v.members.map((m) => `${m.value} ${num(m.count)}`).join(" · ") : undefined;
 
 /** "A2 (4/6 = 67 %; 2 tied)". */
 const typicalText = (t: Typical) =>
@@ -109,7 +114,7 @@ const ShareList = ({ title, items, total, distinct, empty }: { title: string; it
       </Text>
       {items.length ? (
         items.map((v) => (
-          <Group key={v.value} gap={6} wrap="nowrap">
+          <Group key={v.value} gap={6} wrap="nowrap" title={membersText(v)}>
             <Progress value={(v.count / total) * 100} w={60} size="sm" color={UI[scheme].primary} />
             <Text size="xs">
               {v.value} · {pct(v.count / total)} ({num(v.count)})
@@ -126,7 +131,19 @@ const ShareList = ({ title, items, total, distinct, empty }: { title: string; it
 };
 
 /** One activity row and, if expanded, its top locations below. */
-const Row = ({ row, withShare, kept, columns }: { row: ActivityRow; withShare: boolean; kept: number; columns: number }) => {
+const Row = ({
+  row,
+  withShare,
+  kept,
+  columns,
+  high,
+}: {
+  row: ActivityRow;
+  withShare: boolean;
+  kept: number;
+  columns: number;
+  high: boolean;
+}) => {
   const [open, setOpen] = useState(false);
   // Short cells stay on one line; the typical location may wrap.
   const cell = (content: ReactNode, wrap = false) => (
@@ -150,7 +167,11 @@ const Row = ({ row, withShare, kept, columns }: { row: ActivityRow; withShare: b
         </Table.Td>
         {cell(num(row.events))}
         {withShare && cell(`${num(row.events)}/${num(kept)} = ${pct(row.share_at_location)}`)}
-        {cell(`M ${pct(row.movement_share)}, T ${row.transformation_share == null ? "–" : pct(row.transformation_share)}`)}
+        {cell(
+          `M ${pct(row.movement_share)}, T ${row.transformation_share == null ? "–" : pct(row.transformation_share)}, P ${
+            row.processing_share == null ? "–" : pct(row.processing_share)
+          }`,
+        )}
         <Table.Td style={{ whiteSpace: "nowrap" }}>
           <Tooltip label={row.object_types.map((t) => `${t.object_type} ${num(t.count)}`).join(" · ")} withArrow>
             <Text size="xs" style={{ cursor: "help" }}>
@@ -158,10 +179,11 @@ const Row = ({ row, withShare, kept, columns }: { row: ActivityRow; withShare: b
             </Text>
           </Tooltip>
         </Table.Td>
-        {cell(
-          `${row.typical_location ? typicalText(row.typical_location) : "unknown"}; provided ${num(row.provided)}/${num(row.events)}`,
-          true,
-        )}
+        <Table.Td title={row.typical_location ? membersText(row.typical_location) : undefined}>
+          <Text size="xs">
+            {`${row.typical_location ? typicalText(row.typical_location) : "unknown"}; provided ${num(row.provided)}/${num(row.events)}`}
+          </Text>
+        </Table.Td>
         {cell(`${num(row.fully_located)} (${num(row.partially_located)}, ${num(row.unlocated)}) · ${pct(row.fully_located / row.events)}`)}
         {cell(`${num(row.agreed)}/${num(row.events)} (${num(row.tested_agreed)}/${num(row.tested)})`)}
       </Table.Tr>
@@ -170,7 +192,7 @@ const Row = ({ row, withShare, kept, columns }: { row: ActivityRow; withShare: b
           <Table.Td colSpan={columns}>
             <Box pl={28} py={4} maw={360}>
               <ShareList
-                title="Locations"
+                title={high ? "High-level locations" : "Locations"}
                 items={row.top_locations}
                 total={row.typical_location?.total ?? 0}
                 distinct={row.typical_location?.distinct ?? 0}
@@ -228,14 +250,24 @@ export const ActivityProfile = ({ ocelId }: { ocelId: string }) => {
                 {withShare && head("share at location", INFO.share, "share")}
                 {head("role", INFO.role, "role")}
                 {head("HUs per event", INFO.hus, "hus")}
-                {head("typical location", INFO.location)}
+                {head(
+                  data.location_mode === "high" ? "typical high-level location" : "typical location",
+                  data.location_mode === "high" ? `${INFO.location} ${INFO.high}` : INFO.location,
+                )}
                 {head("located", INFO.located, "located")}
                 {head("agreed (tested)", INFO.agreed, "agreed")}
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               {rows.map((row) => (
-                <Row key={row.activity} row={row} withShare={withShare} kept={data.kept_events} columns={withShare ? 8 : 7} />
+                <Row
+                  key={row.activity}
+                  row={row}
+                  withShare={withShare}
+                  kept={data.kept_events}
+                  columns={withShare ? 8 : 7}
+                  high={data.location_mode === "high"}
+                />
               ))}
             </Table.Tbody>
           </Table>

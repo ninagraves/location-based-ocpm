@@ -17,6 +17,8 @@ OBJECT_TYPE = "object_type"
 IS_MOVEMENT = "is_movement"
 #: True if the event is a transformation event (e ∈ T).
 IS_TRANSFORMATION = "is_transformation"
+#: True if the event is a processing operation (e ∈ P).
+IS_PROCESSING = "is_processing"
 #: Provided target location uloc(e); null = not provided (⊥).
 ULOC = "uloc"
 #: Provided pickup location puloc(e); null = not provided (⊥). Only set for movement events.
@@ -59,6 +61,30 @@ def ploc(level: int) -> str:
         str: e.g. "ploc^2".
     """
     return f"ploc^{level}"
+
+
+def hl(level: int) -> str:
+    """Name of the column holding the high-level location hat-hl((e, hu)) = agg(loc^k((e, hu))).
+
+    Args:
+        level: Level k (0 to 3).
+
+    Returns:
+        str: e.g. "hl^3".
+    """
+    return f"hl^{level}"
+
+
+def phl(level: int) -> str:
+    """Name of the column holding the previous high-level location agg(ploc^k((e, hu))).
+
+    Args:
+        level: Level k (0 to 3).
+
+    Returns:
+        str: e.g. "phl^3".
+    """
+    return f"phl^{level}"
 
 
 #: All levels, lowest first.

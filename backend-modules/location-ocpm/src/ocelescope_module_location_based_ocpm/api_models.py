@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel
 
-from ocelescope_module_location_based_ocpm.derivation.config import DerivationConfig
+from ocelescope_module_location_based_ocpm.derivation.config import DerivationConfig, LocationsInput
 from ocelescope_module_location_based_ocpm.derivation.messages import BlockingError, Notice
 
 #: At most this many ids are sent per message; `count` still gives the total.
@@ -41,6 +41,7 @@ class LogOptions(BaseModel):
         qualifiers: E2o qualifiers with their number of relations.
         event_attributes: Names of the event attributes.
         object_attributes: Names of the static object attributes (for location names).
+        o2o_qualifiers: O2o qualifiers with their number of relations (for high-level locations).
     """
 
     object_types: list[ValueCount]
@@ -48,6 +49,33 @@ class LogOptions(BaseModel):
     qualifiers: list[ValueCount]
     event_attributes: list[str]
     object_attributes: list[str]
+    o2o_qualifiers: list[ValueCount] = []
+
+
+class LocationRequest(BaseModel):
+    """The location inputs of the form, to list the locations L before the configuration is applied.
+
+    Attributes:
+        target_locations: The target location input.
+        pickup_locations: The pickup location input (optional).
+    """
+
+    target_locations: LocationsInput
+    pickup_locations: LocationsInput | None = None
+
+
+class LocationOptions(BaseModel):
+    """The locations L of the current location inputs, for the location-context pickers and the template.
+
+    Attributes:
+        locations: Every location with its number of events (as target or pickup), most frequent first.
+        location_object_types: Object types of the location objects (only with e2o-qualifier locations).
+        problems: Why the locations could not be listed (e.g. a missing table); empty if they could.
+    """
+
+    locations: list[ValueCount] = []
+    location_object_types: list[ValueCount] = []
+    problems: list[str] = []
 
 
 class Message(BaseModel):

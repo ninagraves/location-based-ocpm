@@ -106,3 +106,20 @@ def test_example_configuration_file_matches_the_tests():
     """data/running_example/configuration.json loads into the running example's configuration."""
     loaded = DerivationConfig.model_validate(json.loads((EXAMPLE / "configuration.json").read_text()))
     assert loaded == example_config()
+
+
+def test_locations_of_the_location_inputs(ocel, state):
+    """The form lists L (with the number of events) for the location-context pickers and the template."""
+    from ocelescope_module_location_based_ocpm.api_models import LocationRequest
+    from ocelescope_module_location_based_ocpm.derivation.config import LocationAttribute
+
+    request = LocationRequest(
+        target_locations=LocationAttribute(attribute="to_loc"), pickup_locations=LocationAttribute(attribute="from_loc")
+    )
+    result = routes.get_locations(ocel, request, state)
+    assert {v.value for v in result.locations} == {"A1", "A2", "B1", "T"}
+    assert result.location_object_types == [] and result.problems == []
+    missing = routes.get_locations(
+        ocel, LocationRequest(target_locations=LocationTable(table="nope", event_column="e", location_column="l")), state
+    )
+    assert missing.locations == [] and missing.problems
