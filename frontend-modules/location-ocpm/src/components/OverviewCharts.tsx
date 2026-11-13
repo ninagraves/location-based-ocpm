@@ -56,7 +56,7 @@ const INFO = {
   mode: "# events (# relations, # handling units): bar = units of the activity (type, pair). # locations: bar = number of distinct locations (≠ ⊥) of the bar's relations.",
   huLocation:
     "by location: a handling unit's only known location over its whole trace; '[several locations]' if it has two or more, '–' if it has none (⊥ does not count). Locatedness is also over the whole trace.",
-  end: "top 10: the 10 largest bars, the rest summed into a grey 'other' bar. bottom 10: the 10 smallest bars, the rest left out. Also applies to both axes of the heatmap.",
+  end: "top 10: the 10 largest bars, the rest left out (the subtitle says how many). bottom 10: the 10 smallest bars, the rest left out. Also applies to both axes of the heatmap.",
   events:
     "Keep all relations or events, only those of movement events, of transformation events or of processing operations.",
   locationType:
@@ -272,13 +272,15 @@ const hoverText = (bar: Bar, unit: string, segment?: { value: string; count: num
   if (segment && byLabel) lines.push(`${byLabel} ${segment.value}: ${num(segment.count)} (${pct(segment.count / bar.count)})`);
   if (bar.left_out) lines.push(`${num(bar.left_out)} not agreeing events left out`);
   if (bar.locations?.length) lines.push(`locations: ${bar.locations.join(", ")}`);
-  if (bar.label === OTHER_LABEL) lines.push(`sum of ${num(bar.bars)} further bars`);
   return lines.join("<br>");
 };
 
-/** Plotly traces of a stacked horizontal bar chart: one trace per segment value, largest bar on top. */
+/**
+ * Plotly traces of a stacked horizontal bar chart: one trace per segment value, largest bar on top.
+ * The bars beyond the shown ones are not drawn (a summed "other" bar would dwarf the others).
+ */
 const traces = (data: BarChartData, by: GetBarChartBy, unit: string, byLabel: string, scheme: Scheme) => {
-  const bars = data.other ? [...data.bars, data.other] : data.bars;
+  const bars = data.bars;
   const y = bars.map((b) => b.label);
   const grey = OTHER[scheme];
   if (by === "none") {
@@ -290,7 +292,7 @@ const traces = (data: BarChartData, by: GetBarChartBy, unit: string, byLabel: st
         x: bars.map((b) => b.count),
         customdata: bars.map((b) => [b.label, ""]),
         marker: {
-          color: bars.map((b) => (b.label === MISSING || b === data.other ? grey : UI[scheme].primary)),
+          color: bars.map((b) => (b.label === MISSING ? grey : UI[scheme].primary)),
           pattern: { shape: bars.map((b) => (b.label === MISSING ? "/" : "")) },
         },
         hovertext: bars.map((b) => hoverText(b, unit)),
@@ -322,19 +324,6 @@ const traces = (data: BarChartData, by: GetBarChartBy, unit: string, byLabel: st
       };
     })
     .filter((t) => t.y.length);
-  if (data.other) {
-    perValue.push({
-      type: "bar",
-      orientation: "h",
-      name: OTHER_LABEL,
-      y: [data.other.label],
-      x: [data.other.count],
-      customdata: [[OTHER_LABEL, ""]],
-      marker: { color: grey, pattern: { shape: [""] } },
-      hovertext: [hoverText(data.other, unit)],
-      hoverinfo: "text",
-    });
-  }
   return perValue;
 };
 
@@ -374,6 +363,7 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
     mostLocations ? "distinct locations" : (fixedSub ?? (measure === "events" ? "agreeing events" : "hu-event relations")),
     chart === "hu_types" && !mostLocations ? "locatedness and location over the whole trace" : "",
     data?.left_out ? `${num(data.left_out)} not agreeing events left out` : "",
+    data?.other ? `${num(data.other.bars)} more ${data.other.bars === 1 ? "bar" : "bars"} (${num(data.other.count)} ${unit}) not shown` : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -460,12 +450,12 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
                   yaxis: {
                     // Bars in the backend's order (largest first, "other" last), from the top.
                     categoryorder: "array",
-                    categoryarray: [...data.bars, ...(data.other ? [data.other] : [])].map((b) => b.label),
+                    categoryarray: data.bars.map((b) => b.label),
                     autorange: "reversed",
                     automargin: true,
                     tickfont: { size: 11 },
-                    tickvals: [...data.bars, ...(data.other ? [data.other] : [])].map((b) => b.label),
-                    ticktext: [...data.bars, ...(data.other ? [data.other] : [])].map((b) => cut(b.label, labelChars)),
+                    tickvals: data.bars.map((b) => b.label),
+                    ticktext: data.bars.map((b) => cut(b.label, labelChars)),
                   },
                   xaxis: { automargin: true, tickfont: { size: 10 } },
                 }}
