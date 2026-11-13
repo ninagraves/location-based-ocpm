@@ -140,17 +140,17 @@ All at the selected level; the whole log.
 | F3 Mixed pickup | `f3_mixed_pickup` | events | e8 |
 | F4 Location gap | `f4_location_gap` (`f4_location_gaps` lists the gaps) | handling units | c1 (e13: A2 ⇢ A1) |
 | F5 Movement disagreement | `f5_movement_disagreement` | events, with kind a / b | e7 (a), e11 (b) |
-
 | F6 Naming clash | `f6_naming_clashes` (`visits.context.naming_clashes`) | locations | – (none without agg; 0 with the location table) |
 | F7 Simultaneous processing | `f7_simultaneous_processing` (`waiting_times.waiting.simultaneous_processing`) | handling units | 0 |
 | F8 Tied high-level locations (RQ4) | `f8_tied_high_level_locations` (`visits.properties.rq4_violations` on `hl^k`) | handling units | 0 (shown only at Level 0) |
 | F9 Unlocated processing | `f9_unlocated_processing` | events | 0; at Level 0: e1, e3, e4, e15 (P = T plus label) |
 | F10 Vehicle and storage unit | `f10_vehicle_and_storage` | locations | 0 |
 
-"Already at the target" (F1, F3, F5 b) is ploc^k = uloc(e); ⊥ counts as a change (`flags._unchanged`).
+"Already at the target" (F1, F3, F5 b) is ploc^k = uloc(e); ⊥ counts as a change (`flags.at_target`).
 F1-F5 always use the low-level locations, also when the overview shows high-level locations: a movement inside one high-level location is correct.
 Which badges are shown: `overview/flag_badges.flag_counts` (F4 only with pickup locations, F6 only with high-level locations, F8 only at Level 0, F10 only with vehicles and storage units).
 Explore sections are not built yet.
+All flag functions are demonstrated on the running example in `notebooks/flags.ipynb`.
 
 ## 7. Saved level mappings and the demo notebook
 
