@@ -254,7 +254,7 @@ def activity_profile(derivation: Derivation, page_filter: PageFilter | None = No
     typical_locations, top_locations = _typicals(locations, members), _tops(locations, members)
 
     location_filter = bool(page_filter.locations or page_filter.exclude_locations)
-    with_t = derivation.config.transformation_events is not None
+    with_t = derivation.config.has_transformation_input
     with_p = bool(derivation.events[c.IS_PROCESSING].any())
     rows = [
         ActivityRow(

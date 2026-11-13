@@ -1,6 +1,7 @@
 """Key numbers and flag badges on the running example (concept sections "Key Numbers" and "Flags")."""
 
 import polars as pl
+from ocelescope_module_location_based_ocpm.derivation.config import RolesFromQualifiers
 from ocelescope_module_location_based_ocpm.derivation.pipeline import derive
 from ocelescope_module_location_based_ocpm.overview.flag_badges import flag_counts
 from ocelescope_module_location_based_ocpm.overview.key_numbers import key_numbers
@@ -53,3 +54,11 @@ def test_context_flags_shown_when_configured(ocel, input_tables):
     assert keys == ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F9", "F10"]
     counts = {f.key: f.count for f in flag_counts(derive(ocel, example_config(level=0, **CONTEXT), tables))}
     assert (counts["F8"], counts["F9"]) == (0, 4)
+
+
+def test_key_numbers_with_t_derived_from_qualifiers(ocel):
+    """Option 1 derives T (transformation_events is None), so T counts as configured."""
+    roles = RolesFromQualifiers(consumed_qualifiers=["consumed"], produced_qualifiers=["produced"])
+    numbers = key_numbers(derive(ocel, example_config(transformation_events=None, transformation_roles=roles)))
+    assert numbers.transformation_events == 3
+    assert [(a.activity, a.count) for a in numbers.transformation_activities] == [("cast slab", 1), ("cut", 1), ("roll", 1)]

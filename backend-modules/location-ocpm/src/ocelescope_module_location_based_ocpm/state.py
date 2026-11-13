@@ -108,7 +108,8 @@ def table_names(config: DerivationConfig) -> list[str]:
         config.storage_units,
         processing.selection if processing is not None else None,
     )
-    return sorted({option.table for option in inputs if option is not None and option.option == "table"})
+    names = {option.table for option in inputs if option is not None and option.option == "table"}
+    return sorted(names | set(config.role_tables()))
 
 
 def fingerprint(config: DerivationConfig, log_version: str, tables: dict[str, UploadedTable]) -> str:
