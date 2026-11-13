@@ -75,6 +75,7 @@ class Derivation:
         notices: Non-blocking reports of the input resolution.
         errors: Blocking errors (input resolution and RQ1-RQ3); if not empty, nothing is derived.
         handling_units: All handling units with columns hu, object_type (also those without events).
+        roles: Consumed and produced handling units of the transformation events (columns event, hu, role).
     """
 
     config: DerivationConfig
@@ -87,6 +88,7 @@ class Derivation:
     handling_units: pl.DataFrame = field(default_factory=pl.DataFrame)
     hl_event_locations: pl.DataFrame = field(default_factory=pl.DataFrame)
     context: LocationContext = field(default_factory=LocationContext)
+    roles: pl.DataFrame = field(default_factory=pl.DataFrame)
 
     @property
     def level(self) -> int:
@@ -225,6 +227,7 @@ def derive(ocel: OCEL, config: DerivationConfig, tables: dict[str, pl.DataFrame]
         errors=errors,
         handling_units=resolved.handling_units,
         context=resolved.context,
+        roles=resolved.roles,
     )
     if errors:
         return result

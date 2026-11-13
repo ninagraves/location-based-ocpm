@@ -36,6 +36,7 @@ What it does: turns the user's choice per input into the sets HU, M, T and the p
 | Handling units (required) | `ObjectTypes`, `ObjectTable` | `resolve_handling_units` |
 | Movement events M (required) | `Activities`, `AttributeValues`, `EventTable` | `resolve_event_set` |
 | Transformation events T (optional) | `Activities`, `AttributeValues`, `Qualifiers`, `EventTable` | `resolve_event_set` |
+| Consumed and produced handling units cons, prod (optional) | `RolesFromQualifiers`, `RolesFromTable`, `RolesFromParents`, `RolesFromObjectSets`, `RolesFromFirstLast`, `RolesFromFrequency`; None = first/last if T is given; can derive T | `resolve_transformation_inputs` (see `transformation-inputs.md`) |
 | Target locations uloc (required) | `LocationAttribute`, `LocationQualifiers`, `LocationTable` | `resolve_locations` |
 | Pickup locations puloc (optional) | `LocationAttribute`, `LocationQualifiers`, `LocationTable` | `resolve_locations`, then restricted to M |
 | High-level locations agg (optional) | `HighLevelTable`, `HighLevelEventAttributes`, `HighLevelObjectAttribute`, `HighLevelO2O`, `HighLevelPattern` | `location_context.resolve_high_level_locations` |

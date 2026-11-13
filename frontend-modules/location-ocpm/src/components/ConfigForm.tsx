@@ -8,6 +8,7 @@ import {
   FileButton,
   Group,
   MultiSelect,
+  NumberInput,
   SegmentedControl,
   Select,
   SimpleGrid,
@@ -90,6 +91,35 @@ type LocationSetDraft = {
   object_types: string[];
 };
 
+/** A set of objects (option 4 of the transformation inputs): object-attribute values or a table. */
+type ObjectSetDraft = {
+  option: "none" | "attribute_values" | "table";
+  attribute: string | null;
+  values: string[];
+  table: string | null;
+  object_column: string | null;
+};
+
+/** Consumed and produced handling units: options 1 to 6 of overview/concepts/Transformations.md ("default" = option 5
+ * if transformation events are given, otherwise none). */
+type RolesDraft = {
+  option: "default" | "qualifiers" | "table" | "parents" | "object_sets" | "first_last" | "frequency";
+  consumed_qualifiers: string[];
+  produced_qualifiers: string[];
+  table: string | null;
+  event_column: string | null;
+  object_column: string | null;
+  role_column: string | null;
+  consumed_values: string[];
+  produced_values: string[];
+  qualifiers: string[];
+  direction: "child_of" | "parent_of";
+  produced: ObjectSetDraft;
+  consumed: ObjectSetDraft;
+  consumption: "final" | "partial";
+  threshold: number;
+};
+
 /** Processing operations: a selection like the transformation events ("none" = no further events), plus T. */
 type ProcessingDraft = EventSetDraft & { include_transformations: boolean };
 
@@ -103,6 +133,7 @@ export type ConfigDraft = {
   };
   movement_events: EventSetDraft;
   transformation_events: EventSetDraft;
+  transformation_roles: RolesDraft;
   target_locations: LocationsDraft;
   pickup_locations: LocationsDraft;
   level: Level;
@@ -156,11 +187,37 @@ const emptyLocations = (option: LocationsDraft["option"]): LocationsDraft => ({
   location_column: null,
 });
 
+const emptyObjectSet = (): ObjectSetDraft => ({ option: "none", attribute: null, values: [], table: null, object_column: null });
+
+const emptyRoles = (): RolesDraft => ({
+  option: "default",
+  consumed_qualifiers: [],
+  produced_qualifiers: [],
+  table: null,
+  event_column: null,
+  object_column: null,
+  role_column: null,
+  consumed_values: ["consumed"],
+  produced_values: ["produced"],
+  qualifiers: [],
+  direction: "child_of",
+  produced: emptyObjectSet(),
+  consumed: emptyObjectSet(),
+  consumption: "final",
+  threshold: 0.5,
+});
+
+/** Options of the consumed/produced input that derive T themselves (the transformation-events input is not used). */
+const DERIVES_T = ["qualifiers", "frequency"];
+/** Options that need the transformation events. */
+const NEEDS_T = ["parents", "object_sets", "first_last"];
+
 /** The empty form: no choices yet, Level 3 (the default of the concept). */
 export const emptyDraft = (): ConfigDraft => ({
   handling_units: { option: "object_types", object_types: [], table: null, object_column: null },
   movement_events: emptyEvents("activities"),
   transformation_events: emptyEvents("none"),
+  transformation_roles: emptyRoles(),
   target_locations: emptyLocations("attribute"),
   pickup_locations: emptyLocations("none"),
   level: 3,
@@ -202,6 +259,44 @@ const locationSetToConfig = (d: LocationSetDraft): DerivationConfig["vehicles"] 
       return { option: "attribute_values", attribute: d.attribute ?? "", values: d.values };
     case "object_types":
       return { option: "object_types", object_types: d.object_types };
+    default:
+      return null;
+  }
+};
+
+const objectSetToConfig = (d: ObjectSetDraft) => {
+  switch (d.option) {
+    case "attribute_values":
+      return { option: "attribute_values" as const, attribute: d.attribute ?? "", values: d.values };
+    case "table":
+      return { option: "table" as const, table: d.table ?? "", object_column: d.object_column ?? "" };
+    default:
+      return null;
+  }
+};
+
+const rolesToConfig = (d: RolesDraft): DerivationConfig["transformation_roles"] => {
+  switch (d.option) {
+    case "qualifiers":
+      return { option: "qualifiers", consumed_qualifiers: d.consumed_qualifiers, produced_qualifiers: d.produced_qualifiers };
+    case "table":
+      return {
+        option: "table",
+        table: d.table ?? "",
+        event_column: d.event_column ?? "",
+        object_column: d.object_column ?? "",
+        role_column: d.role_column ?? "",
+        consumed_values: d.consumed_values,
+        produced_values: d.produced_values,
+      };
+    case "parents":
+      return { option: "parents", qualifiers: d.qualifiers, direction: d.direction };
+    case "object_sets":
+      return { option: "object_sets", produced: objectSetToConfig(d.produced), consumed: objectSetToConfig(d.consumed), consumption: d.consumption };
+    case "first_last":
+      return { option: "first_last" };
+    case "frequency":
+      return { option: "frequency", threshold: d.threshold };
     default:
       return null;
   }
@@ -254,7 +349,8 @@ export const toConfig = (d: ConfigDraft): DerivationConfig => ({
       ? { option: "table", table: d.handling_units.table ?? "", object_column: d.handling_units.object_column ?? "" }
       : { option: "object_types", object_types: d.handling_units.object_types },
   movement_events: eventsToConfig(d.movement_events) as DerivationConfig["movement_events"],
-  transformation_events: eventsToConfig(d.transformation_events),
+  transformation_events: DERIVES_T.includes(d.transformation_roles.option) ? null : eventsToConfig(d.transformation_events),
+  transformation_roles: rolesToConfig(d.transformation_roles),
   target_locations: locationsToConfig(d.target_locations) as DerivationConfig["target_locations"],
   pickup_locations: locationsToConfig(d.pickup_locations),
   level: d.level,
@@ -273,6 +369,16 @@ export const fromConfig = (config: DerivationConfig): ConfigDraft => {
   draft.transformation_events = config.transformation_events
     ? ({ ...emptyEvents("activities"), ...config.transformation_events } as EventSetDraft)
     : emptyEvents("none");
+  const roles = config.transformation_roles;
+  if (roles) {
+    const sets = roles as { produced?: Partial<ObjectSetDraft> | null; consumed?: Partial<ObjectSetDraft> | null };
+    draft.transformation_roles = {
+      ...emptyRoles(),
+      ...roles,
+      produced: { ...emptyObjectSet(), ...(sets.produced ?? {}) },
+      consumed: { ...emptyObjectSet(), ...(sets.consumed ?? {}) },
+    } as RolesDraft;
+  }
   draft.target_locations = { ...emptyLocations("attribute"), ...config.target_locations } as LocationsDraft;
   draft.pickup_locations = config.pickup_locations
     ? ({ ...emptyLocations("attribute"), ...config.pickup_locations } as LocationsDraft)
@@ -304,7 +410,21 @@ export const missingEntries = (d: ConfigDraft): string[] => {
     if (e.option === "table" && !(e.table && e.event_column)) missing.push(`${name}: select a table and its event column.`);
   };
   events("Movement events", d.movement_events);
-  events("Transformation events", d.transformation_events);
+  const r = d.transformation_roles;
+  if (!DERIVES_T.includes(r.option)) events("Transformation events", d.transformation_events);
+  if (NEEDS_T.includes(r.option) && d.transformation_events.option === "none")
+    missing.push("Consumed and produced: this option needs the transformation events.");
+  if (r.option === "qualifiers" && !(r.consumed_qualifiers.length || r.produced_qualifiers.length))
+    missing.push("Consumed and produced: select consumed and/or produced qualifiers.");
+  if (r.option === "table" && !(r.table && r.event_column && r.object_column && r.role_column))
+    missing.push("Consumed and produced: select a table and its event, object and role columns.");
+  if (r.option === "parents" && !r.qualifiers.length) missing.push("Consumed and produced: select o2o qualifiers.");
+  if (r.option === "object_sets") {
+    for (const [name, s] of [["produced", r.produced], ["consumed", r.consumed]] as const) {
+      if (s.option === "attribute_values" && !(s.attribute && s.values.length)) missing.push(`Consumed and produced: ${name} objects need an attribute and values.`);
+      if (s.option === "table" && !(s.table && s.object_column)) missing.push(`Consumed and produced: ${name} objects need a table and its object column.`);
+    }
+  }
   const locations = (name: string, l: LocationsDraft) => {
     if (l.option === "attribute" && !l.attribute) missing.push(`${name}: select an event attribute.`);
     if (l.option === "qualifiers" && !l.qualifiers.length) missing.push(`${name}: select qualifiers.`);
@@ -381,6 +501,39 @@ const INFO: Record<string, ReactNode> = {
         "Physical events in which at least one handling unit is consumed and/or produced, e.g. cast slab, roll, cut (T).",
         "Optional. Level 3 uses them: a handling unit involved in a transformation is where the event's other handling units are.",
         "Without transformation events, Level 3 equals Level 2.",
+      ]}
+    />
+  ),
+  roles: (
+    <Lines
+      lines={[
+        "Which handling units each transformation event consumes and produces (cons, prod); also decides which events are transformation events.",
+        <>
+          <b>Default:</b> first/last timestamps if transformation events are given, otherwise there are none.
+        </>,
+        <>
+          <b>e2o qualifiers:</b> qualifiers meaning consumed and produced; the transformation events are the events with such a handling unit.
+        </>,
+        <>
+          <b>table:</b> one row per event, handling unit and role; transformation events from the input above, or the table's events.
+        </>,
+        <>
+          <b>parents (o2o):</b> a handling unit starting at a transformation event is produced from its parents involved in it; a
+          handling unit ending at one is consumed once all its children have started.
+        </>,
+        <>
+          <b>produced/consumed objects:</b> the handling units created and consumed in the log; consumed at their last event (final)
+          or at every transformation event they are involved in (partial).
+        </>,
+        <>
+          <b>first/last timestamps:</b> produced are the handling units starting at the event, consumed those ending there.
+        </>,
+        <>
+          <b>frequency:</b> no input needed: an activity counts as producing (consuming) if it is at least this share of the first
+          (last) events of a handling-unit type; its first (last) events become transformation events.
+        </>,
+        "First and last events: at equal timestamps, selected processing operations first, then the smallest event id.",
+        "Events without any consumed or produced handling unit are not transformation events (AS-T1); violations of AS-T2 to AS-T4 are reported.",
       ]}
     />
   ),
@@ -903,6 +1056,153 @@ const HighLevelFields = ({
   </Stack>
 );
 
+/** A set of objects: values of an object attribute (typed in) or a table with an object column. */
+const ObjectSetFields = ({
+  label,
+  value: d,
+  onChange,
+  tables,
+  objectAttributes,
+}: {
+  label: string;
+  value: ObjectSetDraft;
+  onChange: (v: ObjectSetDraft) => void;
+  tables: TableInfo[];
+  objectAttributes: string[];
+}) => (
+  <Stack gap={4}>
+    <Text size="xs" fw={500}>
+      {label}
+    </Text>
+    <SegmentedControl
+      size="xs"
+      data={[
+        { value: "none", label: "none" },
+        { value: "attribute_values", label: "object attribute" },
+        { value: "table", label: "table" },
+      ]}
+      value={d.option}
+      onChange={(option) => onChange({ ...d, option: option as ObjectSetDraft["option"] })}
+    />
+    {d.option === "attribute_values" && (
+      <Group grow align="flex-start">
+        <Select size="xs" label="Object attribute" data={objectAttributes} value={d.attribute} onChange={(attribute) => onChange({ ...d, attribute })} searchable />
+        <TagsInput size="xs" label="Values" value={d.values} onChange={(values) => onChange({ ...d, values })} placeholder="Type values" />
+      </Group>
+    )}
+    {d.option === "table" && (
+      <TableColumns
+        tables={tables}
+        table={d.table}
+        onTable={(table) => onChange({ ...d, table, object_column: null })}
+        columns={[{ label: "Object column", value: d.object_column, onChange: (object_column) => onChange({ ...d, object_column }) }]}
+      />
+    )}
+  </Stack>
+);
+
+/** Consumed and produced handling units: options 1 to 6 of the Transformations concept. */
+const RolesFields = ({
+  value: d,
+  onChange,
+  tables,
+  qualifiers,
+  o2oQualifiers,
+  objectAttributes,
+}: {
+  value: RolesDraft;
+  onChange: (v: RolesDraft) => void;
+  tables: TableInfo[];
+  qualifiers: ValueCount[] | undefined;
+  o2oQualifiers: ValueCount[] | undefined;
+  objectAttributes: string[];
+}) => (
+  <Stack gap={6}>
+    <Select
+      size="xs"
+      data={[
+        { value: "default", label: "default (first/last timestamps of the transformation events)" },
+        { value: "qualifiers", label: "e2o qualifiers" },
+        { value: "table", label: "table" },
+        { value: "parents", label: "parent relations (o2o)" },
+        { value: "object_sets", label: "produced/consumed objects" },
+        { value: "first_last", label: "first/last timestamps" },
+        { value: "frequency", label: "frequency of first/last activities" },
+      ]}
+      value={d.option}
+      onChange={(option) => onChange({ ...d, option: (option ?? "default") as RolesDraft["option"] })}
+      allowDeselect={false}
+    />
+    {d.option === "qualifiers" && (
+      <Group grow align="flex-start">
+        <CountPicker label="Consumed" data={qualifiers} value={d.consumed_qualifiers} onChange={(consumed_qualifiers) => onChange({ ...d, consumed_qualifiers })} placeholder="Qualifiers" />
+        <CountPicker label="Produced" data={qualifiers} value={d.produced_qualifiers} onChange={(produced_qualifiers) => onChange({ ...d, produced_qualifiers })} placeholder="Qualifiers" />
+      </Group>
+    )}
+    {d.option === "table" && (
+      <>
+        <TableColumns
+          tables={tables}
+          table={d.table}
+          onTable={(table) => onChange({ ...d, table, event_column: null, object_column: null, role_column: null })}
+          columns={[
+            { label: "Event column", value: d.event_column, onChange: (event_column) => onChange({ ...d, event_column }) },
+            { label: "Object column", value: d.object_column, onChange: (object_column) => onChange({ ...d, object_column }) },
+            { label: "Role column", value: d.role_column, onChange: (role_column) => onChange({ ...d, role_column }) },
+          ]}
+        />
+        <Group grow align="flex-start">
+          <TagsInput size="xs" label='Values meaning "consumed"' value={d.consumed_values} onChange={(consumed_values) => onChange({ ...d, consumed_values })} />
+          <TagsInput size="xs" label='Values meaning "produced"' value={d.produced_values} onChange={(produced_values) => onChange({ ...d, produced_values })} />
+        </Group>
+      </>
+    )}
+    {d.option === "parents" && (
+      <Group grow align="flex-start">
+        <CountPicker label="o2o qualifiers" data={o2oQualifiers} value={d.qualifiers} onChange={(q) => onChange({ ...d, qualifiers: q })} placeholder="Select qualifiers" />
+        <Select
+          size="xs"
+          label="Meaning"
+          data={[
+            { value: "child_of", label: "source is a child of target" },
+            { value: "parent_of", label: "source is a parent of target" },
+          ]}
+          value={d.direction}
+          onChange={(direction) => onChange({ ...d, direction: (direction ?? "child_of") as RolesDraft["direction"] })}
+          allowDeselect={false}
+        />
+      </Group>
+    )}
+    {d.option === "object_sets" && (
+      <>
+        <ObjectSetFields label="Produced objects" value={d.produced} onChange={(produced) => onChange({ ...d, produced })} tables={tables} objectAttributes={objectAttributes} />
+        <ObjectSetFields label="Consumed objects" value={d.consumed} onChange={(consumed) => onChange({ ...d, consumed })} tables={tables} objectAttributes={objectAttributes} />
+        <SegmentedControl
+          size="xs"
+          data={[
+            { value: "final", label: "consumed at last event (final)" },
+            { value: "partial", label: "at every involvement (partial)" },
+          ]}
+          value={d.consumption}
+          onChange={(consumption) => onChange({ ...d, consumption: consumption as RolesDraft["consumption"] })}
+        />
+      </>
+    )}
+    {d.option === "frequency" && (
+      <NumberInput
+        size="xs"
+        label="Threshold τ (share of the first/last events of a handling-unit type)"
+        min={0}
+        max={1}
+        step={0.05}
+        decimalScale={2}
+        value={d.threshold}
+        onChange={(v) => onChange({ ...d, threshold: typeof v === "number" ? v : Number(v) || 0 })}
+      />
+    )}
+  </Stack>
+);
+
 /** Vehicles or storage units: locations (picked or typed in), table, event attribute, location-object types. */
 const LocationSetFields = ({
   value: d,
@@ -1155,6 +1455,11 @@ export const ConfigForm = ({
         </Section>
 
         <Section title="Transformation events (optional)" info={INFO.transformations} hint="Events in which handling units are consumed and/or produced.">
+          {DERIVES_T.includes(draft.transformation_roles.option) ? (
+            <Text size="xs" c="dimmed">
+              Determined by the consumed and produced handling units below.
+            </Text>
+          ) : (
           <EventSetFields
             value={draft.transformation_events}
             onChange={set("transformation_events")}
@@ -1166,8 +1471,24 @@ export const ConfigForm = ({
             optional
             valueLabel='Values meaning "transformation"'
           />
+          )}
+          <Group gap={6} mt={4}>
+            <Text size="xs" fw={600}>
+              Consumed and produced handling units
+            </Text>
+            <Tooltip label={INFO.roles} multiline w={420} withArrow position="top-start">
+              <InfoIcon size={12} style={{ cursor: "help", opacity: 0.6 }} aria-label="About consumed and produced handling units" />
+            </Tooltip>
+          </Group>
+          <RolesFields
+            value={draft.transformation_roles}
+            onChange={set("transformation_roles")}
+            tables={tables}
+            qualifiers={options?.qualifiers}
+            o2oQualifiers={options?.o2o_qualifiers}
+            objectAttributes={options?.object_attributes ?? []}
+          />
         </Section>
-
         <Section title="Target locations (required)" info={INFO.targets} hint="Empty values (null, NaN, empty, NA) count as not provided.">
           <LocationFields
             value={draft.target_locations}
