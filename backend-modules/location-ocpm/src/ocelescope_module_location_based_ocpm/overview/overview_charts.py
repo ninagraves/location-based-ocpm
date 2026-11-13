@@ -7,6 +7,8 @@ type, location, locatedness, agreement); step 2 (`bar_chart`, `heatmap`) aggrega
 Under a page filter, relations are the passing ones, events and handling units the kept ones;
 event and handling unit properties (agreement, eloc, locatedness, single location) always come
 from the whole event or the whole trace.
+In high-level mode (`PageFilter.location_mode`), the location dimension is hat-hl and agreement and eloc are
+under hat-hl (concept "Update Overview Page", sections 6 and 10).
 """
 
 from typing import Literal
@@ -16,8 +18,8 @@ from pydantic import BaseModel
 
 from ocelescope_module_location_based_ocpm.derivation import columns as c
 from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation
-from ocelescope_module_location_based_ocpm.overview.data_charts import event_categories
-from ocelescope_module_location_based_ocpm.overview.filters import PageFilter, passing_relations
+from ocelescope_module_location_based_ocpm.overview.data_charts import event_categories, location_types
+from ocelescope_module_location_based_ocpm.overview.filters import PageFilter, event_table, passing_relations
 
 #: Label of a missing value (e.g. loc = ⊥): a grey "–" bar, segment or row.
 MISSING = "–"
@@ -44,9 +46,18 @@ MAX_COLOURS = 50
 Measure = Literal["events", "relations"]
 End = Literal["top", "bottom"]
 ChartName = Literal["activities", "locations", "hu_types", "activity_types"]
-By = Literal["none", "activity", "object_type", "location", "locatedness", "agreement"]
+By = Literal["none", "activity", "object_type", "location", "locatedness", "agreement", "location_type", "low_location"]
 Mode = Literal["frequent", "locations"]
-EventSet = Literal["all", "movements", "transformations"]
+EventSet = Literal["all", "movements", "transformations", "processing"]
+
+#: "by" values that only exist for relations (a location type belongs to a low-level location; an agreed
+#: high-level location can contain several types).
+RELATION_ONLY = ("location_type", "low_location")
+
+
+def _high(derivation: Derivation, page_filter: PageFilter) -> bool:
+    """True in high-level mode with high-level locations configured."""
+    return page_filter.high and derivation.has_high_level
 
 
 def relation_units(derivation: Derivation, page_filter: PageFilter) -> pl.DataFrame:
@@ -58,30 +69,39 @@ def relation_units(derivation: Derivation, page_filter: PageFilter) -> pl.DataFr
 
     Returns:
         pl.DataFrame: Columns event, hu, activity, object_type, activity_type ("activity · type"),
-        location (loc at the selected level, "–" if ⊥), locatedness and agreement (of the
-        relation's event, see `event_categories`), is_movement, is_transformation.
+        location (loc at the selected level, hat-hl in high-level mode, "–" if ⊥), low_location (loc, "–" if ⊥),
+        location_type (of loc: vehicle, storage unit, vehicle and storage unit, other; "–" if ⊥), locatedness
+        and agreement (of the relation's event, see `event_categories`), is_movement, is_transformation,
+        is_processing.
     """
+    high = _high(derivation, page_filter)
+    types = location_types(derivation).select(pl.col("location").alias("loc"), "location_type")
     return (
         passing_relations(derivation, page_filter)
-        .join(_event_properties(derivation), on=c.EVENT, how="left")
+        .join(_event_properties(derivation, high), on=c.EVENT, how="left")
+        .join(types, on="loc", how="left")
         .select(
             c.EVENT,
             c.HU,
             c.ACTIVITY,
             c.OBJECT_TYPE,
             pl.concat_str(c.ACTIVITY, pl.lit(PAIR), c.OBJECT_TYPE).alias("activity_type"),
-            pl.col("loc").fill_null(MISSING).alias("location"),
+            pl.col("hl" if high else "loc").fill_null(MISSING).alias("location"),
+            pl.col("loc").fill_null(MISSING).alias("low_location"),
+            pl.col("location_type").fill_null(MISSING),
             "locatedness",
             "agreement",
             c.IS_MOVEMENT,
             c.IS_TRANSFORMATION,
+            c.IS_PROCESSING,
         )
     )
 
 
-def _event_properties(derivation: Derivation) -> pl.DataFrame:
-    """Locatedness and agreement ("agreeing", "not agreeing", "not tested") of every event."""
-    return event_categories(derivation).select(c.EVENT, pl.col("located").alias("locatedness"), "agreement")
+def _event_properties(derivation: Derivation, high: bool = False) -> pl.DataFrame:
+    """Locatedness and agreement ("agreeing", "not agreeing", "not tested", in low-level mode also "agreeing at
+    high level only") of every event."""
+    return event_categories(derivation, high).select(c.EVENT, pl.col("located").alias("locatedness"), "agreement")
 
 
 def event_units(derivation: Derivation, page_filter: PageFilter) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -97,9 +117,11 @@ def event_units(derivation: Derivation, page_filter: PageFilter) -> tuple[pl.Dat
 
     Returns:
         tuple[pl.DataFrame, pl.DataFrame]: The agreeing events (columns event, activity,
-        object_type, location, locatedness, agreement, is_movement, is_transformation) and
-        the not agreeing kept events (same columns, location "–").
+        object_type, location, locatedness, agreement, is_movement, is_transformation, is_processing) and
+        the not agreeing kept events (same columns, location "–"). In high-level mode, agreement and eloc
+        are under hat-hl.
     """
+    high = _high(derivation, page_filter)
     kept = passing_relations(derivation, page_filter).select(c.EVENT).unique()
     types = derivation.relations.group_by(c.EVENT).agg(
         pl.when(pl.col(c.OBJECT_TYPE).n_unique() == 1)
@@ -108,11 +130,14 @@ def event_units(derivation: Derivation, page_filter: PageFilter) -> tuple[pl.Dat
         .alias(c.OBJECT_TYPE)
     )
     events = (
-        derivation.event_locations[derivation.level]
+        event_table(derivation, high)
         .join(kept, on=c.EVENT, how="semi")
-        .join(derivation.events.select(c.EVENT, c.ACTIVITY, c.IS_MOVEMENT, c.IS_TRANSFORMATION), on=c.EVENT)
+        .join(
+            derivation.events.select(c.EVENT, c.ACTIVITY, c.IS_MOVEMENT, c.IS_TRANSFORMATION, c.IS_PROCESSING),
+            on=c.EVENT,
+        )
         .join(types, on=c.EVENT, how="left")
-        .join(_event_properties(derivation), on=c.EVENT, how="left")
+        .join(_event_properties(derivation, high), on=c.EVENT, how="left")
         .select(
             c.EVENT,
             c.ACTIVITY,
@@ -122,6 +147,7 @@ def event_units(derivation: Derivation, page_filter: PageFilter) -> tuple[pl.Dat
             "agreement",
             c.IS_MOVEMENT,
             c.IS_TRANSFORMATION,
+            c.IS_PROCESSING,
             "agreeing",
         )
     )
@@ -139,12 +165,13 @@ def hu_units(derivation: Derivation, page_filter: PageFilter) -> pl.DataFrame:
         pl.DataFrame: Columns hu, object_type, locatedness (over the whole trace: fully /
         partially / unlocated) and location: the handling unit's only known location over its
         whole trace, "–" if it has none, "[several locations]" if it has two or more (⊥ does
-        not count).
+        not count); high-level locations in high-level mode.
     """
     known = pl.col("known")
+    column = derivation.hl if _high(derivation, page_filter) else derivation.loc
     single = (
         derivation.relations.group_by(c.HU)
-        .agg(pl.col(derivation.loc).drop_nulls().unique().alias("known"))
+        .agg(pl.col(column).drop_nulls().unique().alias("known"))
         .select(
             c.HU,
             pl.when(known.list.len() == 0)
@@ -344,6 +371,8 @@ BY_COLUMN: dict[str, str | None] = {
     "location": "location",
     "locatedness": "locatedness",
     "agreement": "agreement",
+    "location_type": "location_type",
+    "low_location": "low_location",
 }
 
 #: "by" values that are properties of the whole event: in events mode, all kept events count
@@ -377,7 +406,8 @@ def overview_bar_chart(
             units) or "activity_types" (bar = "activity · type", units = relations).
         measure: Activities and Locations only: count hu-event relations or agreeing events
             (all kept events with by = locatedness or agreement). The other two charts ignore it.
-        by: Secondary dimension splitting each bar.
+        by: Secondary dimension splitting each bar; "location_type" and "low_location" (high-level mode,
+            Locations chart) always count relations.
         mode: All but Locations: "frequent" (bar = units) or "locations" (bar = distinct
             locations ≠ ⊥ of the bar's passing relations, in every measure).
         end: Top or bottom 10 bars.
@@ -399,7 +429,7 @@ def overview_bar_chart(
     elif chart == "hu_types":
         bars, other, colours = bar_chart(hu_units(derivation, page_filter), bar, column, end)
     else:
-        if chart == "activity_types":
+        if chart == "activity_types" or by in RELATION_ONLY:
             units = relation_units(derivation, page_filter)
         elif measure == "events":
             units, left_out = event_units(derivation, page_filter)
@@ -452,7 +482,8 @@ def heatmap(
         page_filter: The filter bar's state; None counts the whole log.
         measure: Count hu-event relations or agreeing events.
         end: Top or bottom 10 locations and activities (each ranked by its total).
-        events: Keep all units, only those of movement events or of transformation events.
+        events: Keep all units, only those of movement events, of transformation events or of processing
+            operations.
 
     Returns:
         Heatmap: The heatmap.
@@ -463,7 +494,7 @@ def heatmap(
     else:
         units, left_out = relation_units(derivation, page_filter), pl.DataFrame()
     if events != "all":
-        keep = pl.col(c.IS_MOVEMENT if events == "movements" else c.IS_TRANSFORMATION)
+        keep = pl.col({"movements": c.IS_MOVEMENT, "transformations": c.IS_TRANSFORMATION}.get(events, c.IS_PROCESSING))
         units = units.filter(keep)
         left_out = left_out.filter(keep) if not left_out.is_empty() else left_out
 

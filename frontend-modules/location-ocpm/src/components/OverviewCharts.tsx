@@ -14,14 +14,24 @@ import {
   type GetBarChartMode,
   type GetHeatmapEvents,
   useGetBarChart,
+  useGetFilterOptions,
   useGetHeatmap,
 } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
-import { type FilterKey, filterParams, filterRequest, type PageFilter, usePageFilter, withValue } from "../lib/filters";
+import {
+  type FilterKey,
+  filterParams,
+  filterRequest,
+  HIGH_LEVEL_PREFIX,
+  type PageFilter,
+  useLocationContext,
+  usePageFilter,
+  withValue,
+} from "../lib/filters";
 import { num, pct } from "../lib/format";
 import { usePageState } from "../lib/pageState";
 import { categoricalColour, OTHER, plotlyScale, type Scheme, SEQUENTIAL, STATUS, UI } from "../lib/palette";
-import { plotConfig, ThemedPlot, useScheme } from "./plots";
+import { plotConfig, ScrollLegend, ThemedPlot, useScheme } from "./plots";
 
 /** Labels the backend uses for missing values, the summed rest, and mixed object types. */
 const MISSING = "–";
@@ -46,8 +56,11 @@ const INFO = {
   mode: "# events (# relations, # handling units): bar = units of the activity (type, pair). # locations: bar = number of distinct locations (≠ ⊥) of the bar's relations.",
   huLocation:
     "by location: a handling unit's only known location over its whole trace; '[several locations]' if it has two or more, '–' if it has none (⊥ does not count). Locatedness is also over the whole trace.",
-  end: "top 10: the 10 largest bars, the rest summed into a grey 'other' bar. bottom 10: the 10 smallest bars, the rest left out. Also applies to both axes of the heatmap.",
-  events: "Keep all relations or events, only those of movement events, or only those of transformation events.",
+  end: "top 10: the 10 largest bars, the rest left out (the subtitle says how many). bottom 10: the 10 smallest bars, the rest left out. Also applies to both axes of the heatmap.",
+  events:
+    "Keep all relations or events, only those of movement events, of transformation events or of processing operations.",
+  locationType:
+    "by location type (relations only): vehicle, storage unit, vehicle and storage unit or other, by the low-level location of the relation ('–' for ⊥).",
 };
 
 /** Filter list a value of a dimension goes to on a click (none: no filter matches). */
@@ -57,6 +70,8 @@ const FILTER_OF: Record<string, FilterKey | undefined> = {
   object_type: "object_types",
   locatedness: "activities",
   agreement: "activities",
+  low_location: "locations",
+  location_type: "locations",
 };
 
 /** Filter values of handling unit locatedness (Handling unit types chart). */
@@ -75,6 +90,12 @@ const EVENT_VALUES: Record<string, string> = {
   "not agreeing": "[disagreeing events]",
 };
 
+/** Filter values of the location types; "other" and "vehicle and storage unit" have none. */
+const TYPE_VALUES: Record<string, string> = { vehicle: "[vehicles]", "storage unit": "[storage units]" };
+
+/** "by" values that only count relations (offered only for relations, see `overview_charts.RELATION_ONLY`). */
+const RELATION_ONLY: readonly string[] = ["location_type", "low_location"];
+
 /** "by" values that are event properties: fixed status colours as in the data overview charts. */
 const EVENT_PROPERTIES: readonly string[] = ["locatedness", "agreement"];
 
@@ -86,11 +107,14 @@ const BY_OPTIONS: Record<GetBarChartChart, { value: GetBarChartBy; label: string
     { value: "object_type", label: "object type" },
     { value: "locatedness", label: "locatedness" },
     { value: "agreement", label: "agreement" },
+    { value: "location_type", label: "location type" },
   ],
   locations: [
     { value: "none", label: "none" },
     { value: "activity", label: "activity" },
     { value: "object_type", label: "object type" },
+    { value: "location_type", label: "location type" },
+    { value: "low_location", label: "low-level location" },
   ],
   hu_types: [
     { value: "locatedness", label: "locatedness" },
@@ -100,6 +124,7 @@ const BY_OPTIONS: Record<GetBarChartChart, { value: GetBarChartBy; label: string
   activity_types: [
     { value: "location", label: "location" },
     { value: "locatedness", label: "locatedness" },
+    { value: "location_type", label: "location type" },
     { value: "none", label: "none" },
   ],
 };
@@ -152,10 +177,24 @@ const CHARTS: Record<
  * dimension's include list ("–" as "[unknown]"; locatedness and agreement as their special
  * activity values, handling unit locatedness ("hu_locatedness") as its special object type
  * values; "other", "[several types]", "[several locations]" and "not tested" add nothing).
- * Chart locations are loc (post), so a location switches the role "pre" to "post".
+ * Chart locations are loc (post), so a location switches the role "pre" to "post". In high-level mode, a
+ * high-level location adds its entry ("[high-level] A", standing for all its locations), a low-level location
+ * segment its location; a location type adds "[vehicles]" or "[storage units]".
  */
 const useAddValues = (ocelId: string) => {
   const [, setFilter] = usePageFilter(ocelId);
+  const { high } = useLocationContext(ocelId);
+  const { data: options } = useGetFilterOptions(ocelId);
+  // High-level locations with an entry of their own in the location picker (not a location that is its own only member).
+  const groups = new Set((options?.high_level_locations ?? []).map((g) => g.label));
+  const locationValue = (dimension: string, value: string) =>
+    value === MISSING
+      ? "[unknown]"
+      : dimension === "location_type"
+        ? TYPE_VALUES[value]
+        : dimension === "location" && high && groups.has(value)
+          ? HIGH_LEVEL_PREFIX + value
+          : value;
   return (pairs: [string, string][]) =>
     setFilter((f) =>
       pairs.reduce<PageFilter>((acc, [dimension, value]) => {
@@ -165,8 +204,8 @@ const useAddValues = (ocelId: string) => {
             ? HU_VALUES[value]
             : EVENT_PROPERTIES.includes(dimension)
               ? EVENT_VALUES[value]
-              : key === "locations" && value === MISSING
-                ? "[unknown]"
+              : key === "locations"
+                ? locationValue(dimension, value)
                 : value;
         if (!key || !filterValue || NO_FILTER.includes(value)) return acc;
         const next = withValue(acc, key, filterValue);
@@ -180,7 +219,8 @@ const useAddValues = (ocelId: string) => {
  * agreement keep their status colours (`STATUS`).
  */
 const colourOf = (value: string, colours: string[], scheme: Scheme, by: string) => {
-  if (EVENT_PROPERTIES.includes(by) && value !== OTHER_LABEL && STATUS[scheme][value]) return STATUS[scheme][value];
+  if ((EVENT_PROPERTIES.includes(by) || by === "location_type") && value !== OTHER_LABEL && STATUS[scheme][value])
+    return STATUS[scheme][value];
   const index = colours.indexOf(value);
   return index < 0 ? OTHER[scheme] : categoricalColour(index, scheme);
 };
@@ -188,27 +228,32 @@ const colourOf = (value: string, colours: string[], scheme: Scheme, by: string) 
 /** A label cut to `chars` characters, with "…". */
 const cut = (label: string, chars: number) => (label.length > chars ? `${label.slice(0, Math.max(1, chars - 1))}…` : label);
 
-/** Legend beside a chart (at most ¼ of the card width): one swatch per value; long names are cut. */
+/**
+ * Legend beside a chart (at most ¼ of the card width, at most as tall as the chart, scrolling
+ * beyond): one swatch per value; long names are cut.
+ */
 const Legend = ({ items, width }: { items: { label: string; colour: string; hatched?: boolean }[]; width: number }) => (
-  <Stack gap={2} maw={width} style={{ flexShrink: 0, overflow: "hidden" }}>
-    {items.map((item) => (
-      <Tooltip key={item.label} label={item.label} withArrow openDelay={300}>
-        <Group gap={4} wrap="nowrap">
-          <ColorSwatch
-            color={item.colour}
-            size={10}
-            style={{
-              flexShrink: 0,
-              backgroundImage: item.hatched ? "repeating-linear-gradient(45deg, transparent 0 2px, #fff 2px 3px)" : undefined,
-            }}
-          />
-          <Text size="xs" truncate>
-            {item.label}
-          </Text>
-        </Group>
-      </Tooltip>
-    ))}
-  </Stack>
+  <ScrollLegend height={HEIGHT} maxWidth={width}>
+    <Stack gap={2} maw={width} style={{ overflow: "hidden" }}>
+      {items.map((item) => (
+        <Tooltip key={item.label} label={item.label} withArrow openDelay={300}>
+          <Group gap={4} wrap="nowrap">
+            <ColorSwatch
+              color={item.colour}
+              size={10}
+              style={{
+                flexShrink: 0,
+                backgroundImage: item.hatched ? "repeating-linear-gradient(45deg, transparent 0 2px, #fff 2px 3px)" : undefined,
+              }}
+            />
+            <Text size="xs" truncate>
+              {item.label}
+            </Text>
+          </Group>
+        </Tooltip>
+      ))}
+    </Stack>
+  </ScrollLegend>
 );
 
 /** A small inline control with a hover text. */
@@ -227,13 +272,15 @@ const hoverText = (bar: Bar, unit: string, segment?: { value: string; count: num
   if (segment && byLabel) lines.push(`${byLabel} ${segment.value}: ${num(segment.count)} (${pct(segment.count / bar.count)})`);
   if (bar.left_out) lines.push(`${num(bar.left_out)} not agreeing events left out`);
   if (bar.locations?.length) lines.push(`locations: ${bar.locations.join(", ")}`);
-  if (bar.label === OTHER_LABEL) lines.push(`sum of ${num(bar.bars)} further bars`);
   return lines.join("<br>");
 };
 
-/** Plotly traces of a stacked horizontal bar chart: one trace per segment value, largest bar on top. */
+/**
+ * Plotly traces of a stacked horizontal bar chart: one trace per segment value, largest bar on top.
+ * The bars beyond the shown ones are not drawn (a summed "other" bar would dwarf the others).
+ */
 const traces = (data: BarChartData, by: GetBarChartBy, unit: string, byLabel: string, scheme: Scheme) => {
-  const bars = data.other ? [...data.bars, data.other] : data.bars;
+  const bars = data.bars;
   const y = bars.map((b) => b.label);
   const grey = OTHER[scheme];
   if (by === "none") {
@@ -245,7 +292,7 @@ const traces = (data: BarChartData, by: GetBarChartBy, unit: string, byLabel: st
         x: bars.map((b) => b.count),
         customdata: bars.map((b) => [b.label, ""]),
         marker: {
-          color: bars.map((b) => (b.label === MISSING || b === data.other ? grey : UI[scheme].primary)),
+          color: bars.map((b) => (b.label === MISSING ? grey : UI[scheme].primary)),
           pattern: { shape: bars.map((b) => (b.label === MISSING ? "/" : "")) },
         },
         hovertext: bars.map((b) => hoverText(b, unit)),
@@ -277,19 +324,6 @@ const traces = (data: BarChartData, by: GetBarChartBy, unit: string, byLabel: st
       };
     })
     .filter((t) => t.y.length);
-  if (data.other) {
-    perValue.push({
-      type: "bar",
-      orientation: "h",
-      name: OTHER_LABEL,
-      y: [data.other.label],
-      x: [data.other.count],
-      customdata: [[OTHER_LABEL, ""]],
-      marker: { color: grey, pattern: { shape: [""] } },
-      hovertext: [hoverText(data.other, unit)],
-      hoverinfo: "text",
-    });
-  }
   return perValue;
 };
 
@@ -302,19 +336,26 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
   const addValues = useAddValues(ocelId);
   const { ref, width } = useElementSize();
   const { measures, modes, unit: fixedUnit, sub: fixedSub } = CHARTS[chart];
+  const { high, withTypes } = useLocationContext(ocelId);
   const mostLocations = modes && settings.mode === "locations";
   // With "# locations", only "by" values whose segments add up to the bar are offered.
   const locationsBy: readonly string[] = ["none", "location", "activity"];
-  const by = mostLocations && !locationsBy.includes(settings.by) ? "none" : settings.by;
   // Charts without the switch always count relations (or handling units, ignored by the backend).
   const measure = measures ? settings.measure : "relations";
+  const byOptions = BY_OPTIONS[chart].filter(
+    (o) =>
+      (!mostLocations || locationsBy.includes(o.value)) &&
+      (o.value !== "location_type" || withTypes) &&
+      (o.value !== "low_location" || high) &&
+      (!RELATION_ONLY.includes(o.value) || measure === "relations"),
+  );
+  const by = byOptions.some((o) => o.value === settings.by) ? settings.by : "none";
   const { data, error } = useGetBarChart(
     ocelId,
     { ...filterParams(filter), chart, measure, by, mode: settings.mode, end },
     { request: filterRequest },
   );
   const set = (change: Partial<Settings>) => setSettings((s) => ({ ...s, ...change }));
-  const byOptions = BY_OPTIONS[chart].filter((o) => !mostLocations || locationsBy.includes(o.value));
   const byLabel = byOptions.find((o) => o.value === by)?.label ?? "";
   const unit = mostLocations ? "locations" : (fixedUnit ?? measure);
   const labelChars = Math.max(6, Math.floor(width / 4 / CHAR_WIDTH));
@@ -322,6 +363,7 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
     mostLocations ? "distinct locations" : (fixedSub ?? (measure === "events" ? "agreeing events" : "hu-event relations")),
     chart === "hu_types" && !mostLocations ? "locatedness and location over the whole trace" : "",
     data?.left_out ? `${num(data.left_out)} not agreeing events left out` : "",
+    data?.other ? `${num(data.other.bars)} more ${data.other.bars === 1 ? "bar" : "bars"} (${num(data.other.count)} ${unit}) not shown` : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -408,12 +450,12 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
                   yaxis: {
                     // Bars in the backend's order (largest first, "other" last), from the top.
                     categoryorder: "array",
-                    categoryarray: [...data.bars, ...(data.other ? [data.other] : [])].map((b) => b.label),
+                    categoryarray: data.bars.map((b) => b.label),
                     autorange: "reversed",
                     automargin: true,
                     tickfont: { size: 11 },
-                    tickvals: [...data.bars, ...(data.other ? [data.other] : [])].map((b) => b.label),
-                    ticktext: [...data.bars, ...(data.other ? [data.other] : [])].map((b) => cut(b.label, labelChars)),
+                    tickvals: data.bars.map((b) => b.label),
+                    ticktext: data.bars.map((b) => cut(b.label, labelChars)),
                   },
                   xaxis: { automargin: true, tickfont: { size: 10 } },
                 }}
@@ -494,7 +536,12 @@ const HeatmapCard = ({ ocelId, end }: { ocelId: string; end: End }) => {
             <Control info={INFO.events}>
               <SegmentedControl
                 size="xs"
-                data={["all", "movements", "transformations"]}
+                data={[
+                  { value: "all", label: "all" },
+                  { value: "movements", label: "movements" },
+                  { value: "transformations", label: "transformations" },
+                  { value: "processing", label: "processing operations" },
+                ]}
                 value={settings.events}
                 onChange={(v) => set({ events: v as GetHeatmapEvents })}
               />

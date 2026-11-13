@@ -4,5 +4,9 @@
   "transformation_events": { "option": "activities", "activities": ["cast slab", "roll", "cut"] },
   "target_locations": { "option": "attribute", "attribute": "to_loc" },
   "pickup_locations": { "option": "attribute", "attribute": "from_loc" },
-  "level": 3
+  "level": 3,
+  "high_level_locations": { "option": "table", "table": "locations.csv", "location_column": "location", "high_level_column": "high_level" },
+  "vehicles": { "option": "table", "table": "locations.csv", "location_column": "location", "flag_column": "is_vehicle" },
+  "storage_units": { "option": "table", "table": "locations.csv", "location_column": "location", "flag_column": "is_storage" },
+  "processing_operations": { "selection": { "option": "activities", "activities": ["label"] }, "include_transformations": true }
 }

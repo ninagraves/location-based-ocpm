@@ -96,12 +96,17 @@ def table_names(config: DerivationConfig) -> list[str]:
     Returns:
         list[str]: Table names, sorted, without duplicates.
     """
+    processing = config.processing_operations
     inputs = (
         config.handling_units,
         config.movement_events,
         config.transformation_events,
         config.target_locations,
         config.pickup_locations,
+        config.high_level_locations,
+        config.vehicles,
+        config.storage_units,
+        processing.selection if processing is not None else None,
     )
     return sorted({option.table for option in inputs if option is not None and option.option == "table"})
 
