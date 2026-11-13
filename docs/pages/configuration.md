@@ -24,6 +24,7 @@ One section per input, each with an option switch, the matching pickers and an �
 | Location level | Level 0-3 (default 3) | one line per level in the ⓘ text |
 | Movement events (required) | activities, event attribute, table | activities with number of events; attribute + values with number of events; table + event column |
 | Transformation events (optional) | none, activities, event attribute, e2o qualifiers, table | as above; qualifiers with number of relations |
+| Consumed and produced handling units (optional, inside "Transformation events") | default (first/last timestamps), e2o qualifiers, table, parent relations (o2o), produced/consumed objects, first/last timestamps, frequency of first/last activities | consumed and produced qualifiers; table + event, object, role columns + role values; o2o qualifiers + direction; produced and consumed objects (object attribute values or table) + final/partial; threshold τ. Options deriving T replace the transformation-events pickers; details in `docs/resources/transformation-inputs.md` |
 | Target locations (required) | event attribute, e2o qualifier, table | attribute; qualifiers + location name (object id or a static object attribute); table + event and location columns |
 | Pickup locations (optional) | none, event attribute, e2o qualifier, table | as for target locations |
 | High-level locations (optional, group "Location context") | none, table, event attributes, object attribute, o2o relation, naming pattern | table + location and high-level columns; low-level and high-level event attributes; attribute of the location objects; o2o qualifiers + name (id or attribute); regular expression with one group |
@@ -45,7 +46,7 @@ The object-attribute, o2o and object-type options only appear if target or picku
 **Code** (`frontend-modules/location-ocpm/src/components/ConfigForm.tsx`):
 - Form state `ConfigDraft`: keeps the entries of every option of an input, so switching the option and back loses nothing. `emptyDraft()` is the empty form.
 - `toConfig(draft)` → `DerivationConfig` sent to the backend; `fromConfig(config)` the reverse (applied or loaded configuration).
-- Sections: `EventSetFields` (movement, transformation events, processing operations), `LocationFields` (target and pickup locations), `HighLevelFields`, `LocationSetFields` (vehicles, storage units), `TableColumns` (table, columns, upload, preview), `CountPicker`, `AttributeValuePicker`; `useFormLocations` (L for pickers and template), `downloadTemplate`.
+- Sections: `EventSetFields` (movement, transformation events, processing operations), `RolesFields` and `ObjectSetFields` (consumed and produced handling units), `LocationFields` (target and pickup locations), `HighLevelFields`, `LocationSetFields` (vehicles, storage units), `TableColumns` (table, columns, upload, preview), `CountPicker`, `AttributeValuePicker`; `useFormLocations` (L for pickers and template), `downloadTemplate`.
 - Texts: `INFO` (ⓘ texts) and `LEVELS` (level labels).
 - Errors and notices: `MessageLine`, `Notices` (also used for the configuration notices on the overview page).
 - Backend: `configuration_routes.py` (`get_options`, `get_attribute_values`, `get_locations`, `apply_config`, `upload_table`), resolution in `derivation/inputs.py` and `derivation/location_context.py`.

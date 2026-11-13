@@ -33,6 +33,12 @@ from .config import (
     Qualifiers,
 )
 from .messages import BlockingError, Notice
+from .transformations import (
+    ResolvedTransformations,
+    empty_roles,
+    object_set_ids,
+    resolve_transformations,
+)
 from ..visits.context import LocationContext
 
 #: String values that count as "not provided" (besides null and NaN).
@@ -61,6 +67,8 @@ class ResolvedInputs:
         handling_units: All handling units HU with columns hu, object_type, including those
             without any event.
         context: The location context agg, V, W (empty if not configured).
+        roles: The consumed and produced handling units of the transformation events ($cons$, $prod$), columns
+            event, hu, role (see `transformations.py`).
     """
 
     relations: pl.DataFrame
@@ -71,6 +79,7 @@ class ResolvedInputs:
         default_factory=lambda: pl.DataFrame(schema={c.HU: pl.String, c.OBJECT_TYPE: pl.String})
     )
     context: LocationContext = field(default_factory=LocationContext)
+    roles: pl.DataFrame = field(default_factory=empty_roles)
 
 
 def provided(column: str) -> pl.Expr:
@@ -351,6 +360,89 @@ def resolve_locations(
     return rows, notices, errors
 
 
+def _object_attribute_values(ocel: OCEL, attribute: str) -> pl.DataFrame | None:
+    """The last provided value of an object attribute per object (columns hu, value); None if there is no such attribute."""
+    if attribute not in ocel.objects.attribute_names:
+        return None
+    return (
+        ocel.objects.attribute_states(None, [attribute])
+        .pl()
+        .filter(provided(attribute))
+        .sort(OCEL_TIMESTAMP)
+        .group_by(OCEL_OID)
+        .agg(pl.col(attribute).last().cast(pl.String).alias("value"))
+        .rename({OCEL_OID: c.HU})
+    )
+
+
+def resolve_transformation_inputs(
+    ocel: OCEL,
+    config: DerivationConfig,
+    e2hu: pl.DataFrame,
+    hus: pl.DataFrame,
+    events: pl.DataFrame,
+    candidates: pl.Series | None,
+    tables: dict[str, pl.DataFrame],
+) -> ResolvedTransformations:
+    """Resolve T and the consumed/produced handling units (`transformations.resolve_transformations`) on the log.
+
+    Reads what the chosen option needs from the log (e2o qualifiers, o2o relations, object attributes) or from
+    the tables. The first/last tie-break uses the explicitly selected processing operations only (not "+ all
+    transformation events", which would make option 6 circular).
+
+    Args:
+        ocel: The log.
+        config: The configuration.
+        e2hu: hu-event relations with the columns event, hu, object_type, time and activity.
+        hus: The handling units (columns hu, object_type).
+        events: Events of the log, as returned by `_log_events`.
+        candidates: The transformation-events input (None if not given).
+        tables: User tables by name.
+
+    Returns:
+        ResolvedTransformations.
+    """
+    option = config.transformation_roles
+    kind = option.option if option is not None else None
+    processing = None
+    if config.processing_operations is not None and config.processing_operations.selection is not None:
+        processing, _ = resolve_event_set(ocel, events, config.processing_operations.selection, tables, "Processing operations")
+    e2o = parents = object_sets = None
+    if kind == "qualifiers":
+        e2o = ocel.e2o.pl.select(OCEL_EID, OCEL_OID, OCEL_QUALIFIER).collect().rename(
+            {OCEL_EID: c.EVENT, OCEL_OID: c.HU, OCEL_QUALIFIER: "qualifier"}
+        )
+    if kind == "parents":
+        o2o = ocel.o2o.pl.collect().filter(pl.col(OCEL_QUALIFIER).is_in(option.qualifiers))
+        source, target = ("ocel:oid_1", "ocel:oid_2") if option.direction == "child_of" else ("ocel:oid_2", "ocel:oid_1")
+        hu_ids = hus[c.HU].implode()
+        parents = (
+            o2o.select(pl.col(source).alias("child"), pl.col(target).alias("parent"))
+            .filter(pl.col("child").is_in(hu_ids) & pl.col("parent").is_in(hu_ids))
+            .unique()
+        )
+    if kind == "object_sets":
+        objects = ocel.objects.pl.select(pl.col(OCEL_OID).alias(c.HU)).collect()
+
+        def ids(selection):
+            values = _object_attribute_values(ocel, selection.attribute) if selection is not None and selection.option == "attribute_values" else None
+            return object_set_ids(selection, objects, values, tables)
+
+        object_sets = (ids(option.produced), ids(option.consumed))
+    return resolve_transformations(
+        option,
+        candidates,
+        e2hu,
+        hus[c.HU],
+        events[c.EVENT],
+        processing=processing,
+        e2o=e2o,
+        parents=parents,
+        tables=tables,
+        object_sets=object_sets,
+    )
+
+
 def resolve_inputs(ocel: OCEL, config: DerivationConfig, tables: dict[str, pl.DataFrame] | None = None) -> ResolvedInputs:
     """Resolve all inputs of a configuration on an OCEL.
 
@@ -373,13 +465,25 @@ def resolve_inputs(ocel: OCEL, config: DerivationConfig, tables: dict[str, pl.Da
     notices += found
     movements, found = resolve_event_set(ocel, events, config.movement_events, tables, "Movement events")
     notices += found
-    if config.transformation_events is None:
-        transformations = pl.Series(c.EVENT, [], dtype=pl.String)
-    else:
-        transformations, found = resolve_event_set(
+    candidates = None
+    if config.transformation_events is not None:
+        candidates, found = resolve_event_set(
             ocel, events, config.transformation_events, tables, "Transformation events"
         )
         notices += found
+    e2hu = (
+        ocel.e2o.pl.select(OCEL_EID, OCEL_OID)
+        .collect()
+        .rename({OCEL_EID: c.EVENT, OCEL_OID: c.HU})
+        .unique()
+        .join(hus, on=c.HU, how="inner")
+    )
+    resolved_t = resolve_transformation_inputs(
+        ocel, config, e2hu.join(events.select(c.EVENT, c.TIME, c.ACTIVITY), on=c.EVENT, how="inner"),
+        hus, events, candidates, tables,
+    )
+    transformations = resolved_t.events
+    notices += resolved_t.notices
     uloc, found, blocking = resolve_locations(
         events, config.target_locations, tables, "Target locations", ocel, hus[c.HU]
     )
@@ -420,13 +524,6 @@ def resolve_inputs(ocel: OCEL, config: DerivationConfig, tables: dict[str, pl.Da
         pl.col(c.EVENT).is_in(transformations.implode()).alias(c.IS_TRANSFORMATION),
         pl.col(c.EVENT).is_in(processing.implode()).alias(c.IS_PROCESSING),
     ).select(c.EVENT, c.TIME, c.ACTIVITY, c.IS_MOVEMENT, c.IS_TRANSFORMATION, c.IS_PROCESSING, c.ULOC, c.PULOC)
-    e2hu = (
-        ocel.e2o.pl.select(OCEL_EID, OCEL_OID)
-        .collect()
-        .rename({OCEL_EID: c.EVENT, OCEL_OID: c.HU})
-        .unique()
-        .join(hus, on=c.HU, how="inner")
-    )
     relations = e2hu.join(events, on=c.EVENT, how="inner").sort(c.HU, c.TIME, c.EVENT)
     return ResolvedInputs(
         relations=relations,
@@ -435,4 +532,5 @@ def resolve_inputs(ocel: OCEL, config: DerivationConfig, tables: dict[str, pl.Da
         errors=errors,
         handling_units=hus.sort(c.HU),
         context=context,
+        roles=resolved_t.roles,
     )
