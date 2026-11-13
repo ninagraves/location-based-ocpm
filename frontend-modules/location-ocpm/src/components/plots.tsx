@@ -1,7 +1,7 @@
 // Plotly basics shared by every chart: the theme-aware plot and the chart toolbar.
-import { Loader, useComputedColorScheme } from "@mantine/core";
+import { Loader, ScrollArea, useComputedColorScheme } from "@mantine/core";
 import { useMounted } from "@mantine/hooks";
-import { type ComponentProps, lazy, Suspense, useRef } from "react";
+import { type ComponentProps, lazy, type ReactNode, Suspense, useRef } from "react";
 import type { Scheme } from "../lib/palette";
 
 // Plotly needs the browser, so the plot is only loaded there (like Ocelescope's own charts).
@@ -52,6 +52,26 @@ export const ThemedPlot = ({ onClick, onSunburstClick, onInitialized, ...props }
     </Suspense>
   ) : null;
 };
+
+/**
+ * Legend container beside a chart: never taller than the chart, so a long legend scrolls
+ * instead of making the card taller. The scrollbar is shown only if the legend overflows.
+ *
+ * @param height Height of the chart in pixels; the legend scrolls beyond it.
+ * @param maxWidth Optional maximum width in pixels (e.g. ¼ of the card).
+ */
+export const ScrollLegend = ({ height, maxWidth, children }: { height: number; maxWidth?: number; children: ReactNode }) => (
+  <ScrollArea.Autosize
+    mah={height}
+    type="auto"
+    scrollbars="y"
+    scrollbarSize={6}
+    offsetScrollbars="y"
+    style={{ flexShrink: 0, maxWidth }}
+  >
+    {children}
+  </ScrollArea.Autosize>
+);
 
 /** The current colour scheme, for picking palette colours. */
 export const useScheme = () => useComputedColorScheme("light") as Scheme;

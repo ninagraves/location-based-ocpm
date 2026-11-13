@@ -1,6 +1,22 @@
-// Activity profile: one row per activity, sortable, with a search box and expandable rows.
+// Activity profile: one row per activity, sortable, with a search box, expandable rows and pages.
 // Documented in docs/pages/overview.md, section "Activity profile".
-import { ActionIcon, Alert, Box, Card, Group, Loader, Progress, Stack, Table, Text, TextInput, Tooltip, UnstyledButton } from "@mantine/core";
+import {
+  ActionIcon,
+  Alert,
+  Box,
+  Card,
+  Group,
+  Loader,
+  Pagination,
+  Progress,
+  Select,
+  Stack,
+  Table,
+  Text,
+  TextInput,
+  Tooltip,
+  UnstyledButton,
+} from "@mantine/core";
 import { ChevronDownIcon, ChevronRightIcon, ChevronsUpDownIcon, ChevronUpIcon, SearchIcon } from "lucide-react";
 import { Fragment, type ReactNode, useState } from "react";
 import { type ActivityRow, type Typical, useGetActivityProfile, type ValueShare } from "../api/locationBasedOcpm";
@@ -24,6 +40,9 @@ const INFO = {
   agreed:
     "Agreeing events: no two handling units of the event have different known locations; this includes events with fewer than two located handling units. In brackets: only events with at least two located handling units, where agreement is actually tested.",
 };
+
+/** Rows per page that can be chosen; the first is the default. */
+const PAGE_SIZES = [10, 25, 50, 100];
 
 type SortKey = "activity" | "events" | "share" | "role" | "hus" | "located" | "agreed";
 type Sort = { key: SortKey; descending: boolean };
@@ -206,18 +225,28 @@ const Row = ({
   );
 };
 
-/** The activity profile card: search box and the sortable table. */
+/** The activity profile card: search box, the sortable table and its pages. */
 export const ActivityProfile = ({ ocelId }: { ocelId: string }) => {
   const [filter] = usePageFilter(ocelId);
   const [search, setSearch] = useState("");
   const [sort, setSort] = usePageState<Sort>("profile.sort", { key: "events", descending: true });
+  const [pageSize, setPageSize] = usePageState<number>("profile.pageSize", PAGE_SIZES[0]);
+  // Back to page 1 whenever the search or the sorting changes; a filter that leaves fewer pages
+  // shows the last page (see `current` below).
+  const [page, setPage] = useState(1);
   const { data, error } = useGetActivityProfile(ocelId, filterParams(filter), { request: filterRequest });
   if (error) return <Alert color="red">{errorText(error)}</Alert>;
   if (!data) return <Loader size="sm" />;
-  const onSort = (key: SortKey) =>
+  const onSort = (key: SortKey) => {
     setSort((s) => (s.key === key ? { key, descending: !s.descending } : { key, descending: key !== "activity" }));
+    setPage(1);
+  };
   const needle = search.trim().toLowerCase();
   const rows = sorted(data.rows, sort).filter((r) => !needle || r.activity.toLowerCase().includes(needle));
+  const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const current = Math.min(page, pages);
+  const first = (current - 1) * pageSize;
+  const shown = rows.slice(first, first + pageSize);
   const withShare = data.location_filter;
   const head = (label: string, info: string, sortKey?: SortKey) => (
     <Heading label={label} info={info} sortKey={sortKey} sort={sort} onSort={onSort} />
@@ -238,7 +267,10 @@ export const ActivityProfile = ({ ocelId }: { ocelId: string }) => {
             placeholder="Search activity"
             leftSection={<SearchIcon size={12} />}
             value={search}
-            onChange={(e) => setSearch(e.currentTarget.value)}
+            onChange={(e) => {
+              setSearch(e.currentTarget.value);
+              setPage(1);
+            }}
           />
         </Group>
         <Table.ScrollContainer minWidth={900}>
@@ -259,7 +291,7 @@ export const ActivityProfile = ({ ocelId }: { ocelId: string }) => {
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {rows.map((row) => (
+              {shown.map((row) => (
                 <Row
                   key={row.activity}
                   row={row}
@@ -272,6 +304,30 @@ export const ActivityProfile = ({ ocelId }: { ocelId: string }) => {
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>
+        {/* Pages: position in the (searched) rows, rows per page, page switcher. */}
+        <Group justify="space-between" gap="xs">
+          <Text size="xs" c="dimmed">
+            {rows.length ? `${num(first + 1)}–${num(first + shown.length)} of ${num(rows.length)}` : "no matching activity"}
+            {needle && rows.length < data.rows.length ? ` (search; ${num(data.rows.length)} in total)` : ""}
+          </Text>
+          <Group gap="xs">
+            <Select
+              size="xs"
+              w={120}
+              aria-label="rows per page"
+              data={PAGE_SIZES.map((n) => ({ value: String(n), label: `${n} per page` }))}
+              value={String(pageSize)}
+              onChange={(v) => {
+                if (!v) return;
+                setPageSize(Number(v));
+                setPage(1);
+              }}
+              allowDeselect={false}
+              comboboxProps={{ withinPortal: true }}
+            />
+            {pages > 1 && <Pagination size="xs" total={pages} value={current} onChange={setPage} />}
+          </Group>
+        </Group>
       </Stack>
     </Card>
   );

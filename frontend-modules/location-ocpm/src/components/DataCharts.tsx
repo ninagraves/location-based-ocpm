@@ -8,7 +8,7 @@ import { errorText } from "../lib/errors";
 import { type FilterKey, usePageFilter, withValue } from "../lib/filters";
 import { num, pct } from "../lib/format";
 import { CATEGORICAL, OTHER, STATUS } from "../lib/palette";
-import { plotConfig, ThemedPlot, useScheme } from "./plots";
+import { plotConfig, ScrollLegend, ThemedPlot, useScheme } from "./plots";
 
 /** Height of each chart in pixels ("rather small"). */
 const HEIGHT = 220;
@@ -65,7 +65,7 @@ const Legend = ({ items, title }: { items: { label: string; colour: string }[]; 
   </Stack>
 );
 
-/** A small card with title, and the chart with its legend to the right. */
+/** A small card with title, and the chart with its legend to the right (scrolling if it is taller than the chart). */
 const ChartCard = ({
   title,
   sub,
@@ -94,7 +94,7 @@ const ChartCard = ({
         <Box h={HEIGHT} style={{ flex: 1, minWidth: 0 }}>
           {children}
         </Box>
-        {legend}
+        <ScrollLegend height={HEIGHT}>{legend}</ScrollLegend>
       </Group>
     </Stack>
   </Card>

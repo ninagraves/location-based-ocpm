@@ -31,7 +31,7 @@ import {
 import { num, pct } from "../lib/format";
 import { usePageState } from "../lib/pageState";
 import { categoricalColour, OTHER, plotlyScale, type Scheme, SEQUENTIAL, STATUS, UI } from "../lib/palette";
-import { plotConfig, ThemedPlot, useScheme } from "./plots";
+import { plotConfig, ScrollLegend, ThemedPlot, useScheme } from "./plots";
 
 /** Labels the backend uses for missing values, the summed rest, and mixed object types. */
 const MISSING = "–";
@@ -228,27 +228,32 @@ const colourOf = (value: string, colours: string[], scheme: Scheme, by: string) 
 /** A label cut to `chars` characters, with "…". */
 const cut = (label: string, chars: number) => (label.length > chars ? `${label.slice(0, Math.max(1, chars - 1))}…` : label);
 
-/** Legend beside a chart (at most ¼ of the card width): one swatch per value; long names are cut. */
+/**
+ * Legend beside a chart (at most ¼ of the card width, at most as tall as the chart, scrolling
+ * beyond): one swatch per value; long names are cut.
+ */
 const Legend = ({ items, width }: { items: { label: string; colour: string; hatched?: boolean }[]; width: number }) => (
-  <Stack gap={2} maw={width} style={{ flexShrink: 0, overflow: "hidden" }}>
-    {items.map((item) => (
-      <Tooltip key={item.label} label={item.label} withArrow openDelay={300}>
-        <Group gap={4} wrap="nowrap">
-          <ColorSwatch
-            color={item.colour}
-            size={10}
-            style={{
-              flexShrink: 0,
-              backgroundImage: item.hatched ? "repeating-linear-gradient(45deg, transparent 0 2px, #fff 2px 3px)" : undefined,
-            }}
-          />
-          <Text size="xs" truncate>
-            {item.label}
-          </Text>
-        </Group>
-      </Tooltip>
-    ))}
-  </Stack>
+  <ScrollLegend height={HEIGHT} maxWidth={width}>
+    <Stack gap={2} maw={width} style={{ overflow: "hidden" }}>
+      {items.map((item) => (
+        <Tooltip key={item.label} label={item.label} withArrow openDelay={300}>
+          <Group gap={4} wrap="nowrap">
+            <ColorSwatch
+              color={item.colour}
+              size={10}
+              style={{
+                flexShrink: 0,
+                backgroundImage: item.hatched ? "repeating-linear-gradient(45deg, transparent 0 2px, #fff 2px 3px)" : undefined,
+              }}
+            />
+            <Text size="xs" truncate>
+              {item.label}
+            </Text>
+          </Group>
+        </Tooltip>
+      ))}
+    </Stack>
+  </ScrollLegend>
 );
 
 /** A small inline control with a hover text. */
