@@ -1,5 +1,6 @@
 """Activity profile on the running example (concept section "Activity Profile", "Deriving the profile")."""
 
+from ocelescope_module_location_based_ocpm.derivation.config import RolesFromQualifiers
 from ocelescope_module_location_based_ocpm.derivation.pipeline import derive
 from ocelescope_module_location_based_ocpm.overview.activity_profile import activity_profile
 from ocelescope_module_location_based_ocpm.overview.filters import PageFilter
@@ -52,3 +53,9 @@ def test_profile_filter_b1_post(derivation):
 def test_without_transformations(ocel):
     profile = activity_profile(derive(ocel, example_config(transformation_events=None)))
     assert all(r.transformation_share is None for r in profile.rows)
+
+
+def test_t_derived_from_qualifiers(ocel):
+    roles = RolesFromQualifiers(consumed_qualifiers=["consumed"], produced_qualifiers=["produced"])
+    profile = activity_profile(derive(ocel, example_config(transformation_events=None, transformation_roles=roles)))
+    assert {r.activity: r.transformation_share for r in profile.rows}["roll"] == 1.0

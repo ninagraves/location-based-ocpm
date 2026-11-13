@@ -145,3 +145,11 @@ def test_locations_of_the_location_inputs(ocel, state):
         ocel, LocationRequest(target_locations=LocationTable(table="nope", event_column="e", location_column="l")), state
     )
     assert missing.locations == [] and missing.problems
+
+
+def test_table_names_include_role_tables():
+    from ocelescope_module_location_based_ocpm.derivation.config import RolesFromTable
+    from ocelescope_module_location_based_ocpm.state import table_names
+
+    roles = RolesFromTable(table="roles.csv", event_column="event", object_column="hu", role_column="role")
+    assert "roles.csv" in table_names(example_config(transformation_roles=roles))

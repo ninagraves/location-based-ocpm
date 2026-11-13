@@ -352,3 +352,23 @@ class DerivationConfig(BaseModel):
         if roles is not None and roles.option in NEEDS_TRANSFORMATION_EVENTS and self.transformation_events is None:
             raise ValueError(f"Consumed and produced handling units: option '{roles.option}' needs the transformation events.")
         return self
+
+    @property
+    def has_transformation_input(self) -> bool:
+        """Whether T can be non-empty: transformation events or consumed/produced handling units are configured.
+
+        Options 1 and 6 derive T themselves, so `transformation_events` is None for them; checking only that
+        field would wrongly report "no transformation events configured".
+        """
+        return self.transformation_events is not None or self.transformation_roles is not None
+
+    def role_tables(self) -> list[str]:
+        """Names of the tables the consumed/produced handling-units input refers to (options 2 and 4)."""
+        roles = self.transformation_roles
+        if roles is None:
+            return []
+        if roles.option == "table":
+            return [roles.table]
+        if roles.option == "object_sets":
+            return [s.table for s in (roles.produced, roles.consumed) if s is not None and s.option == "table"]
+        return []
