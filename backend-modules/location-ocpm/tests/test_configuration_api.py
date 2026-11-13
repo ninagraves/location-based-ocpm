@@ -103,9 +103,31 @@ def test_no_config_gives_409(ocel, session, state):
 
 
 def test_example_configuration_file_matches_the_tests():
-    """data/running_example/configuration.json loads into the running example's configuration."""
+    """data/running_example/configuration.json loads into the running example's configuration with its location
+    context; the location table is named by its file name, as after uploading inputs/locations.csv in the form."""
+    from test_location_context import CONTEXT
+
     loaded = DerivationConfig.model_validate(json.loads((EXAMPLE / "configuration.json").read_text()))
-    assert loaded == example_config()
+    by_file_name = {
+        name: value.model_copy(update={"table": "locations.csv"}) if hasattr(value, "table") else value
+        for name, value in CONTEXT.items()
+    }
+    assert loaded == example_config(**by_file_name)
+
+
+def test_example_configuration_file_derives_high_level_locations(ocel):
+    """With inputs/locations.csv uploaded under its file name, the file gives A1, A2 -> A, B1 -> B, V = {T}, W = {B1}."""
+    import polars as pl
+
+    from ocelescope_module_location_based_ocpm.derivation.pipeline import derive
+
+    config = DerivationConfig.model_validate(json.loads((EXAMPLE / "configuration.json").read_text()))
+    tables = {"locations.csv": pl.read_csv(EXAMPLE / "inputs" / "locations.csv", infer_schema=False)}
+    result = derive(ocel, config, tables)
+    assert result.errors == []
+    assert result.context.agg == {"A1": "A", "A2": "A", "B1": "B"}
+    assert (result.context.vehicles, result.context.storage_units) == ({"T"}, {"B1"})
+    assert result.high_level_locations == ["A", "B", "T"]
 
 
 def test_locations_of_the_location_inputs(ocel, state):
