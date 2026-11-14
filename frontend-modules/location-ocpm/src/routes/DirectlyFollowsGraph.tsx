@@ -1,4 +1,4 @@
-// The page "Directly-follows graph": settings sidebar on the left, the graph on the right.
+// The page "Directly-follows graph": the graph on the left, the settings sidebar on the right.
 // Documented in docs/pages/directly-follows-graph.md.
 import { Alert, Box, Group, Loader } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -38,6 +38,9 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
   if (!data) return <Loader size="sm" />;
   return (
     <Group align="flex-start" wrap="nowrap" gap="md">
+      <Box style={{ flex: 1, minWidth: 0, position: "relative", opacity: isFetching ? 0.6 : 1 }}>
+        <DfgGraph graph={data} colours={colours} direction={state.direction} arcLabel={state.arcLabel} height={GRAPH_HEIGHT} />
+      </Box>
       <Box w={SIDEBAR_WIDTH} style={{ flexShrink: 0, position: "sticky", top: 8 }}>
         <DfgSettings
           objectTypes={data.object_types}
@@ -48,9 +51,6 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
           direction={state.direction}
           onDirection={(direction) => setState((s) => ({ ...s, direction }))}
         />
-      </Box>
-      <Box style={{ flex: 1, minWidth: 0, position: "relative", opacity: isFetching ? 0.6 : 1 }}>
-        <DfgGraph graph={data} colours={colours} direction={state.direction} arcLabel={state.arcLabel} height={GRAPH_HEIGHT} />
       </Box>
     </Group>
   );

@@ -13,7 +13,7 @@ The page will be extended (more interaction) later; the code is split into one s
 - Layout and look of Ocelescope's earlier graph view of DFGs (ELK, `DirectlyFollowsGraph._visualize_graph` in `ocelescope/resource/default/dfg.py`), with smaller arc labels and complete activity names.
 
 ## Page structure
-Configuration bar (shared header, `configuration.md`), then two columns: the **settings sidebar** (left, 330 px, sticks to the top) and the **graph** (right, 760 px high, pan and zoom with the mouse; buttons zoom in, zoom out, fit).
+Configuration bar (shared header, `configuration.md`), then two columns: the **graph** (left, 760 px high, pan and zoom with the mouse; buttons zoom in, zoom out, fit) and the **settings sidebar** (right, 330 px, sticks to the top; Nina, 2026-11-14).
 The page ignores the overview page's filter bar (it has no filter bar of its own yet). It uses the configuration for the handling units HU, the movement events M and the processing operations P (tie order); it does not use locations yet.
 
 ## 1. What the graph shows
