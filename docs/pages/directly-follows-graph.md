@@ -85,7 +85,7 @@ ELK layered (`lib/dfgLayout.ts`, `layoutGraph`, options `ELK_OPTIONS`; with "Com
   - `dfg/graph.py`: defaults `DEFAULT_PATH_THRESHOLD` (30) and `DEFAULT_ARC_THRESHOLD` (10); request and response models (`TypeSetting`, `TypeThresholds`, `DfgRequest`, `DirectlyFollowsGraph`, `DfgActivityOption`, …), `log_frames(ocel, derivation)`, `default_selection`, `resolve_selection(request, objects, handling_units)`, `type_overview`, `selected_traces`, `directly_follows_graph(frames, selection, traces, excluded_activities)`.
   - `dfg_routes.py`: `POST /{ocel_id}/dfg` (`getDirectlyFollowsGraph`), body `{"object_types": [...] | null, "path_threshold", "arc_threshold", "type_thresholds": [{"object_type", "path_threshold"?, "arc_threshold"?}], "excluded_activities": [...]}`; caches the log's frames and the traces per selection (LRU, `CACHE_SIZE`), keyed by the derivation's cache key, so a slider only reruns the filters.
 - Frontend (`frontend-modules/location-ocpm/src/`): `routes/DirectlyFollowsGraph.tsx` (page, state, query), `components/DfgSettings.tsx` (sidebar, `DEFAULT_STATE`, `toRequest`; hover texts `INFO`), `components/DfgGraph.tsx` (drawing, legend), `lib/dfgLayout.ts` (layout, sizes `SIZES`, `ELK_OPTIONS`, `COMPACT_OPTIONS`).
-- Tests: `tests/test_dfg.py`. Demo notebook: `notebooks/directly_follows_graph.ipynb`.
+- Tests: `tests/test_dfg.py` (`test_worked_example_of_the_module_note` checks the worked example of the module note; update both together). Demo notebook: `notebooks/directly_follows_graph.ipynb`.
 
 ## 5. How to change
 - Other defaults: `DEFAULT_PATH_THRESHOLD` / `DEFAULT_ARC_THRESHOLD` in `dfg/graph.py` **and** `DEFAULT_STATE` in `DfgSettings.tsx`.

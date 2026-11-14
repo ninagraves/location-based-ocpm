@@ -1,6 +1,6 @@
 """Directly-follows graph (docs/pages/directly-follows-graph.md): traces, path filter, arc filter, nodes."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import polars as pl
 import pytest
@@ -213,3 +213,56 @@ def test_transformation_first_at_first_and_last_at_last_timestamp():
     )
     traces = selected_traces(frames, ["pallet"])
     assert traces["activity"].to_list() == ["create", "move in", "move out", "consume"]
+
+
+def _pallet_example() -> LogFrames:
+    """The worked example of the module note "Directly-Follows Graph Page": ten pallets, a truck and an operator."""
+    paths = {
+        **{f"p{i}": ["produce", "pick", "pack", "load", "ship"] for i in range(1, 6)},
+        **{f"p{i}": ["produce", "pick", "inspect", "pack", "load", "ship"] for i in range(6, 9)},
+        "p9": ["produce", "inspect", "inspect", "scrap"],
+        "p10": ["produce", "pick", "pack", "inspect", "pack", "load", "ship"],
+    }
+    rows, links, n = [], [], 0
+    for i, (pallet, activities) in enumerate(paths.items()):
+        for k, activity in enumerate(activities):
+            n += 1
+            hour = 10 * i + (0 if k < 2 else 1) if pallet == "p9" else 10 * i + k
+            # p9: produce and inspect share the first timestamp, inspect and scrap the last; ids against the rule.
+            event = ["e902", "e901", "e904", "e903"][k] if pallet == "p9" else f"e{n:03d}"
+            rows.append((event, datetime(2026, 1, 1) + timedelta(hours=hour), activity, activity in ("load", "ship"), activity in ("produce", "scrap")))
+            links.append((event, pallet))
+            if activity in ("load", "ship"):
+                links.append((event, "t1"))
+            if activity == "inspect":
+                links.append((event, "o1"))
+    events = pl.DataFrame(rows, schema=["event", "time", "activity", "is_movement", "is_transformation"], orient="row")
+    objects = pl.DataFrame({"object": [*paths, "t1", "o1"], "object_type": ["pallet"] * 10 + ["truck", "operator"]})
+    return LogFrames(
+        e2o=pl.DataFrame(links, schema=["event", "object"], orient="row").join(objects, on="object"),
+        events=events.with_columns(is_processing=pl.lit(False)),
+        objects=objects,
+        handling_units=pl.Series("hu", list(paths)),
+        processing=pl.Series("event", [], dtype=pl.String),
+    )
+
+
+def test_worked_example_of_the_module_note():
+    frames = _pallet_example()
+    p9 = selected_traces(frames, ["pallet"]).filter(pl.col("object") == "p9")
+    assert p9["activity"].to_list() == ["produce", "inspect", "inspect", "scrap"]
+    setting = [TypeSetting(object_type="pallet", path_threshold=60, arc_threshold=70)]
+    graph = directly_follows_graph(frames, setting)
+    pallet = next(t for t in graph.object_types if t.object_type == "pallet")
+    assert (pallet.kept_paths, pallet.kept_objects) == (2, 8)
+    assert set(arcs_of(graph, "pallet")) == {
+        (None, "produce"), ("produce", "pick"), ("pack", "load"), ("load", "ship"), ("ship", None), ("pick", "pack"), ("inspect", "pack"),
+    }
+    assert {a.activity: a.events for a in graph.activities}["inspect"] == 3
+    assert not next(o for o in graph.activity_options if o.activity == "scrap").on_included_trace
+    without = directly_follows_graph(frames, setting, excluded_activities=["inspect"])
+    assert arcs_of(without, "pallet")[("pick", "pack")] == (5, 5)
+    truck = directly_follows_graph(frames, [*setting, TypeSetting(object_type="truck", path_threshold=100, arc_threshold=100)])
+    assert {a.activity: a.events for a in truck.activities}["load"] == 9
+    default = directly_follows_graph(frames)
+    assert set(arcs_of(default, "pallet")) == {(None, "produce"), ("load", "ship"), ("ship", None)}
