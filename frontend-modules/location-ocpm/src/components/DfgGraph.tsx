@@ -68,13 +68,13 @@ const ActivityNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
           height: d.height,
           padding: `${SIZES.padY}px ${SIZES.padX}px`,
           border: "1.5px solid var(--mantine-color-text)",
-          borderRadius: 6,
+          borderRadius: 4,
           background: "var(--mantine-color-body)",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          gap: 2,
+          gap: 0,
           boxSizing: "border-box",
         }}
       >
@@ -86,7 +86,7 @@ const ActivityNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
         </Box>
         <Box style={{ fontSize: SIZES.frequencyFont, fontWeight: 600, opacity: 0.75 }}>{num(d.events)}</Box>
         {circles.length > 0 && (
-          <Group gap={SIZES.circleGap} wrap="nowrap" mt={3}>
+          <Group gap={SIZES.circleGap} wrap="nowrap" mt={2}>
             {circles.map((t) => (
               <Tooltip key={t.objectType} label={`${t.objectType}: ${num(t.events)} of ${num(d.events)} events, ${num(t.objects)} objects`} withinPortal>
                 <Box
@@ -174,6 +174,19 @@ const ArcEdge = memo(({ id, data, markerEnd }: EdgeProps<Edge<ArcData>>) => {
   );
 });
 
+/** Grey of start and end arcs. */
+const GREY = "#9aa0a6";
+
+/** The legend, in grey above the graph. */
+const Legend = () => (
+  <Text size="xs" c="dimmed">
+    ▶ / ■ in a circle: start / end of an object type (named below; arcs from and to them are grey) · coloured line:
+    directly-follows arc of a selected object type (thicker = more traversals) · number on an arc: traversals or objects ·
+    number in an activity: its events on the included traces · small circle on an activity: an unselected object type
+    involved in these events
+  </Text>
+);
+
 const NODE_TYPES = { activity: ActivityNode, start: TerminalNode, end: TerminalNode };
 const EDGE_TYPES = { arc: ArcEdge };
 
@@ -193,14 +206,17 @@ const toFlow = (layout: Layout, colours: Map<string, string>) => {
     connectable: false,
   }));
   const edges: Edge<ArcData>[] = layout.arcs.map((a) => {
-    const colour = colours.get(a.objectType) ?? "gray";
+    // Start and end arcs are grey (Nina, 2026-11-14); the start and end nodes carry the type's colour.
+    const terminal = a.source.startsWith("start:") || a.target.startsWith("end:");
+    const colour = terminal ? GREY : (colours.get(a.objectType) ?? GREY);
     return {
       id: a.id,
       source: a.source,
       target: a.target,
       type: "arc",
       data: { ...a, colour, width: strokeWidth(a.count, maxCount.get(a.objectType) ?? 1) },
-      markerEnd: { type: MarkerType.ArrowClosed, color: colour, width: 14, height: 14 },
+      // React Flow draws the arrow in a 20-unit box of which it fills 5: 30 px gives an arrow of about 8 px, whatever the stroke width.
+      markerEnd: { type: MarkerType.ArrowClosed, color: colour, width: 30, height: 30, markerUnits: "userSpaceOnUse" },
     };
   });
   return { nodes, edges };
@@ -210,7 +226,7 @@ const toFlow = (layout: Layout, colours: Map<string, string>) => {
 const FitOnChange = ({ layout }: { layout: Layout | null }) => {
   const { fitView } = useReactFlow();
   useEffect(() => {
-    if (layout) requestAnimationFrame(() => fitView({ padding: 0.08 }));
+    if (layout) requestAnimationFrame(() => fitView({ padding: 0.08, maxZoom: 1 }));
   }, [layout, fitView]);
   return null;
 };
@@ -222,6 +238,7 @@ const FitOnChange = ({ layout }: { layout: Layout | null }) => {
  * @param colours Colour per object type.
  * @param direction Layout direction (left to right or top to bottom).
  * @param arcLabel What the arc labels show: traversals (`count`) or distinct objects.
+ * @param compact Compact layout (little white space, `COMPACT_OPTIONS`).
  * @param height Height of the drawing area in pixels.
  */
 export const DfgGraph = ({
@@ -229,12 +246,14 @@ export const DfgGraph = ({
   colours,
   direction,
   arcLabel,
+  compact,
   height,
 }: {
   graph: DirectlyFollowsGraph;
   colours: Map<string, string>;
   direction: Direction;
   arcLabel: ArcLabel;
+  compact: boolean;
   height: number;
 }) => {
   const [layout, setLayout] = useState<Layout | null>(null);
@@ -242,14 +261,14 @@ export const DfgGraph = ({
   useEffect(() => {
     let cancelled = false;
     setError(null);
-    layoutGraph(graph, direction, arcLabel).then(
+    layoutGraph(graph, direction, arcLabel, compact).then(
       (result) => !cancelled && setLayout(result),
       (err: unknown) => !cancelled && setError(String(err)),
     );
     return () => {
       cancelled = true;
     };
-  }, [graph, direction, arcLabel]);
+  }, [graph, direction, arcLabel, compact]);
   const flow = useMemo(() => (layout ? toFlow(layout, colours) : null), [layout, colours]);
 
   if (error) return <Alert color="red">Layout failed: {error}</Alert>;
@@ -257,6 +276,8 @@ export const DfgGraph = ({
   if (flow.nodes.length === 0)
     return <Alert color="gray">Nothing to show: select an object type, or lower its arc threshold or raise its path threshold.</Alert>;
   return (
+    <Stack gap={4}>
+      <Legend />
     <Box style={{ height, border: "1px solid var(--mantine-color-default-border)", borderRadius: 8 }}>
       <ReactFlowProvider>
         <ReactFlow
@@ -270,11 +291,13 @@ export const DfgGraph = ({
           minZoom={0.05}
           maxZoom={3}
           fitView
+          fitViewOptions={{ padding: 0.08, maxZoom: 1 }}
         >
           <Controls showInteractive={false} />
           <FitOnChange layout={layout} />
         </ReactFlow>
       </ReactFlowProvider>
     </Box>
+    </Stack>
   );
 };

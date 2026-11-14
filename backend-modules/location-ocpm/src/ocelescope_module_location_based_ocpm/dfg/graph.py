@@ -17,15 +17,15 @@ from ..derivation import columns as c
 from ..derivation.inputs import OCEL_EID, OCEL_OID, OCEL_TYPE
 from ..derivation.pipeline import Derivation
 from . import columns as d
-from .arcs import arc_filter, directly_follows_arcs, objects_per_type
+from .arcs import arc_filter, directly_follows_arcs, objects_per_type, remove_activities
 from .nodes import activity_frequencies, involved_object_types, shown_activities
 from .traces import considered_objects, object_traces
 from .variants import object_variants, path_filter
 
-#: Default path threshold (percent): all paths.
-DEFAULT_PATH_THRESHOLD = 100.0
-#: Default arc threshold (percent): all arcs.
-DEFAULT_ARC_THRESHOLD = 0.0
+#: Default path threshold (percent; Nina, 2026-11-14).
+DEFAULT_PATH_THRESHOLD = 30.0
+#: Default arc threshold (percent; Nina, 2026-11-14).
+DEFAULT_ARC_THRESHOLD = 10.0
 
 
 class TypeSetting(BaseModel):
@@ -34,7 +34,7 @@ class TypeSetting(BaseModel):
     Attributes:
         object_type: The object type.
         path_threshold: Path threshold in percent (`variants.py`); 100 = all paths.
-        arc_threshold: Arc threshold in percent (`arcs.py`); 0 = all arcs.
+        arc_threshold: Arc threshold in percent (`arcs.py`); 100 = all arcs.
     """
 
     object_type: str
@@ -42,15 +42,37 @@ class TypeSetting(BaseModel):
     arc_threshold: float = Field(DEFAULT_ARC_THRESHOLD, ge=0, le=100)
 
 
-class DfgRequest(BaseModel):
-    """Settings of the page.
+class TypeThresholds(BaseModel):
+    """Thresholds of one object type that deviate from the general ones (None = use the general one).
 
     Attributes:
-        selection: The selected object types with their thresholds; None = the default, every object type
-            that contains handling units, with the default thresholds.
+        object_type: The object type.
+        path_threshold: Own path threshold in percent, or None.
+        arc_threshold: Own arc threshold in percent, or None.
     """
 
-    selection: list[TypeSetting] | None = None
+    object_type: str
+    path_threshold: float | None = Field(None, ge=0, le=100)
+    arc_threshold: float | None = Field(None, ge=0, le=100)
+
+
+class DfgRequest(BaseModel):
+    """Settings of the page (sidebar).
+
+    Attributes:
+        object_types: The selected object types; None = the default, every object type with handling units.
+        path_threshold: General path threshold in percent, for every type without an own one.
+        arc_threshold: General arc threshold in percent, for every type without an own one.
+        type_thresholds: Own thresholds of single object types (kept also while the type is not selected).
+        excluded_activities: Deselected activities: their nodes and every arc touching them are removed
+            (`arcs.remove_activities`).
+    """
+
+    object_types: list[str] | None = None
+    path_threshold: float = Field(DEFAULT_PATH_THRESHOLD, ge=0, le=100)
+    arc_threshold: float = Field(DEFAULT_ARC_THRESHOLD, ge=0, le=100)
+    type_thresholds: list[TypeThresholds] = Field(default_factory=list)
+    excluded_activities: list[str] = Field(default_factory=list)
 
 
 class DfgObjectType(BaseModel):
@@ -67,7 +89,7 @@ class DfgObjectType(BaseModel):
         paths: Distinct paths (variants) of the type's objects (selected types; 0 otherwise).
         kept_paths: Paths kept by the path threshold.
         arcs: Arcs after the path filter, before the arc filter (with start and end arcs).
-        kept_arcs: Arcs kept by the arc threshold.
+        kept_arcs: Arcs kept by the arc threshold and the activity selection.
     """
 
     object_type: str
@@ -131,6 +153,21 @@ class DfgArc(BaseModel):
     objects: int
 
 
+class DfgActivityOption(BaseModel):
+    """An activity of the log, for the activity selection.
+
+    Attributes:
+        activity: The activity.
+        log_events: Its events in the whole log (the list is sorted by this, descending).
+        on_included_trace: True if it occurs in the trace of at least one kept object (an object of a selected
+            type whose path is kept); only these activities can be deselected with an effect.
+    """
+
+    activity: str
+    log_events: int
+    on_included_trace: bool
+
+
 class DirectlyFollowsGraph(BaseModel):
     """The page's graph.
 
@@ -138,11 +175,13 @@ class DirectlyFollowsGraph(BaseModel):
         object_types: All object types of the log, most objects first (the order of their colours).
         activities: The shown activity nodes, by name.
         arcs: The kept arcs.
+        activity_options: All activities of the log, most events first, for the activity selection.
     """
 
     object_types: list[DfgObjectType]
     activities: list[DfgActivity]
     arcs: list[DfgArc]
+    activity_options: list[DfgActivityOption]
 
 
 @dataclass(frozen=True)
@@ -208,6 +247,30 @@ def default_selection(objects: pl.DataFrame, handling_units: Collection[str]) ->
     return [TypeSetting(object_type=t) for t in types]
 
 
+def resolve_selection(request: DfgRequest, objects: pl.DataFrame, handling_units: Collection[str]) -> list[TypeSetting]:
+    """The selected object types with the thresholds that apply to them.
+
+    Args:
+        request: The page's settings.
+        objects: All objects, columns object and object_type.
+        handling_units: The handling units HU.
+
+    Returns:
+        list[TypeSetting]: One setting per selected type: its own thresholds where given, else the general ones.
+    """
+    types = request.object_types
+    if types is None:
+        types = [s.object_type for s in default_selection(objects, handling_units)]
+    own = {t.object_type: t for t in request.type_thresholds}
+    settings = []
+    for t in dict.fromkeys(types):
+        custom = own.get(t)
+        path = custom.path_threshold if custom and custom.path_threshold is not None else request.path_threshold
+        arc = custom.arc_threshold if custom and custom.arc_threshold is not None else request.arc_threshold
+        settings.append(TypeSetting(object_type=t, path_threshold=path, arc_threshold=arc))
+    return settings
+
+
 def type_overview(objects: pl.DataFrame, handling_units: Collection[str]) -> pl.DataFrame:
     """All object types with their number of considered objects and whether they contain handling units.
 
@@ -230,14 +293,22 @@ def type_overview(objects: pl.DataFrame, handling_units: Collection[str]) -> pl.
 
 
 def directly_follows_graph(
-    frames: LogFrames, selection: Sequence[TypeSetting] | None = None, traces: pl.DataFrame | None = None
+    frames: LogFrames,
+    selection: Sequence[TypeSetting] | None = None,
+    traces: pl.DataFrame | None = None,
+    excluded_activities: Collection[str] = (),
 ) -> DirectlyFollowsGraph:
     """The directly-follows graph of the selected object types.
+
+    Order of the steps: path filter, arcs, arc filter, removal of deselected activities, nodes. The kept
+    (path-filtered) traces are the baseline of everything after the path filter: arcs, frequencies and the
+    object types involved are computed on their events only.
 
     Args:
         frames: The log's frames (`log_frames`).
         selection: Selected object types with thresholds; None = `default_selection`.
         traces: Precomputed `object_traces` of the selected types (e.g. from a cache); None = compute them.
+        excluded_activities: Deselected activities (`arcs.remove_activities`).
 
     Returns:
         DirectlyFollowsGraph: Object types, activity nodes and kept arcs.
@@ -254,13 +325,18 @@ def directly_follows_graph(
     kept_traces = path_filter(traces, path_thresholds)
     n_kept = objects_per_type(kept_traces)
     all_arcs = directly_follows_arcs(kept_traces)
-    kept_arcs = arc_filter(all_arcs, n_kept, arc_thresholds)
+    kept_arcs = remove_activities(arc_filter(all_arcs, arc_thresholds), excluded_activities)
 
     activities = shown_activities(kept_arcs)
     frequencies = activity_frequencies(kept_traces, activities)
     involved = involved_object_types(kept_traces, activities, frames.e2o)
     log_counts = frames.events.group_by(c.ACTIVITY).agg(pl.len().alias(d.EVENTS))
     log_events = dict(zip(log_counts[c.ACTIVITY], log_counts[d.EVENTS], strict=True))
+    on_trace = set(kept_traces[c.ACTIVITY].unique().to_list())
+    activity_options = [
+        DfgActivityOption(activity=a, log_events=n, on_included_trace=a in on_trace)
+        for a, n in sorted(log_events.items(), key=lambda item: (-item[1], item[0]))
+    ]
 
     variants = object_variants(traces)
     kept_variants = object_variants(kept_traces)
@@ -308,6 +384,7 @@ def directly_follows_graph(
             for row in frequencies.iter_rows(named=True)
         ],
         arcs=[DfgArc(**row) for row in kept_arcs.iter_rows(named=True)],
+        activity_options=activity_options,
     )
 
 

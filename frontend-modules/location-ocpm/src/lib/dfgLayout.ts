@@ -10,22 +10,22 @@ type Point = { x: number; y: number };
 /** Sizes of the drawing, in pixels. */
 export const SIZES = {
   /** Font size of activity names. */
-  nameFont: 13,
+  nameFont: 12,
   /** Line height of activity names. */
-  nameLine: 17,
+  nameLine: 14,
   /** Activity names wrap at this width (never cut). */
-  maxNameWidth: 200,
+  maxNameWidth: 150,
   /** Font size of the frequency in an activity node. */
-  frequencyFont: 12,
+  frequencyFont: 10,
   /** Diameter of an object-type circle on an activity node. */
-  circle: 10,
+  circle: 7,
   /** Gap between object-type circles. */
-  circleGap: 4,
-  /** Horizontal and vertical padding inside an activity node. */
-  padX: 12,
-  padY: 7,
+  circleGap: 2,
+  /** Horizontal and vertical padding inside an activity node (tight, Nina 2026-11-14). */
+  padX: 5,
+  padY: 2,
   /** Diameter of start and end nodes. */
-  terminal: 26,
+  terminal: 18,
   /** Font size of the object-type name below start and end nodes, and of arc labels. */
   smallFont: 10,
 } as const;
@@ -49,6 +49,20 @@ export const ELK_OPTIONS: Record<string, string> = {
   "elk.layered.spacing.edgeEdgeBetweenLayers": "14",
   "elk.layered.thoroughness": "15",
   "elk.edgeLabels.placement": "CENTER",
+};
+
+/**
+ * Spacing of the compact layout (setting "Compact layout"): little white space, e.g. to export the whole graph
+ * as a figure for a paper. Replaces the spacing options of `ELK_OPTIONS`.
+ */
+export const COMPACT_OPTIONS: Record<string, string> = {
+  "elk.spacing.nodeNode": "12",
+  "elk.spacing.edgeNode": "8",
+  "elk.spacing.edgeEdge": "5",
+  "elk.spacing.componentComponent": "24",
+  "elk.layered.spacing.nodeNodeBetweenLayers": "28",
+  "elk.layered.spacing.edgeNodeBetweenLayers": "10",
+  "elk.layered.spacing.edgeEdgeBetweenLayers": "5",
 };
 
 let probe: HTMLSpanElement | null = null;
@@ -130,9 +144,9 @@ const activitySize = (lines: string[], events: number, circles: number) => {
   const frequencyWidth = textWidth(events.toLocaleString("en-GB"), SIZES.frequencyFont, 600);
   const circlesWidth = circles * SIZES.circle + Math.max(0, circles - 1) * SIZES.circleGap;
   // + 4: the node's border (1.5 px each side) and rounding.
-  const width = Math.ceil(Math.max(nameWidth, frequencyWidth, circlesWidth, 60) + 2 * SIZES.padX + 4);
+  const width = Math.ceil(Math.max(nameWidth, frequencyWidth, circlesWidth, 24) + 2 * SIZES.padX + 4);
   const height = Math.ceil(
-    2 * SIZES.padY + 3 + lines.length * SIZES.nameLine + SIZES.frequencyFont + 6 + (circles ? SIZES.circle + 6 : 0),
+    2 * SIZES.padY + 3 + lines.length * SIZES.nameLine + SIZES.frequencyFont + 3 + (circles ? SIZES.circle + 3 : 0),
   );
   return { width, height };
 };
@@ -158,11 +172,13 @@ const elk = new ELK();
  * that has a kept start / end arc, one edge per kept arc (labelled with its count or its objects).
  * Start and end nodes get no layer constraint, so ELK places them next to their first / last activities
  * instead of all in the first / last layer.
+ * `compact` replaces the spacing by `COMPACT_OPTIONS`.
  */
 export const layoutGraph = async (
   graph: DirectlyFollowsGraph,
   direction: Direction,
   arcLabel: ArcLabel,
+  compact = false,
 ): Promise<Layout> => {
   const selected = new Set(graph.object_types.filter((t) => t.selected).map((t) => t.object_type));
   const data = new Map<string, ActivityNodeData | TerminalNodeData>();
@@ -193,7 +209,7 @@ export const layoutGraph = async (
 
   const root: ElkNode = {
     id: "root",
-    layoutOptions: { ...ELK_OPTIONS, "elk.direction": direction },
+    layoutOptions: { ...ELK_OPTIONS, ...(compact ? COMPACT_OPTIONS : {}), "elk.direction": direction },
     children: [...data.entries()].map(([id, d]) => ({
       id,
       width: d.width,

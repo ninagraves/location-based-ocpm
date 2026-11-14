@@ -6,14 +6,17 @@ where $\\triangleright_{ot}$ and $\\square_{ot}$ are the start and end node of $
 Every arc has a count (traversals: an object repeating the arc counts once per traversal) and a number of
 distinct objects.
 
-The arc threshold $\\alpha_{ot} \\in [0, 100]$ (percent) keeps an arc of $ot$ if at least $\\alpha_{ot}$ % of the
-(path-filtered) objects of $ot$ traverse it: $objects(arc) \\ge \\alpha_{ot} / 100 \\cdot |O'_{ot}|$.
-$\\alpha_{ot} = 0$ keeps every arc (the default). Start and end arcs are filtered in the same way.
+The arc threshold $\\alpha_{ot} \\in [0, 100]$ (percent; Nina, 2026-11-14) keeps the most frequent $\\alpha_{ot}$ % of
+the directly-follows relations of $ot$ (the arcs between two activities, computed on the path-filtered traces):
+the $n_{ot}$ arcs are ranked by count (traversals), then objects (both descending), then source and target
+(alphabetically), and the first $\\lceil \\alpha_{ot} / 100 \\cdot n_{ot} \\rceil$ are kept.
+Start and end arcs are always kept. $\\alpha_{ot} = 100$ keeps every arc, $\\alpha_{ot} = 0$ only the start and end
+arcs. Default: 10 %.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 
 import polars as pl
 
@@ -69,18 +72,51 @@ def objects_per_type(traces: pl.DataFrame) -> dict[str, int]:
     return dict(zip(counts[c.OBJECT_TYPE], counts[d.OBJECT], strict=True))
 
 
-def arc_filter(arcs: pl.DataFrame, n_objects: Mapping[str, int], thresholds: Mapping[str, float]) -> pl.DataFrame:
-    """Keep the arcs traversed by at least `thresholds[ot]` % of the objects of their type.
+def arc_filter(arcs: pl.DataFrame, thresholds: Mapping[str, float]) -> pl.DataFrame:
+    """Keep the most frequent `thresholds[ot]` % of the arcs between activities of every object type, and all start
+    and end arcs.
 
     Args:
         arcs: Arcs (`directly_follows_arcs`).
-        n_objects: Number of (path-filtered) objects per object type, the reference of the share.
-        thresholds: Arc threshold per object type in percent (0 to 100); a missing type uses 0 (all arcs).
+        thresholds: Arc threshold per object type in percent (0 to 100); a missing type uses 100 (all arcs).
 
     Returns:
         pl.DataFrame: The kept rows of `arcs`, in the same order.
     """
-    threshold = pl.col(c.OBJECT_TYPE).replace_strict(dict(thresholds), default=0.0, return_dtype=pl.Float64)
-    total = pl.col(c.OBJECT_TYPE).replace_strict(dict(n_objects), default=0, return_dtype=pl.Int64)
-    # Compared times 100, so that e.g. 7 % of 100 objects is exactly 7 objects.
-    return arcs.filter(pl.col(d.OBJECTS) * 100 >= threshold * total)
+    threshold = pl.col(c.OBJECT_TYPE).replace_strict(dict(thresholds), default=100.0, return_dtype=pl.Float64)
+    inner = pl.col(d.SOURCE).is_not_null() & pl.col(d.TARGET).is_not_null()
+    ranked = (
+        arcs.with_row_index("_order")
+        .sort(
+            [c.OBJECT_TYPE, d.COUNT, d.OBJECTS, d.SOURCE, d.TARGET],
+            descending=[False, True, True, False, False],
+            nulls_last=True,
+        )
+        .with_columns(
+            # 1-based rank among the arcs between activities of the type; n = their number.
+            pl.when(inner).then(pl.int_range(1, pl.len() + 1).over(c.OBJECT_TYPE, inner)).alias("_rank"),
+            inner.sum().over(c.OBJECT_TYPE).alias("_n"),
+        )
+    )
+    # rank <= ceil(alpha / 100 * n)  <=>  (rank - 1) * 100 < alpha * n  (exact in whole numbers for whole percents).
+    keep = ~inner | ((pl.col("_rank") - 1) * 100 < threshold * pl.col("_n"))
+    return ranked.filter(keep).sort("_order").drop("_order", "_rank", "_n")
+
+
+def remove_activities(arcs: pl.DataFrame, activities: Collection[str]) -> pl.DataFrame:
+    """Remove the arcs that start or end at one of the given (deselected) activities.
+
+    Deselecting an activity removes its node and every arc touching it (including start and end arcs); the traces
+    are not projected, so no new arcs between its neighbours appear.
+
+    Args:
+        arcs: Kept arcs (`arc_filter`).
+        activities: Deselected activities.
+
+    Returns:
+        pl.DataFrame: The remaining rows of `arcs`, in the same order.
+    """
+    excluded = list(activities)
+    if not excluded:
+        return arcs
+    return arcs.filter(~pl.col(d.SOURCE).is_in(excluded).fill_null(False) & ~pl.col(d.TARGET).is_in(excluded).fill_null(False))

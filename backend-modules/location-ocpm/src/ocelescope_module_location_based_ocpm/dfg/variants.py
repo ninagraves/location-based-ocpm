@@ -7,7 +7,7 @@ they cover at least $\\pi_{ot}$ % of its objects: paths are ranked by their numb
 ranked before it cover less than $\\pi_{ot} / 100 \\cdot |O_{ot}|$.
 Ties are not kept together on purpose: in logistics logs most objects often have a path of their own (all paths
 have one object), and keeping ties would then keep every path for any threshold.
-$\\pi_{ot} = 100$ keeps every path (the default), $\\pi_{ot} = 0$ keeps none.
+$\\pi_{ot} = 100$ keeps every path, $\\pi_{ot} = 0$ keeps none. Default: 30 % (Nina, 2026-11-14).
 Only the objects of kept paths contribute to the arcs and nodes of the graph.
 """
 

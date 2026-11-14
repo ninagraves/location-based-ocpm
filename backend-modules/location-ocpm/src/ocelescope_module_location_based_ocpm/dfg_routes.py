@@ -17,9 +17,9 @@ from ocelescope_module_location_based_ocpm.dfg.graph import (
     DfgRequest,
     DirectlyFollowsGraph,
     LogFrames,
-    default_selection,
     directly_follows_graph,
     log_frames,
+    resolve_selection,
     selected_traces,
 )
 
@@ -57,12 +57,10 @@ def _cached(cache: OrderedDict, key, compute: Callable[[], T]) -> T:
 def get_directly_follows_graph(
     ocel_id: str, ocel: ApiOcel, derivation: CurrentDerivation, state: State, request: DfgRequest
 ) -> DirectlyFollowsGraph:
-    """The directly-follows graph of the selected object types with their path and arc thresholds."""
+    """The directly-follows graph of the selected object types with their path and arc thresholds, without the deselected activities."""
     key = state.cache[ocel_id].key
     frames = _cached(_frames, key, lambda: log_frames(ocel, derivation))
-    selection = request.selection
-    if selection is None:
-        selection = default_selection(frames.objects, frames.handling_units.to_list())
+    selection = resolve_selection(request, frames.objects, frames.handling_units.to_list())
     types = tuple(sorted({s.object_type for s in selection}))
     traces = _cached(_traces, (key, types), lambda: selected_traces(frames, types))
-    return directly_follows_graph(frames, selection, traces)
+    return directly_follows_graph(frames, selection, traces, request.excluded_activities)
