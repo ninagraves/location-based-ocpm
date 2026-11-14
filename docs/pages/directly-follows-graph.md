@@ -105,7 +105,6 @@ ELK layered (`lib/dfgLayout.ts`, `layoutGraph`, options `ELK_OPTIONS`; with "Com
 - **Start nodes in the first layer** (as in the current Ocelescope viewer): what Nina disliked.
 
 ## 7. Open points (for Nina)
-- Default path threshold: the brief says "30 % of paths (i.e. ... cover at least 10 % of objects)"; implemented as 30 % of the objects.
 - Should the page follow the overview filter bar (or get its own filters)?
 - Should circles be shown for all involved unselected types, or only some (e.g. resources, vehicles)? Should they carry a letter or the count?
 - Locations are not used yet (e.g. activity × location nodes, or location-based colouring).
