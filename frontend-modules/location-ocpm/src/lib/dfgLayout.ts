@@ -49,6 +49,8 @@ export const ELK_OPTIONS: Record<string, string> = {
   "elk.layered.spacing.edgeEdgeBetweenLayers": "14",
   "elk.layered.thoroughness": "15",
   "elk.edgeLabels.placement": "CENTER",
+  // Labels sit on their arc (the arc runs through the label), as in Ocelescope's earlier view (Nina, 2026-11-14).
+  "elk.edgeLabels.inline": "true",
 };
 
 /**
@@ -138,16 +140,17 @@ export type LaidOutArc = {
 };
 export type Layout = { nodes: LaidOutNode[]; arcs: LaidOutArc[] };
 
-/** Size of an activity node: wrapped name, frequency line, and a row of circles for the unselected types. */
+/**
+ * Size of an activity node: wrapped name, then one row with the frequency and a circle per unselected type
+ * (in the same row, so the node stays flat; Nina, 2026-11-14).
+ */
 const activitySize = (lines: string[], events: number, circles: number) => {
   const nameWidth = Math.max(...lines.map((l) => textWidth(l, SIZES.nameFont, 600)));
   const frequencyWidth = textWidth(events.toLocaleString("en-GB"), SIZES.frequencyFont, 600);
-  const circlesWidth = circles * SIZES.circle + Math.max(0, circles - 1) * SIZES.circleGap;
+  const circlesWidth = circles ? SIZES.circleGap * 2 + circles * SIZES.circle + (circles - 1) * SIZES.circleGap : 0;
   // + 4: the node's border (1.5 px each side) and rounding.
-  const width = Math.ceil(Math.max(nameWidth, frequencyWidth, circlesWidth, 24) + 2 * SIZES.padX + 4);
-  const height = Math.ceil(
-    2 * SIZES.padY + 3 + lines.length * SIZES.nameLine + SIZES.frequencyFont + 3 + (circles ? SIZES.circle + 3 : 0),
-  );
+  const width = Math.ceil(Math.max(nameWidth, frequencyWidth + circlesWidth, 24) + 2 * SIZES.padX + 4);
+  const height = Math.ceil(2 * SIZES.padY + 3 + lines.length * SIZES.nameLine + Math.max(SIZES.frequencyFont + 3, SIZES.circle));
   return { width, height };
 };
 
@@ -225,7 +228,14 @@ export const layoutGraph = async (
       id: a.id,
       sources: [a.source],
       targets: [a.target],
-      labels: [{ text: a.label, width: textWidth(a.label, SIZES.smallFont, 600) + 8, height: SIZES.smallFont + 4 }],
+      labels: [
+        {
+          text: a.label,
+          width: textWidth(a.label, SIZES.smallFont, 600) + 6,
+          height: SIZES.smallFont + 2,
+          layoutOptions: { "elk.edgeLabels.inline": "true" },
+        },
+      ],
     })),
   };
   const result = await elk.layout(root);

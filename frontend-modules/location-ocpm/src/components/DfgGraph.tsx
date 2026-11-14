@@ -56,7 +56,7 @@ const activityTooltip = (d: ActivityNodeData) => (
   </Stack>
 );
 
-/** Activity node: full name (wrapped, never cut), frequency, and a circle per involved type that is not selected. */
+/** Activity node: full name (wrapped, never cut), below it the frequency followed by a circle per involved type that is not selected. */
 const ActivityNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
   const d = data as ActivityNodeData & { colours: Map<string, string> };
   const circles = d.involved.filter((t) => !t.selected);
@@ -84,25 +84,25 @@ const ActivityNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
             <div key={line}>{line}</div>
           ))}
         </Box>
-        <Box style={{ fontSize: SIZES.frequencyFont, fontWeight: 600, opacity: 0.75 }}>{num(d.events)}</Box>
-        {circles.length > 0 && (
-          <Group gap={SIZES.circleGap} wrap="nowrap" mt={2}>
-            {circles.map((t) => (
-              <Tooltip key={t.objectType} label={`${t.objectType}: ${num(t.events)} of ${num(d.events)} events, ${num(t.objects)} objects`} withinPortal>
-                <Box
-                  style={{
-                    width: SIZES.circle,
-                    height: SIZES.circle,
-                    borderRadius: "50%",
-                    background: d.colours.get(t.objectType),
-                    border: "1px solid var(--mantine-color-body)",
-                    boxShadow: "0 0 0 1px var(--mantine-color-gray-5)",
-                  }}
-                />
-              </Tooltip>
-            ))}
-          </Group>
-        )}
+        <Group gap={SIZES.circleGap} wrap="nowrap" align="center" justify="center">
+          <Box style={{ fontSize: SIZES.frequencyFont, lineHeight: `${SIZES.frequencyFont + 3}px`, fontWeight: 600, opacity: 0.75, marginRight: circles.length ? SIZES.circleGap : 0 }}>
+            {num(d.events)}
+          </Box>
+          {circles.map((t) => (
+            <Tooltip key={t.objectType} label={`${t.objectType}: ${num(t.events)} of ${num(d.events)} events, ${num(t.objects)} objects`} withinPortal>
+              <Box
+                style={{
+                  width: SIZES.circle,
+                  height: SIZES.circle,
+                  borderRadius: "50%",
+                  background: d.colours.get(t.objectType),
+                  boxShadow: "0 0 0 0.5px var(--mantine-color-gray-6)",
+                  flexShrink: 0,
+                }}
+              />
+            </Tooltip>
+          ))}
+        </Group>
       </Box>
     </Tooltip>
   );

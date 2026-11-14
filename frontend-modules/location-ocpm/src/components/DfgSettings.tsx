@@ -19,7 +19,7 @@ import {
   TextInput,
   Tooltip,
 } from "@mantine/core";
-import { ChevronDownIcon, ChevronRightIcon, InfoIcon, RotateCcwIcon, SearchIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, InfoIcon, PanelRightCloseIcon, RotateCcwIcon, SearchIcon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import type { DfgActivityOption, DfgObjectType, DfgRequest } from "../api/locationBasedOcpm";
 import type { ArcLabel, Direction } from "../lib/dfgLayout";
@@ -86,9 +86,9 @@ export const INFO = {
 /** Heading with a hover text. */
 const Heading = ({ children, info }: { children: ReactNode; info: string }) => (
   <Group gap={4} wrap="nowrap">
-    <Text size="sm" fw={600}>{children}</Text>
+    <Text size="xs" fw={600}>{children}</Text>
     <Tooltip label={info} multiline w={300} withinPortal>
-      <InfoIcon size={13} style={{ opacity: 0.6, flexShrink: 0 }} />
+      <InfoIcon size={12} style={{ opacity: 0.6, flexShrink: 0 }} />
     </Tooltip>
   </Group>
 );
@@ -121,12 +121,12 @@ const PercentSlider = ({
   const [local, setLocal] = useState(value);
   useEffect(() => setLocal(value), [value]);
   return (
-    <Stack gap={2}>
+    <Stack gap={0}>
       <Group justify="space-between" gap={4} wrap="nowrap">
         <Heading info={info}>{label} {local} %</Heading>
         {note && <Text size="xs" c="dimmed">{note}</Text>}
       </Group>
-      <Slider aria-label={label} size="sm" min={0} max={100} step={1} value={local} onChange={setLocal} onChangeEnd={onCommit} label={(v) => `${v} %`} />
+      <Slider aria-label={label} size="xs" min={0} max={100} step={1} value={local} onChange={setLocal} onChangeEnd={onCommit} label={(v) => `${v} %`} />
     </Stack>
   );
 };
@@ -162,7 +162,7 @@ const TypeRow = ({
       objectTypes: checked ? [...selectedTypes, type.object_type] : selectedTypes.filter((t) => t !== type.object_type),
     }));
   return (
-    <Stack gap={4}>
+    <Stack gap={2}>
       <Group gap={6} wrap="nowrap" justify="space-between">
         <Checkbox
           size="xs"
@@ -171,7 +171,7 @@ const TypeRow = ({
           label={
             <Group gap={5} wrap="nowrap">
               <Swatch colour={colour} circle={!type.selected} />
-              <Text size="sm">{type.object_type}</Text>
+              <Text size="xs">{type.object_type}</Text>
               <Text size="xs" c="dimmed">({num(type.objects)})</Text>
               {type.handling_units && <Badge size="xs" variant="light">HU</Badge>}
               {custom && (
@@ -186,12 +186,12 @@ const TypeRow = ({
             </Group>
           }
         />
-        <ActionIcon size="sm" variant="subtle" color="gray" onClick={() => setOpen((o) => !o)} aria-label={`Thresholds of ${type.object_type}`}>
+        <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => setOpen((o) => !o)} aria-label={`Thresholds of ${type.object_type}`}>
           {open ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
         </ActionIcon>
       </Group>
       <Collapse expanded={open}>
-        <Stack gap={6} pl={24} pb={6}>
+        <Stack gap={4} pl={22} pb={4}>
           <PercentSlider
             label="Paths"
             info={INFO.paths}
@@ -225,6 +225,7 @@ const TypeRow = ({
  * @param activityOptions All activities of the log, most events first.
  * @param colours Colour per object type.
  * @param state The settings; `setState` changes them (every change keeps the other settings).
+ * @param onHide Hides the sidebar (the page shows a button to bring it back).
  */
 export const DfgSettings = ({
   objectTypes,
@@ -232,31 +233,53 @@ export const DfgSettings = ({
   colours,
   state,
   setState,
+  onHide,
 }: {
   objectTypes: DfgObjectType[];
   activityOptions: DfgActivityOption[];
   colours: Map<string, string>;
   state: DfgState;
   setState: (update: (s: DfgState) => DfgState) => void;
+  onHide: () => void;
 }) => {
   const [typeQuery, setTypeQuery] = useState("");
   const [activityQuery, setActivityQuery] = useState("");
   const selectedTypes = objectTypes.filter((t) => t.selected).map((t) => t.object_type);
+  // Types with handling units first, whatever their number of objects (Nina, 2026-11-14); otherwise as sent (most objects first).
+  const listedTypes = [...objectTypes.filter((t) => t.handling_units), ...objectTypes.filter((t) => !t.handling_units)];
   const matches = (text: string, query: string) => text.toLowerCase().includes(query.trim().toLowerCase());
   const excluded = new Set(state.excluded);
   const toggleActivity = (activity: string, checked: boolean) =>
     setState((s) => ({ ...s, excluded: checked ? s.excluded.filter((a) => a !== activity) : [...s.excluded, activity] }));
 
   return (
-    <Card withBorder padding="sm">
-      <Stack gap="sm">
-        <Group justify="space-between">
+    <Card withBorder padding="xs">
+      <Stack gap={6}>
+        <Group justify="space-between" gap={4} wrap="nowrap">
           <Text size="sm" fw={700}>Settings</Text>
-          <Tooltip label={INFO.reset} withinPortal>
-            <Button size="xs" variant="default" leftSection={<RotateCcwIcon size={12} />} onClick={() => setState(() => DEFAULT_STATE)}>
-              Reset to defaults
-            </Button>
-          </Tooltip>
+          <Group gap={6} wrap="nowrap">
+            <Tooltip label={INFO.compact} multiline w={260} withinPortal>
+              <Switch
+                size="xs"
+                checked={state.compact}
+                onChange={(e) => {
+                  const compact = e.currentTarget.checked;
+                  setState((s) => ({ ...s, compact }));
+                }}
+                label="Compact"
+              />
+            </Tooltip>
+            <Tooltip label={INFO.reset} withinPortal>
+              <Button size="compact-xs" variant="default" leftSection={<RotateCcwIcon size={11} />} onClick={() => setState(() => DEFAULT_STATE)}>
+                Reset
+              </Button>
+            </Tooltip>
+            <Tooltip label="Hide the settings" withinPortal>
+              <ActionIcon size="sm" variant="subtle" color="gray" onClick={onHide} aria-label="Hide the settings">
+                <PanelRightCloseIcon size={14} />
+              </ActionIcon>
+            </Tooltip>
+          </Group>
         </Group>
 
         <Divider label="General thresholds" labelPosition="left" />
@@ -269,8 +292,8 @@ export const DfgSettings = ({
         </Group>
         <Search value={typeQuery} onChange={setTypeQuery} placeholder="Search object types" />
         <ScrollArea.Autosize mah={300} type="auto" offsetScrollbars>
-          <Stack gap={4}>
-            {objectTypes
+          <Stack gap={2}>
+            {listedTypes
               .filter((t) => matches(t.object_type, typeQuery))
               .map((t) => (
                 <TypeRow key={t.object_type} type={t} colour={colours.get(t.object_type)} state={state} setState={setState} selectedTypes={selectedTypes} />
@@ -285,7 +308,7 @@ export const DfgSettings = ({
         </Heading>
         <Search value={activityQuery} onChange={setActivityQuery} placeholder="Search activities" />
         <ScrollArea.Autosize mah={260} type="auto" offsetScrollbars>
-          <Stack gap={4}>
+          <Stack gap={2}>
             {activityOptions
               .filter((a) => matches(a.activity, activityQuery))
               .map((a) => (
@@ -297,7 +320,7 @@ export const DfgSettings = ({
                   onChange={(e) => toggleActivity(a.activity, e.currentTarget.checked)}
                   label={
                     <Group gap={5} wrap="nowrap">
-                      <Text size="sm">{a.activity}</Text>
+                      <Text size="xs">{a.activity}</Text>
                       <Text size="xs" c="dimmed">({num(a.log_events)})</Text>
                     </Group>
                   }
@@ -307,34 +330,29 @@ export const DfgSettings = ({
         </ScrollArea.Autosize>
 
         <Divider label="Display" labelPosition="left" />
-        <Heading info={INFO.arcLabel}>Arc labels</Heading>
-        <SegmentedControl
-          size="xs"
-          value={state.arcLabel}
-          onChange={(v) => setState((s) => ({ ...s, arcLabel: v as ArcLabel }))}
-          data={[
-            { value: "count", label: "Traversals" },
-            { value: "objects", label: "Objects" },
-          ]}
-        />
-        <Heading info={INFO.direction}>Direction</Heading>
-        <SegmentedControl
-          size="xs"
-          value={state.direction}
-          onChange={(v) => setState((s) => ({ ...s, direction: v as Direction }))}
-          data={[
-            { value: "RIGHT", label: "Left to right" },
-            { value: "DOWN", label: "Top to bottom" },
-          ]}
-        />
-        <Group gap={6}>
-          <Switch size="xs" checked={state.compact} onChange={(e) => {
-            const compact = e.currentTarget.checked;
-            setState((s) => ({ ...s, compact }));
-          }} label="Compact layout" />
-          <Tooltip label={INFO.compact} multiline w={260} withinPortal>
-            <InfoIcon size={13} style={{ opacity: 0.6 }} />
-          </Tooltip>
+        <Group justify="space-between" gap={4} wrap="nowrap">
+          <Heading info={INFO.arcLabel}>Arc labels</Heading>
+          <SegmentedControl
+            size="xs"
+            value={state.arcLabel}
+            onChange={(v) => setState((s) => ({ ...s, arcLabel: v as ArcLabel }))}
+            data={[
+              { value: "count", label: "Traversals" },
+              { value: "objects", label: "Objects" },
+            ]}
+          />
+        </Group>
+        <Group justify="space-between" gap={4} wrap="nowrap">
+          <Heading info={INFO.direction}>Direction</Heading>
+          <SegmentedControl
+            size="xs"
+            value={state.direction}
+            onChange={(v) => setState((s) => ({ ...s, direction: v as Direction }))}
+            data={[
+              { value: "RIGHT", label: "Left to right" },
+              { value: "DOWN", label: "Top to bottom" },
+            ]}
+          />
         </Group>
       </Stack>
     </Card>

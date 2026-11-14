@@ -13,7 +13,7 @@ The page will be extended (more interaction) later; the code is split into one s
 - Layout and look of Ocelescope's earlier graph view of DFGs (ELK, `DirectlyFollowsGraph._visualize_graph` in `ocelescope/resource/default/dfg.py`), with smaller arc labels and complete activity names.
 
 ## Page structure
-Configuration bar (shared header, `configuration.md`), then two columns: the **graph** (left, 760 px high, pan and zoom with the mouse; buttons zoom in, zoom out, fit) with the **legend** in grey above it, and the **settings sidebar** (right, 340 px, sticks to the top; Nina, 2026-11-14).
+Configuration bar (shared header, `configuration.md`), then two columns: the **graph** (left, 760 px high, pan and zoom with the mouse; buttons zoom in, zoom out, fit) with the **legend** in grey above it, and the **settings sidebar** (right, sticks to the top; Nina, 2026-11-14). The sidebar is 300 px wide by default; dragging the grey bar on its left edge changes the width (220–640 px), the panel button in its header hides it, and a button in the graph's top right corner brings it back. Width and visibility are kept for the browser tab (`usePageState`, key `dfg.sidebar`, the same for all logs).
 The view is fitted to the graph when it changes, but never enlarged beyond 100 %, so a small graph is not blown up.
 The page ignores the overview page's filter bar (it has no filter bar of its own yet). It uses the configuration for the handling units HU, the movement events M and the processing operations P (tie order); it does not use locations yet.
 
@@ -24,9 +24,9 @@ For a log with object types $OT$, the user selects $OT_{sel} \subseteq OT$ (defa
 
 | Element | Shows | Calculated by |
 |---|---|---|
-| Activity node | full activity name (12 px, wrapped at 150 px, never cut), its **frequency** below (events of the activity in the included traces), one small circle per **unselected** object type involved in these events | `dfg/nodes.py` |
+| Activity node | full activity name (12 px, wrapped at 150 px, never cut), below it one row with its **frequency** (events of the activity in the included traces) followed by one small circle per **unselected** object type involved in these events (same row, so nodes stay flat; Nina, 2026-11-14) | `dfg/nodes.py` |
 | Start node ▶ / end node ■ | one per selected type with a kept start / end arc; filled with the type's colour, the type's **name** below; arcs from start nodes and to end nodes are **grey** (Nina, 2026-11-14) | `dfg/arcs.py` (null source / target) |
-| Arc | directly-follows arc $(a, b)$ between two activities of a selected type in its colour; thickness 1.2–4 px by $\sqrt{count / \max count}$ of the type; small label (10 px) with the traversals or the objects | `dfg/arcs.py` |
+| Arc | directly-follows arc $(a, b)$ between two activities of a selected type in its colour; thickness 1.2–4 px by $\sqrt{count / \max count}$ of the type; small label (10 px) with the traversals or the objects, sitting on the arc (the arc runs through it, as in Ocelescope's earlier view) | `dfg/arcs.py` |
 | Hover activity | name, events shown (and in the log if different), per involved type: events and objects | `components/DfgGraph.tsx`, `activityTooltip` |
 | Hover circle | "truck: 2 of 2 events, 1 objects" | `DfgGraph.tsx`, `ActivityNode` |
 | Hover arc label | traversals and objects of the arc | `DfgGraph.tsx`, `ArcEdge` |
@@ -39,15 +39,15 @@ Involved types of $a$: for every object type (selected or not), the frequency ev
 ## 2. Settings (sidebar, top to bottom)
 | Setting | Values | Default | Effect |
 |---|---|---|---|
-| **Reset to defaults** (top) | button | – | every setting of the page back to its default (selection, general and own thresholds, activities, display) |
+| **Compact** (header, next to Reset) | on / off | off | smaller spacing between nodes, arcs and layers (`COMPACT_OPTIONS`), e.g. to export the whole graph as a figure for a paper |
+| **Reset** (header) | button | – | every setting of the page back to its default (selection, general and own thresholds, activities, display); not the sidebar's width |
 | **General thresholds: Paths** | 0–100 %, step 1 | 30 % | path threshold $\pi_{ot}$ of every selected type **without own value** |
 | **General thresholds: Arcs** | 0–100 %, step 1 | 10 % | arc threshold $\alpha_{ot}$ of every selected type without own value |
-| **Object types** (searchable, scrollable list; checkbox, colour swatch, number of considered objects, badge "HU") | any subset of $OT$ | the types with handling units | checked: arcs, start and end nodes of the type are drawn; unchecked: the type only appears as circles on the activity nodes whose events involve it. Unchecking all types leaves an empty graph. |
+| **Object types** (searchable, scrollable list; types with handling units first, then the others, each by number of objects; checkbox, colour swatch, number of considered objects, badge "HU") | any subset of $OT$ | the types with handling units | checked: arcs, start and end nodes of the type are drawn; unchecked: the type only appears as circles on the activity nodes whose events involve it. Unchecking all types leaves an empty graph. |
 | **Own thresholds** (unfold with the arrow of a type) | Paths and Arcs, 0–100 % | the general values | own $\pi_{ot}$ / $\alpha_{ot}$ of this type; the general sliders no longer change it. A type with an own value is marked in the list, e.g. "P 100 % · A 100 %"; "Use the general thresholds" removes the own values. The line next to a slider says "x of y paths · a objects" / "x of y arcs" kept. |
 | **Activities** (searchable, scrollable list, by number of events in the log, descending; ties alphabetically) | any subset | all | see "Activity selection" below |
 | **Arc labels** | Traversals / Objects | Traversals | the number on every arc: $count$ or $objects$ |
 | **Direction** | Left to right / Top to bottom | Left to right | ELK's `elk.direction` (RIGHT / DOWN) |
-| **Compact layout** | on / off | off | smaller spacing between nodes, arcs and layers (`COMPACT_OPTIONS`), e.g. to export the whole graph as a figure for a paper |
 
 For both thresholds, **100 % keeps everything** and lower values keep less (Nina, 2026-11-14).
 
@@ -71,7 +71,7 @@ coil with Paths 50 %: 3 paths (3 coils). coil with Paths 100 % and Arcs 20 %: $\
 ELK layered (`lib/dfgLayout.ts`, `layoutGraph`, options `ELK_OPTIONS`; with "Compact layout" `COMPACT_OPTIONS`): the options of Ocelescope's `DIRECTED_ELK_GRAPH_LAYOUT` (network-simplex layering and node placement, layer-sweep crossing minimisation, spline edges), with somewhat smaller spacing between layers.
 - Start and end nodes get **no** layer constraint: network-simplex layering places them right before their first (after their last) activity instead of all at the top.
 - Activity nodes are tight around their text (`SIZES`: name 12 px, frequency 10 px, padding 2 × 5 px) and sized from the rendered text (`textWidth` measures with an invisible span in the page), so names are never cut; names wrap at spaces beyond 150 px (`wrapName`).
-- Arc labels are ELK edge labels (centre placement), so ELK reserves room for them; the object-type name below start and end nodes is an outside node label (`OUTSIDE V_BOTTOM H_CENTER`).
+- Arc labels are ELK edge labels (centre placement, `elk.edgeLabels.inline`: the arc is routed through its label), so ELK reserves room for them; the object-type name below start and end nodes is an outside node label (`OUTSIDE V_BOTTOM H_CENTER`).
 - Arrowheads have a fixed size (about 8 px), independent of the arc's thickness.
 - Colours: `colourMap` (`lib/palette.ts`) over all object types of the log, most objects first, so a type keeps its colour when the selection changes.
 - Rendering: React Flow (`@xyflow/react`), nodes not draggable; the edge paths come from ELK (`sectionPath`; spline bend points are cubic Bézier control points).
