@@ -15,7 +15,7 @@ The page will be extended (more interaction) later; the code is split into one s
 ## Page structure
 Configuration bar (shared header, `configuration.md`), then two columns: the **graph** (left, 760 px high, pan and zoom with the mouse; buttons zoom in, zoom out, fit) with the **legend** in grey above it, and the **settings sidebar** (right, sticks to the top; Nina, 2026-11-14). The sidebar is 300 px wide by default; dragging its left edge changes the width (220–640 px; a thin line appears on hover), the panel button in its header hides it, and a button in the graph's top right corner brings it back. Width and visibility are kept for the browser tab (`usePageState`, key `dfg.sidebar`, the same for all logs).
 The view is fitted to the graph when it changes, but never enlarged beyond 100 %, so a small graph is not blown up.
-The page ignores the overview page's filter bar (it has no filter bar of its own yet). It uses the configuration for the handling units HU, the movement events M and the processing operations P (tie order); it does not use locations yet.
+The page ignores the overview page's filter bar and has no filters beyond its own settings (Nina, 2026-11-14: not for now). It uses the configuration for the handling units HU, the movement events M and the processing operations P (tie order); it does not use locations yet.
 
 ## 1. What the graph shows
 For a log with object types $OT$, the user selects $OT_{sel} \subseteq OT$ (default: the object types that contain handling units).
@@ -105,6 +105,5 @@ ELK layered (`lib/dfgLayout.ts`, `layoutGraph`, options `ELK_OPTIONS`; with "Com
 - **Start nodes in the first layer** (as in the current Ocelescope viewer): what Nina disliked.
 
 ## 7. Open points (for Nina)
-- Should the page follow the overview filter bar (or get its own filters)?
 - Should circles be shown for all involved unselected types, or only some (e.g. resources, vehicles)? Should they carry a letter or the count?
 - Locations are not used yet (e.g. activity × location nodes, or location-based colouring).
