@@ -4,7 +4,7 @@
 import { ActionIcon, Alert, Box, Group, Loader, Tooltip } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { PanelRightOpenIcon } from "lucide-react";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { getDirectlyFollowsGraph } from "../api/locationBasedOcpm";
 import { DfgGraph } from "../components/DfgGraph";
 import { DEFAULT_STATE, DfgSettings, type DfgState, toRequest } from "../components/DfgSettings";
@@ -23,7 +23,7 @@ const GRAPH_HEIGHT = 760;
 type SidebarState = { width: number; hidden: boolean };
 
 /**
- * Thin vertical bar on the left edge of the sidebar: dragging it changes the sidebar's width.
+ * Grab area on the left edge of the sidebar (a hairline shows on hover): dragging it changes the sidebar's width.
  *
  * @param width The current width.
  * @param onChange Called with the new width while dragging (clamped to `SIDEBAR_WIDTH`).
@@ -41,14 +41,20 @@ const ResizeHandle = ({ width, onChange }: { width: number; onChange: (width: nu
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
+  const [hover, setHover] = useState(false);
+  // Invisible 8 px grab area with a hairline in the middle that only shows on hover (a visible bar looked like a scrollbar).
   return (
     <Box
       onPointerDown={start}
+      onPointerEnter={() => setHover(true)}
+      onPointerLeave={() => setHover(false)}
       role="separator"
       aria-label="Drag to change the width of the settings"
-      style={{ width: 6, alignSelf: "stretch", cursor: "col-resize", flexShrink: 0, borderRadius: 3 }}
-      bg="var(--mantine-color-default-border)"
-    />
+      title="Drag to change the width of the settings"
+      style={{ width: 8, alignSelf: "stretch", cursor: "col-resize", flexShrink: 0, display: "flex", justifyContent: "center" }}
+    >
+      <Box style={{ width: 2, borderRadius: 1, background: hover ? "var(--mantine-color-gray-5)" : "transparent" }} />
+    </Box>
   );
 };
 
