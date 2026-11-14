@@ -20,7 +20,7 @@ The page ignores the overview page's filter bar (it has no filter bar of its own
 ## 1. What the graph shows
 For a log with object types $OT$, the user selects $OT_{sel} \subseteq OT$ (default: the object types that contain handling units).
 **Considered objects** $O_{ot}$ of a selected type $ot$: its handling units if $ot$ contains handling units (with HU given as object types: all objects of $ot$; with a HU table: only the listed objects of $ot$), otherwise all objects of $ot$.
-**Trace** of an object: its events (e2o, an object linked twice to an event counts once) in `seq` order: time, AS4 tie rank (movements, processing operations, rest), event id (`visits/order.py`), so the arcs agree with otrace(hu) on all other pages.
+**Trace** of an object: its events (e2o, an object linked twice to an event counts once) ordered by time, then the **DFG boundary rank** (`dfg/traces.py`, `boundary_rank`; Nina, 2026-11-14): among events at the object's first timestamp a transformation event comes first (it creates the object), among events at its last timestamp a transformation event comes last (it consumes the object); if all its events share one timestamp, the first rule applies. Then the AS4 tie rank (movements, processing operations, rest; `visits/order.py`), then event id. Apart from the boundary rank this is the `seq` order of otrace(hu) on the other pages.
 
 | Element | Shows | Calculated by |
 |---|---|---|

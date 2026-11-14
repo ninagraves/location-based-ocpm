@@ -186,3 +186,30 @@ def test_request_resolves_general_and_own_thresholds(frames):
         ("coil", 50, 10),
         ("slab", 50, 100),
     ]
+
+
+def test_transformation_first_at_first_and_last_at_last_timestamp():
+    """DFG boundary tie-break (Nina, 2026-11-14): at an object's first timestamp a transformation event comes
+    first, at its last timestamp last, ahead of / after movements (which AS4 would put first)."""
+    t1, t2 = datetime(2026, 1, 1, 1), datetime(2026, 1, 1, 2)
+    events = pl.DataFrame(
+        {
+            "event": ["a", "b", "c", "d"],
+            "time": [t1, t1, t2, t2],
+            "activity": ["create", "move in", "move out", "consume"],
+            "is_movement": [False, True, True, False],
+            "is_transformation": [True, False, False, True],
+            "is_processing": [False, False, False, False],
+        }
+    )
+    objects = pl.DataFrame({"object": ["p1"], "object_type": ["pallet"]})
+    e2o = pl.DataFrame({"event": ["a", "b", "c", "d"], "object": ["p1"] * 4}).join(objects, on="object")
+    frames = LogFrames(
+        e2o=e2o,
+        events=events,
+        objects=objects,
+        handling_units=pl.Series("hu", ["p1"]),
+        processing=pl.Series("event", [], dtype=pl.String),
+    )
+    traces = selected_traces(frames, ["pallet"])
+    assert traces["activity"].to_list() == ["create", "move in", "move out", "consume"]
