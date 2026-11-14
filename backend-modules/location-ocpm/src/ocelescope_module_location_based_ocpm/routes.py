@@ -6,11 +6,13 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from ocelescope_module_location_based_ocpm.configuration_routes import router as configuration_router
+from ocelescope_module_location_based_ocpm.dfg_routes import router as dfg_router
 from ocelescope_module_location_based_ocpm.overview_routes import router as overview_router
 
 router = APIRouter()
 router.include_router(configuration_router)
 router.include_router(overview_router)
+router.include_router(dfg_router)
 
 
 class StatusResponse(BaseModel):
