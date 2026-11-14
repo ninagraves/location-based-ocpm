@@ -4,9 +4,10 @@
 - **Ocelescope instance** (this repo's root): the published `ocelescope-backend` host (Python, uv workspace) and the Next.js app in `app/` (pnpm workspace). Both come from the Ocelescope instance template.
 - **Backend module** `backend-modules/location-ocpm/`: a FastAPI app. `ocelescope-backend` discovers it through the entry point `ocelescope_backend.modules` in its `pyproject.toml` and serves it under `/modules/locationBasedOcpm/v1`.
   - `module.py`: module class `LocationBasedOcpm` (key, version, app creation).
-  - `routes.py`: API routes: `GET /status`, plus the configuration routes of `configuration_routes.py` (tables, options, apply; see `state-and-caching.md`), the overview routes of `overview_routes.py` and the route of the directly-follows graph page (`dfg_routes.py`, with a small LRU cache of the log's frames and the traces of a selection).
+  - `routes.py`: API routes: `GET /status`, plus the configuration routes of `configuration_routes.py` (tables, options, apply; see `state-and-caching.md`), the overview routes of `overview_routes.py` the route of the directly-follows graph page (`dfg_routes.py`, with a small LRU cache of the log's frames and the traces of a selection) and the routes of the instance page (`instance_routes.py`, with a small LRU cache of the HU profile per derivation).
   - `overview/`: content of the overview page, one module per section (documented in `docs/pages/overview.md`).
   - `dfg/`: content of the directly-follows graph page, one module per step (documented in `docs/pages/directly-follows-graph.md`).
+  - `instances/`: content of the instance page: `profile.py` (HU profile, one function per step) and `charts.py` (lineage of a selection, HU timeline as Plotly JSON); documented in `docs/pages/instances.md`.
   - `state.py`: per-session state (uploaded tables, applied configuration per log, cache).
   - `api_models.py`: response models of the configuration routes.
   - `derivation/`: location derivation (content; documented in `docs/resources/location-derivation.md`).
@@ -18,6 +19,7 @@
   - `src/lib/errors.ts`: error text of a failed request; `src/lib/format.ts`: number formatting.
   - `src/components/plots.tsx`: theme-aware Plotly chart (`ThemedPlot`) and the chart toolbar (`plotConfig`: download PNG, download SVG, reset axes).
   - `src/lib/dfgLayout.ts`: ELK layout of the directly-follows graph; `src/components/DfgGraph.tsx` draws it with React Flow (`@xyflow/react`), `src/components/DfgSettings.tsx` is its settings sidebar.
+  - `src/routes/Instances.tsx`: the instance page; `src/components/HuProfileTable.tsx` (table), `LineageChart.tsx` (ELK + React Flow, reusing the options and edge paths of `dfgLayout.ts`), `HuTimelineChart.tsx` (Plotly figure from the backend).
   - `src/lib/palette.ts`: the only source of colours (categorical, sequential, diverging, UI roles).
   - `src/api/`: typed API client generated from the backend's OpenAPI schema by Orval (`pnpm run build:modules`); not committed.
 

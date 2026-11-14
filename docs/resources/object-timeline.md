@@ -1,6 +1,6 @@
 # Object timeline (draft)
 
-Status: package function, not used by any page yet; the user-facing description (concept and display) is `overview/module/Resources/HU Timeline.md` (outside this repo); filtering is still open.
+Status: package function, used by the instance page (suggestion, `docs/pages/instances.md`); the user-facing description (concept and display) is `overview/module/Resources/HU Timeline.md` (outside this repo); filtering is still open.
 Demo: `notebooks/object_timeline.ipynb`.
 
 ## What it shows
