@@ -24,9 +24,9 @@ For a log with object types $OT$, the user selects $OT_{sel} \subseteq OT$ (defa
 
 | Element | Shows | Calculated by |
 |---|---|---|
-| Activity node | full activity name (12 px, wrapped at 150 px, never cut), below it one row with its **frequency** (events of the activity in the included traces) followed by one small circle per **unselected** object type involved in these events (same row, so nodes stay flat; Nina, 2026-11-14) | `dfg/nodes.py` |
+| Activity node | full activity name (12 px, regular, **bold only in the compact layout**; wrapped at 150 px, never cut), below it one row with its **frequency** (events of the activity in the included traces) followed by one small circle per **unselected** object type involved in these events (same row, so nodes stay flat; Nina, 2026-11-14) | `dfg/nodes.py` |
 | Start node ▶ / end node ■ | one per selected type with a kept start / end arc; filled with the type's colour, the type's **name** below; arcs from start nodes and to end nodes are **grey** (Nina, 2026-11-14) | `dfg/arcs.py` (null source / target) |
-| Arc | directly-follows arc $(a, b)$ between two activities of a selected type in its colour; thickness 1.2–4 px by $\sqrt{count / \max count}$ of the type; small label (10 px) with the traversals or the objects, sitting on the arc (the arc runs through it, as in Ocelescope's earlier view) | `dfg/arcs.py` |
+| Arc | directly-follows arc $(a, b)$ between two activities of a selected type in its colour; thickness 1.2–4 px by $\sqrt{count / \max count}$ of the type; small label (10 px) with the traversals or the objects, plain text sitting on the arc (the arc runs through it, as in Ocelescope's earlier view) | `dfg/arcs.py` |
 | Hover activity | name, events shown (and in the log if different), per involved type: events and objects | `components/DfgGraph.tsx`, `activityTooltip` |
 | Hover circle | "truck: 2 of 2 events, 1 objects" | `DfgGraph.tsx`, `ActivityNode` |
 | Hover arc label | traversals and objects of the arc | `DfgGraph.tsx`, `ArcEdge` |

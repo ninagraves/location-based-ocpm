@@ -67,7 +67,7 @@ const ActivityNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
           width: d.width,
           height: d.height,
           padding: `${SIZES.padY}px ${SIZES.padX}px`,
-          border: "1.5px solid var(--mantine-color-text)",
+          border: "1px solid var(--mantine-color-gray-7)",
           borderRadius: 4,
           background: "var(--mantine-color-body)",
           display: "flex",
@@ -79,13 +79,13 @@ const ActivityNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
         }}
       >
         <Handles />
-        <Box style={{ fontSize: SIZES.nameFont, lineHeight: `${SIZES.nameLine}px`, fontWeight: 600, textAlign: "center" }}>
+        <Box style={{ fontSize: SIZES.nameFont, lineHeight: `${SIZES.nameLine}px`, fontWeight: d.nameWeight, textAlign: "center" }}>
           {d.lines.map((line) => (
             <div key={line}>{line}</div>
           ))}
         </Box>
         <Group gap={SIZES.circleGap} wrap="nowrap" align="center" justify="center">
-          <Box style={{ fontSize: SIZES.frequencyFont, lineHeight: `${SIZES.frequencyFont + 3}px`, fontWeight: 600, opacity: 0.75, marginRight: circles.length ? SIZES.circleGap : 0 }}>
+          <Box style={{ fontSize: SIZES.frequencyFont, lineHeight: `${SIZES.frequencyFont + 3}px`, opacity: 0.7, marginRight: circles.length ? SIZES.circleGap : 0 }}>
             {num(d.events)}
           </Box>
           {circles.map((t) => (
@@ -130,7 +130,7 @@ const TerminalNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
           left: "50%",
           transform: "translateX(-50%)",
           fontSize: SIZES.smallFont,
-          fontWeight: 600,
+          opacity: 0.8,
           whiteSpace: "nowrap",
         }}
       >
@@ -140,7 +140,7 @@ const TerminalNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
   );
 });
 
-/** Arc: ELK's route in the object type's colour, with a small label (count or objects). */
+/** Arc: ELK's route in the object type's colour, with a small plain label (count or objects) that interrupts the line. */
 const ArcEdge = memo(({ id, data, markerEnd }: EdgeProps<Edge<ArcData>>) => {
   if (!data?.path) return null;
   const position = data.labelPosition;
@@ -157,10 +157,8 @@ const ArcEdge = memo(({ id, data, markerEnd }: EdgeProps<Edge<ArcData>>) => {
                 transform: `translate(-50%, -50%) translate(${position.x}px, ${position.y}px)`,
                 fontSize: SIZES.smallFont,
                 lineHeight: `${SIZES.smallFont + 2}px`,
-                fontWeight: 600,
-                padding: "0 3px",
-                borderRadius: 6,
-                border: `1px solid ${data.colour}`,
+                padding: "0 2px",
+                borderRadius: 3,
                 background: "var(--mantine-color-body)",
                 pointerEvents: "all",
               }}
@@ -179,7 +177,7 @@ const GREY = "#9aa0a6";
 
 /** The legend, in grey above the graph. */
 const Legend = () => (
-  <Text size="xs" c="dimmed">
+  <Text fz={11} lh={1.3} c="dimmed">
     ▶ / ■ in a circle: start / end of an object type (named below; arcs from and to them are grey) · coloured line:
     directly-follows arc of a selected object type (thicker = more traversals) · number on an arc: traversals or objects ·
     number in an activity: its events on the included traces · small circle on an activity: an unselected object type

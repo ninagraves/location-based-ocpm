@@ -91,12 +91,12 @@ export const textWidth = (text: string, fontSize: number, weight = 400): number 
  * Break an activity name into lines of at most `maxWidth` pixels, at spaces (a single word longer than
  * that gets a line of its own). The name is never cut.
  */
-export const wrapName = (name: string, maxWidth: number = SIZES.maxNameWidth): string[] => {
+export const wrapName = (name: string, maxWidth: number = SIZES.maxNameWidth, weight = 400): string[] => {
   const lines: string[] = [];
   let line = "";
   for (const word of name.split(/\s+/)) {
     const candidate = line ? `${line} ${word}` : word;
-    if (line && textWidth(candidate, SIZES.nameFont, 600) > maxWidth) {
+    if (line && textWidth(candidate, SIZES.nameFont, weight) > maxWidth) {
       lines.push(line);
       line = word;
     } else line = candidate;
@@ -115,6 +115,8 @@ export type ActivityNodeData = {
   kind: "activity";
   activity: string;
   lines: string[];
+  /** Font weight of the name: bold only in the compact layout (Nina, 2026-11-14). */
+  nameWeight: number;
   events: number;
   logEvents: number;
   /** Object types involved in the counted events: selected ones (drawn as arcs) and the others (circles). */
@@ -144,11 +146,11 @@ export type Layout = { nodes: LaidOutNode[]; arcs: LaidOutArc[] };
  * Size of an activity node: wrapped name, then one row with the frequency and a circle per unselected type
  * (in the same row, so the node stays flat; Nina, 2026-11-14).
  */
-const activitySize = (lines: string[], events: number, circles: number) => {
-  const nameWidth = Math.max(...lines.map((l) => textWidth(l, SIZES.nameFont, 600)));
-  const frequencyWidth = textWidth(events.toLocaleString("en-GB"), SIZES.frequencyFont, 600);
+const activitySize = (lines: string[], nameWeight: number, events: number, circles: number) => {
+  const nameWidth = Math.max(...lines.map((l) => textWidth(l, SIZES.nameFont, nameWeight)));
+  const frequencyWidth = textWidth(events.toLocaleString("en-GB"), SIZES.frequencyFont);
   const circlesWidth = circles ? SIZES.circleGap * 2 + circles * SIZES.circle + (circles - 1) * SIZES.circleGap : 0;
-  // + 4: the node's border (1.5 px each side) and rounding.
+  // + 4: the node's border (1 px each side) and rounding.
   const width = Math.ceil(Math.max(nameWidth, frequencyWidth + circlesWidth, 24) + 2 * SIZES.padX + 4);
   const height = Math.ceil(2 * SIZES.padY + 3 + lines.length * SIZES.nameLine + Math.max(SIZES.frequencyFont + 3, SIZES.circle));
   return { width, height };
@@ -175,7 +177,7 @@ const elk = new ELK();
  * that has a kept start / end arc, one edge per kept arc (labelled with its count or its objects).
  * Start and end nodes get no layer constraint, so ELK places them next to their first / last activities
  * instead of all in the first / last layer.
- * `compact` replaces the spacing by `COMPACT_OPTIONS`.
+ * `compact` replaces the spacing by `COMPACT_OPTIONS` and sets activity names in bold.
  */
 export const layoutGraph = async (
   graph: DirectlyFollowsGraph,
@@ -187,7 +189,8 @@ export const layoutGraph = async (
   const data = new Map<string, ActivityNodeData | TerminalNodeData>();
 
   for (const a of graph.activities) {
-    const lines = wrapName(a.activity);
+    const nameWeight = compact ? 600 : 400;
+    const lines = wrapName(a.activity, SIZES.maxNameWidth, nameWeight);
     const involved = a.object_types.map((t) => ({
       objectType: t.object_type,
       events: t.events,
@@ -195,7 +198,7 @@ export const layoutGraph = async (
       selected: selected.has(t.object_type),
     }));
     const circles = involved.filter((t) => !t.selected).length;
-    data.set(activityId(a.activity), { kind: "activity", activity: a.activity, lines, events: a.events, logEvents: a.log_events, involved, ...activitySize(lines, a.events, circles) });
+    data.set(activityId(a.activity), { kind: "activity", activity: a.activity, lines, nameWeight, events: a.events, logEvents: a.log_events, involved, ...activitySize(lines, nameWeight, a.events, circles) });
   }
   const terminal = (kind: "start" | "end", objectType: string) => {
     const id = kind === "start" ? startId(objectType) : endId(objectType);
@@ -220,7 +223,7 @@ export const layoutGraph = async (
       ...(d.kind === "activity"
         ? {}
         : {
-            labels: [{ text: d.objectType, width: textWidth(d.objectType, SIZES.smallFont, 600) + 4, height: SIZES.smallFont + 4 }],
+            labels: [{ text: d.objectType, width: textWidth(d.objectType, SIZES.smallFont) + 4, height: SIZES.smallFont + 4 }],
             layoutOptions: { "elk.nodeLabels.placement": "OUTSIDE V_BOTTOM H_CENTER" },
           }),
     })),
@@ -231,7 +234,7 @@ export const layoutGraph = async (
       labels: [
         {
           text: a.label,
-          width: textWidth(a.label, SIZES.smallFont, 600) + 6,
+          width: textWidth(a.label, SIZES.smallFont) + 6,
           height: SIZES.smallFont + 2,
           layoutOptions: { "elk.edgeLabels.inline": "true" },
         },
