@@ -26,11 +26,19 @@ from .arcs import (
     objects_per_type,
     remove_arcs,
 )
+from .categories import CATEGORIES, category_counts, event_categories, remove_categories
 from .connectivity import CONNECTING, stay_connected
 from .nodes import activity_frequencies, involved_object_types, shown_activities
 from .projection import default_activities, handling_unit_event_counts, project_traces, type_activity_counts
 from .traces import considered_objects, object_traces
-from .variants import RANK, default_variant_threshold, object_variants, variant_filter, variant_ranking
+from .variants import (
+    RANK,
+    activity_variant_thresholds,
+    default_variant_threshold,
+    object_variants,
+    variant_filter,
+    variant_ranking,
+)
 
 #: Default arc threshold in percent: all arcs (Nina, 2026-11-15; before: 10 %).
 DEFAULT_ARC_THRESHOLD = 100.0
@@ -105,6 +113,8 @@ class DfgRequest(BaseModel):
             (`projection.default_activities`).
         stay_connected: Connectivity repair on (`connectivity.stay_connected`).
         removed_arcs: Arcs removed by hand (right click).
+        excluded_categories: Deselected event categories (`categories.CATEGORIES` keys); their events are removed
+            from the traces first.
     """
 
     object_types: list[str] | None = None
@@ -115,6 +125,7 @@ class DfgRequest(BaseModel):
     activities: dict[str, list[str]] = Field(default_factory=dict)
     stay_connected: bool = DEFAULT_STAY_CONNECTED
     removed_arcs: list[ArcKey] = Field(default_factory=list)
+    excluded_categories: list[str] = Field(default_factory=list)
 
 
 class DfgObjectType(BaseModel):
@@ -212,12 +223,18 @@ class DfgActivityTypeOption(BaseModel):
         events: Events of the activity with at least one considered object of the type (`projection.py`).
         selected_type: True if the object type is selected (only then can the activity be (de)selected for it).
         included: True if the activity is selected for this (selected) type; False for unselected types.
+        on_included_trace: True if it is on an included trace of the type (projected, variant-filtered).
+        variant_threshold_needed: Smallest whole variant threshold of the type that puts it on an included trace
+            (`variants.activity_variant_thresholds`); None if no trace of the type contains it after the projection
+            (deselected, its events removed by an event category, or not selected type).
     """
 
     object_type: str
     events: int
     selected_type: bool
     included: bool
+    on_included_trace: bool = False
+    variant_threshold_needed: float | None = None
 
 
 class DfgActivityOption(BaseModel):
@@ -229,12 +246,32 @@ class DfgActivityOption(BaseModel):
         log_events: All its events in the log.
         object_types: Per object type with events of the activity: its events and whether the activity is selected
             for it; types with handling units first, then by events.
+        on_included_trace: True if it is on an included trace of a selected type (the upper part of the list).
+        variant_threshold_needed: Smallest of the types' `variant_threshold_needed` (None if none).
     """
 
     activity: str
     hu_events: int
     log_events: int
     object_types: list[DfgActivityTypeOption]
+    on_included_trace: bool = False
+    variant_threshold_needed: float | None = None
+
+
+class DfgEventCategory(BaseModel):
+    """An event category of the toolbar (`categories.py`).
+
+    Attributes:
+        key: Category key (e.g. "to_vehicle").
+        label: Label (e.g. "Move to vehicle").
+        events: Events of the log in the category.
+        selected: False if deselected (its events are removed from the traces).
+    """
+
+    key: str
+    label: str
+    events: int
+    selected: bool
 
 
 class DirectlyFollowsGraph(BaseModel):
@@ -248,6 +285,7 @@ class DirectlyFollowsGraph(BaseModel):
         variant_default: The default variant threshold of the selection (percent).
         arc_count_max: Largest number of arcs of one selected type left by the arc threshold (slider maximum).
         removed_arcs: The arcs removed by hand that exist in the current graph's traces, with their counts.
+        event_categories: The event categories with their events and whether they are selected.
     """
 
     object_types: list[DfgObjectType]
@@ -257,6 +295,7 @@ class DirectlyFollowsGraph(BaseModel):
     variant_default: float = 100.0
     arc_count_max: int = 0
     removed_arcs: list[DfgArc] = Field(default_factory=list)
+    event_categories: list[DfgEventCategory] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -271,6 +310,7 @@ class LogFrames:
         processing: The processing operations P (event ids), for the AS4 tie rank.
         type_activities: `projection.type_activity_counts` (None = computed when needed).
         hu_events: `projection.handling_unit_event_counts` (None = computed when needed).
+        categories: `categories.event_categories` (None = no categories: nothing can be removed by them).
     """
 
     e2o: pl.DataFrame
@@ -280,6 +320,7 @@ class LogFrames:
     processing: pl.Series
     type_activities: pl.DataFrame | None = None
     hu_events: dict[str, int] | None = None
+    categories: pl.DataFrame | None = None
 
 
 def log_frames(ocel: OCEL, derivation: Derivation) -> LogFrames:
@@ -312,6 +353,11 @@ def log_frames(ocel: OCEL, derivation: Derivation) -> LogFrames:
         processing=events.filter(pl.col(c.IS_PROCESSING).fill_null(False))[c.EVENT],
         type_activities=type_activity_counts(e2o, events, objects, hu.to_list()),
         hu_events=handling_unit_event_counts(e2o, events, hu.to_list()),
+        categories=event_categories(
+            derivation.events.select(c.EVENT, c.IS_MOVEMENT, c.IS_TRANSFORMATION, c.IS_PROCESSING, c.ULOC),
+            derivation.context.vehicles,
+            derivation.context.storage_units,
+        ),
     )
 
 
@@ -388,6 +434,7 @@ def directly_follows_graph(
     activities: Mapping[str, Collection[str]] | None = None,
     stay: bool = DEFAULT_STAY_CONNECTED,
     removed: Collection[tuple[str, str | None, str | None]] = (),
+    excluded_categories: Collection[str] = (),
 ) -> DirectlyFollowsGraph:
     """The directly-follows graph of the selected object types.
 
@@ -404,6 +451,8 @@ def directly_follows_graph(
             missing gets `projection.default_activities`; None = all defaults.
         stay: "Stay connected": every shown arc lies on a start-to-end path (`connectivity.stay_connected`).
         removed: Arcs removed by hand, as (object type, source, target).
+        excluded_categories: Deselected event categories (`categories.remove_categories`; applied first, with the
+            activity selection).
 
     Returns:
         DirectlyFollowsGraph: Object types, activity nodes and shown arcs.
@@ -419,6 +468,8 @@ def directly_follows_graph(
         type_activities = type_activity_counts(frames.e2o, frames.events, frames.objects, hu)
     included = default_activities(type_activities, [t for t in settings if t not in (activities or {})])
     included.update({t: list(a) for t, a in (activities or {}).items() if t in settings})
+    if frames.categories is not None:
+        traces = remove_categories(traces, frames.categories, excluded_categories)
     traces = project_traces(traces, included)
 
     variants = object_variants(traces)
@@ -445,7 +496,14 @@ def directly_follows_graph(
     involved = involved_object_types(kept_traces, shown, frames.e2o)
     log_counts = frames.events.group_by(c.ACTIVITY).agg(pl.len().alias(d.EVENTS))
     log_events = dict(zip(log_counts[c.ACTIVITY], log_counts[d.EVENTS], strict=True))
-    activity_options = _activity_options(frames, type_activities, log_events, included)
+    on_trace = {(t, a) for t, a in kept_traces.select(c.OBJECT_TYPE, c.ACTIVITY).unique().iter_rows()}
+    needed = {(t, a): v for t, a, v in activity_variant_thresholds(variant_ranking(variants)).iter_rows()}
+    activity_options = _activity_options(frames, type_activities, log_events, included, on_trace, needed)
+    counts = category_counts(frames.categories) if frames.categories is not None else {}
+    categories = [
+        DfgEventCategory(key=k, label=label, events=counts.get(k, 0), selected=k not in set(excluded_categories))
+        for k, label in CATEGORIES.items()
+    ]
 
     kept_variants = object_variants(kept_traces)
     n_variants = _count_per_type(variants.unique([c.OBJECT_TYPE, d.VARIANT]))
@@ -495,6 +553,7 @@ def directly_follows_graph(
         variant_default=variant_default,
         arc_count_max=max(arcs_threshold.values(), default=0),
         removed_arcs=[DfgArc(**row) for row in removed_rows.select(arc_fields).iter_rows(named=True)],
+        event_categories=categories,
     )
 
 
@@ -503,6 +562,8 @@ def _activity_options(
     type_activities: pl.DataFrame,
     log_events: Mapping[str, int],
     included: Mapping[str, Collection[str]],
+    on_trace: Collection[tuple[str, str]] = (),
+    needed: Mapping[tuple[str, str], float] | None = None,
 ) -> list[DfgActivityOption]:
     """The activity list of the sidebar: every activity with its handling-unit events and its counts per type.
 
@@ -511,6 +572,8 @@ def _activity_options(
         type_activities: `projection.type_activity_counts`.
         log_events: Activity -> all its events.
         included: Selected object type -> its selected activities.
+        on_trace: (object type, activity) pairs on an included trace.
+        needed: (object type, activity) -> smallest whole variant threshold that puts it on an included trace.
 
     Returns:
         list[DfgActivityOption]: Most events with handling units first, then most events in the log, then by name.
@@ -528,17 +591,23 @@ def _activity_options(
                 events=row[d.EVENTS],
                 selected_type=t in included,
                 included=row[c.ACTIVITY] in set(included.get(t, ())),
+                on_included_trace=(t, row[c.ACTIVITY]) in on_trace,
+                variant_threshold_needed=(needed or {}).get((t, row[c.ACTIVITY])) if t in included else None,
             )
         )
-    options = [
-        DfgActivityOption(
+    def option(a: str, n: int) -> DfgActivityOption:
+        types = sorted(per_activity.get(a, []), key=lambda o: (o.object_type not in hu_types, -o.events, o.object_type))
+        values = [o.variant_threshold_needed for o in types if o.variant_threshold_needed is not None]
+        return DfgActivityOption(
             activity=a,
             hu_events=hu_events.get(a, 0),
             log_events=n,
-            object_types=sorted(per_activity.get(a, []), key=lambda o: (o.object_type not in hu_types, -o.events, o.object_type)),
+            object_types=types,
+            on_included_trace=any(o.on_included_trace for o in types),
+            variant_threshold_needed=min(values) if values else None,
         )
-        for a, n in log_events.items()
-    ]
+
+    options = [option(a, n) for a, n in log_events.items()]
     return sorted(options, key=lambda o: (-o.hu_events, -o.log_events, o.activity))
 
 

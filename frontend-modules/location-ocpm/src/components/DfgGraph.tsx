@@ -1,7 +1,8 @@
 // The drawing of the directly-follows graph: ELK layout (lib/dfgLayout.ts), rendered with React Flow so that
-// it can be panned, zoomed and later made interactive. Documented in docs/pages/directly-follows-graph.md.
+// it can be panned and zoomed, and its nodes dragged (the arcs follow; Nina, 2026-11-15). Documented in docs/pages/directly-follows-graph.md.
 import { Alert, Box, Group, Loader, Stack, Text, Tooltip } from "@mantine/core";
 import {
+  applyNodeChanges,
   BaseEdge,
   Controls,
   type Edge,
@@ -10,13 +11,14 @@ import {
   Handle,
   MarkerType,
   type Node,
+  type NodeChange,
   type NodeProps,
   Position,
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
 } from "@xyflow/react";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { DirectlyFollowsGraph } from "../api/locationBasedOcpm";
 import {
   type ActivityNodeData,
@@ -195,7 +197,8 @@ const Legend = () => (
     ▶ / ■ in a circle: start / end of an object type (named below; arcs from and to them are grey) · coloured line:
     directly-follows arc of a selected object type (thicker = more traversals) · number on an arc: traversals or objects ·
     dashed: shown only to stay connected · number in an activity: its events on the included traces · small circle on an
-    activity: an unselected object type involved in these events · right click on an arc: remove it
+    activity: an unselected object type involved in these events · right click on an arc: remove it · drag a node to
+    move it (the arcs follow; positions reset when a setting changes)
   </Text>
 );
 
@@ -214,7 +217,7 @@ const toFlow = (layout: Layout, colours: Map<string, string>, onRemove?: (arc: L
     type: n.data.kind,
     position: { x: n.x, y: n.y },
     data: { ...n.data, colours },
-    draggable: false,
+    draggable: true,
     connectable: false,
   }));
   const edges: Edge<ArcData>[] = layout.arcs.map((a) => {
@@ -233,6 +236,51 @@ const toFlow = (layout: Layout, colours: Map<string, string>, onRemove?: (arc: L
   });
   return { nodes, edges };
 };
+
+type Offset = { x: number; y: number };
+
+/**
+ * Bend an ELK path to dragged nodes: its first point moves with the source node, its last point with the target
+ * node, and every point in between by the share of both given by its position along the path (so a path of a
+ * self-loop, or of two nodes moved together, is simply shifted).
+ * Example: "M 0,0 C 10,0 20,0 30,0" with the target moved by (0, 30) gives "M 0,0 C 10,10 20,20 30,30".
+ *
+ * @param path SVG path of absolute "x,y" points (`sectionPath` in lib/dfgLayout.ts).
+ * @param source, target Offsets of the source and target nodes from their laid-out positions.
+ * @returns The bent path.
+ */
+export const bendPath = (path: string, source: Offset, target: Offset) => {
+  const points = path.match(/-?[\d.]+(?:e-?\d+)?,-?[\d.]+(?:e-?\d+)?/g) ?? [];
+  let i = 0;
+  return path.replace(/(-?[\d.]+(?:e-?\d+)?),(-?[\d.]+(?:e-?\d+)?)/g, (_, x: string, y: string) => {
+    const t = points.length > 1 ? i / (points.length - 1) : 0;
+    i += 1;
+    const dx = source.x + (target.x - source.x) * t;
+    const dy = source.y + (target.y - source.y) * t;
+    return `${Number(x) + dx},${Number(y) + dy}`;
+  });
+};
+
+/**
+ * The edges for the current node positions: an edge whose nodes were not dragged is the laid-out one (same object,
+ * so it is not drawn again); the others get a bent path (`bendPath`) and a label moved by the mean of both offsets.
+ */
+const followNodes = (edges: Edge<ArcData>[], offsets: Map<string, Offset>) =>
+  edges.map((e) => {
+    const zero = { x: 0, y: 0 };
+    const source = offsets.get(e.source) ?? zero;
+    const target = offsets.get(e.target) ?? zero;
+    if (!e.data || (source.x === 0 && source.y === 0 && target.x === 0 && target.y === 0)) return e;
+    const label = e.data.labelPosition;
+    return {
+      ...e,
+      data: {
+        ...e.data,
+        path: bendPath(e.data.path, source, target),
+        labelPosition: label ? { x: label.x + (source.x + target.x) / 2, y: label.y + (source.y + target.y) / 2 } : null,
+      },
+    };
+  });
 
 /** Fit the view whenever a new layout arrives. */
 const FitOnChange = ({ layout }: { layout: Layout | null }) => {
@@ -285,6 +333,24 @@ export const DfgGraph = ({
     };
   }, [graph, direction, arcLabel, compact]);
   const flow = useMemo(() => (layout ? toFlow(layout, colours, onRemoveArc) : null), [layout, colours, onRemoveArc]);
+  // Dragged node positions, kept with the layout they belong to: a new layout (a setting changed) starts from its own positions.
+  const [dragged, setDragged] = useState<{ flow: typeof flow; nodes: Node<NodeData>[] }>({ flow: null, nodes: [] });
+  const nodes = useMemo(() => (dragged.flow === flow ? dragged.nodes : (flow?.nodes ?? [])), [dragged, flow]);
+  const onNodesChange = useCallback(
+    (changes: NodeChange<Node<NodeData>>[]) =>
+      setDragged((d) => ({ flow, nodes: applyNodeChanges(changes, d.flow === flow ? d.nodes : (flow?.nodes ?? [])) })),
+    [flow],
+  );
+  const edges = useMemo(() => {
+    if (!flow) return [];
+    const laidOut = new Map(flow.nodes.map((n) => [n.id, n.position]));
+    const offsets = new Map<string, Offset>();
+    for (const n of nodes) {
+      const p = laidOut.get(n.id);
+      if (p && (p.x !== n.position.x || p.y !== n.position.y)) offsets.set(n.id, { x: n.position.x - p.x, y: n.position.y - p.y });
+    }
+    return followNodes(flow.edges, offsets);
+  }, [flow, nodes]);
 
   if (error) return <Alert color="red">Layout failed: {error}</Alert>;
   if (!flow) return <Loader size="sm" />;
@@ -296,12 +362,13 @@ export const DfgGraph = ({
     <Box style={{ height, border: "1px solid var(--mantine-color-default-border)", borderRadius: 8 }}>
       <ReactFlowProvider>
         <ReactFlow
-          nodes={flow.nodes}
-          edges={flow.edges}
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
           nodeTypes={NODE_TYPES}
           edgeTypes={EDGE_TYPES}
           nodesConnectable={false}
-          nodesDraggable={false}
+          nodesDraggable
           elementsSelectable={false}
           minZoom={0.05}
           maxZoom={3}

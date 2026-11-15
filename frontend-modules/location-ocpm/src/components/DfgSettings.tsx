@@ -12,7 +12,6 @@ import {
   Group,
   NumberInput,
   ScrollArea,
-  SegmentedControl,
   Slider,
   Stack,
   Switch,
@@ -20,9 +19,9 @@ import {
   TextInput,
   Tooltip,
 } from "@mantine/core";
-import { ChevronDownIcon, ChevronRightIcon, InfoIcon, PanelRightCloseIcon, RotateCcwIcon, SearchIcon, XIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, InfoIcon, PanelRightCloseIcon, SearchIcon, XIcon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
-import type { DfgActivityOption, DfgObjectType, DfgRequest, DirectlyFollowsGraph } from "../api/locationBasedOcpm";
+import type { DfgActivityOption, DfgActivityTypeOption, DfgObjectType, DfgRequest, DirectlyFollowsGraph } from "../api/locationBasedOcpm";
 import type { ArcSettings } from "../lib/dfgArcs";
 import type { ArcLabel, Direction } from "../lib/dfgLayout";
 import { num } from "../lib/format";
@@ -49,6 +48,8 @@ export type DfgState = {
   stayConnected: boolean;
   /** Arcs removed by hand (right click). */
   removed: ArcKey[];
+  /** Deselected event categories (keys, e.g. "to_vehicle"); their events are removed from the traces first. */
+  excludedCategories: string[];
   arcLabel: ArcLabel;
   direction: Direction;
   compact: boolean;
@@ -67,13 +68,14 @@ export const DEFAULT_STATE: DfgState = {
   activities: {},
   stayConnected: true,
   removed: [],
+  excludedCategories: [],
   arcLabel: "count",
   direction: "RIGHT",
   compact: false,
 };
 
 /**
- * The backend request of a state: only object types, variants and activities. The arc settings (arc threshold, arc
+ * The backend request of a state: only object types, event categories, variants and activities. The arc settings (arc threshold, arc
  * count, arcs removed by hand, Stay connected) are applied in the browser (`arcSettings`, lib/dfgArcs.ts), so that
  * they react without a request (Nina, 2026-11-15).
  */
@@ -84,6 +86,7 @@ export const toRequest = (state: DfgState): DfgRequest => ({
     .filter(([, t]) => t.variant !== undefined)
     .map(([object_type, t]) => ({ object_type, variant_threshold: t.variant ?? null })),
   activities: state.activities,
+  excluded_categories: state.excludedCategories,
 });
 
 /** The arc settings of a state, for `filterArcs` (own values of a type first, then the general ones). */
@@ -116,8 +119,12 @@ export const INFO = {
     "Arcs removed by hand (right click on an arc in the graph). While there are any, the sliders no longer describe the graph on their own (marked as manual). Click × to restore an arc.",
   objectTypes:
     "Checked object types are drawn with their directly-follows arcs, start and end nodes. Unchecked object types that are involved in the shown events appear only as circles on the activity nodes. Default: the object types of the handling units. Unfold a type for its own values.",
+  categories:
+    "Event categories: deselect one to remove all its events from the traces before anything else (a projection, like deselecting an activity). Move to vehicle / storage: movements whose target location is a vehicle / storage unit; they are part of Movements, so deselecting Movements removes them too. An event is removed if it is in at least one deselected category; events in no category are always kept.",
   activities:
-    "Activities by number of events that involve a handling unit (in brackets). The events of an unchecked activity are removed from the traces before anything else (as in Ocelescope): a trace a, b, c without b becomes a, c. Unfold an activity for its events per object type and to (de)select it for single selected types. Default per type: its most frequent 40 % of activities, at least 3 and at most 10.",
+    "Activities by number of events that involve a handling unit (in brackets). The events of an unchecked activity are removed from the traces before anything else (as in Ocelescope): a trace a, b, c without b becomes a, c. Unfold an activity for its events per object type and to (de)select it for single selected types. Default per type: its most frequent 40 % of activities, at least 3 and at most 10. Upper part: activities on the included traces (the variants kept by the variant threshold). Lower part: the others, each with the smallest variant threshold that would include it (per type in the unfold).",
+  outside:
+    "Activities on no included trace: the number is the smallest variant threshold (of any selected type) at which they would be; unfold for each selected type. Without a number, no variant threshold helps: the activity is deselected, its events are removed by an event category, or only unselected types have it.",
   arcLabel: "What the number on an arc counts: traversals (an object repeating the arc counts each time) or distinct objects.",
   direction: "Direction of the layout: from left to right or from top to bottom.",
   compact: "Less white space between nodes and arcs, e.g. to export the whole graph as a figure.",
@@ -411,6 +418,18 @@ const TypeRow = ({
   );
 };
 
+/** "≥ 81 %": the smallest variant threshold that puts an activity on an included trace (null: none does). */
+const neededText = (needed: number | null | undefined) => (needed == null ? null : `≥ ${num(needed)} %`);
+
+/**
+ * Why an activity of the lower part is not on an included trace of a type when no variant threshold helps.
+ *
+ * @param t The activity's entry for the type.
+ * @param categoriesExcluded True if an event category is deselected.
+ */
+const missingReason = (t: DfgActivityTypeOption, categoriesExcluded: boolean) =>
+  !t.selected_type ? "type not selected" : !t.included ? "deselected" : categoriesExcluded ? "removed by an event category" : "not on a trace";
+
 /**
  * One activity in the list: a checkbox for all selected types (indeterminate if selected for some of them), its
  * events with handling units, and an unfold with its events per object type, each selected type with a checkbox.
@@ -420,15 +439,25 @@ const ActivityRow = ({
   colours,
   selectedTypes,
   setIncluded,
+  outside,
+  categoriesExcluded,
 }: {
   option: DfgActivityOption;
   colours: Map<string, string>;
   selectedTypes: Set<string>;
   setIncluded: (activity: string, types: string[], included: boolean) => void;
+  /** Lower part of the list: show the variant threshold needed (or why it is missing). */
+  outside?: boolean;
+  categoriesExcluded?: boolean;
 }) => {
   const [open, setOpen] = useState(false);
   const selectable = option.object_types.filter((t) => selectedTypes.has(t.object_type));
   const included = selectable.filter((t) => t.included).length;
+  const status = (t: DfgActivityTypeOption) =>
+    t.on_included_trace ? "in the graph" : (neededText(t.variant_threshold_needed) ?? missingReason(t, !!categoriesExcluded));
+  const summary =
+    neededText(option.variant_threshold_needed) ??
+    (selectable.length === 0 ? "other types only" : included === 0 ? "deselected" : categoriesExcluded ? "event category" : "not on a trace");
   return (
     <Stack gap={1}>
       <Group gap={6} wrap="nowrap" justify="space-between">
@@ -445,6 +474,11 @@ const ActivityRow = ({
             </Group>
           }
         />
+        {outside && (
+          <Tooltip label="Smallest variant threshold that puts the activity into the graph (of any selected type), or why none does" withinPortal multiline w={240}>
+            <Text size="xs" c="dimmed" ml="auto" style={{ whiteSpace: "nowrap" }}>{summary}</Text>
+          </Tooltip>
+        )}
         <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => setOpen((o) => !o)} aria-label={`Object types of ${option.activity}`}>
           {open ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
         </ActionIcon>
@@ -463,6 +497,7 @@ const ActivityRow = ({
                   <Swatch colour={colours.get(t.object_type)} circle={!t.selected_type} />
                   <Text size="xs">{t.object_type}</Text>
                   <Text size="xs" c="dimmed">({num(t.events)})</Text>
+                  {outside && t.selected_type && <Text size="xs" c="dimmed">· {status(t)}</Text>}
                 </Group>
               }
             />
@@ -524,6 +559,12 @@ export const DfgSettings = ({
       }
       return { ...s, activities };
     });
+  // Upper part: on an included trace (Nina, 2026-11-15); lower part: the others, least variant threshold needed first.
+  const listed = activityOptions.filter((a) => matches(a.activity, activityQuery));
+  const inGraph = listed.filter((a) => a.on_included_trace);
+  const outsideGraph = listed
+    .filter((a) => !a.on_included_trace)
+    .sort((x, y) => (x.variant_threshold_needed ?? 1000) - (y.variant_threshold_needed ?? 1000));
   const removedInfo = new Map((graph.removed_arcs ?? []).map((a) => [arcText(a), a]));
 
   return (
@@ -531,29 +572,11 @@ export const DfgSettings = ({
       <Stack gap={6}>
         <Group justify="space-between" gap={4} wrap="nowrap">
           <Text size="sm" fw={700}>Settings</Text>
-          <Group gap={6} wrap="nowrap">
-            <Tooltip label={INFO.compact} multiline w={260} withinPortal>
-              <Switch
-                size="xs"
-                checked={state.compact}
-                onChange={(e) => {
-                  const compact = e.currentTarget.checked;
-                  setState((s) => ({ ...s, compact }));
-                }}
-                label="Compact"
-              />
-            </Tooltip>
-            <Tooltip label={INFO.reset} withinPortal>
-              <Button size="compact-xs" variant="default" leftSection={<RotateCcwIcon size={11} />} onClick={() => setState(() => DEFAULT_STATE)}>
-                Reset
-              </Button>
-            </Tooltip>
-            <Tooltip label="Hide the settings" withinPortal>
-              <ActionIcon size="sm" variant="subtle" color="gray" onClick={onHide} aria-label="Hide the settings">
-                <PanelRightCloseIcon size={14} />
-              </ActionIcon>
-            </Tooltip>
-          </Group>
+          <Tooltip label="Hide the settings" withinPortal>
+            <ActionIcon size="sm" variant="subtle" color="gray" onClick={onHide} aria-label="Hide the settings">
+              <PanelRightCloseIcon size={14} />
+            </ActionIcon>
+          </Tooltip>
         </Group>
 
         <Divider label={<Group gap={6}>General<Manual on={manual} /></Group>} labelPosition="left" />
@@ -654,41 +677,33 @@ export const DfgSettings = ({
           )}
         </Group>
         <Search value={activityQuery} onChange={setActivityQuery} placeholder="Search activities" />
-        <ScrollArea.Autosize mah={260} type="auto" offsetScrollbars>
+        <ScrollArea.Autosize mah={320} type="auto" offsetScrollbars>
           <Stack gap={2}>
-            {activityOptions
-              .filter((a) => matches(a.activity, activityQuery))
-              .map((a) => (
-                <ActivityRow key={a.activity} option={a} colours={colours} selectedTypes={selectedSet} setIncluded={setIncluded} />
-              ))}
+            {inGraph.map((a) => (
+              <ActivityRow key={a.activity} option={a} colours={colours} selectedTypes={selectedSet} setIncluded={setIncluded} />
+            ))}
+            {outsideGraph.length > 0 && (
+              <Divider
+                my={2}
+                label={<Heading info={INFO.outside}>Not on the included traces ({outsideGraph.length})</Heading>}
+                labelPosition="left"
+                variant="dashed"
+              />
+            )}
+            {outsideGraph.map((a) => (
+              <ActivityRow
+                key={a.activity}
+                option={a}
+                colours={colours}
+                selectedTypes={selectedSet}
+                setIncluded={setIncluded}
+                outside
+                categoriesExcluded={state.excludedCategories.length > 0}
+              />
+            ))}
           </Stack>
         </ScrollArea.Autosize>
 
-        <Divider label="Display" labelPosition="left" />
-        <Group justify="space-between" gap={4} wrap="nowrap">
-          <Heading info={INFO.arcLabel}>Arc labels</Heading>
-          <SegmentedControl
-            size="xs"
-            value={state.arcLabel}
-            onChange={(v) => setState((s) => ({ ...s, arcLabel: v as ArcLabel }))}
-            data={[
-              { value: "count", label: "Traversals" },
-              { value: "objects", label: "Objects" },
-            ]}
-          />
-        </Group>
-        <Group justify="space-between" gap={4} wrap="nowrap">
-          <Heading info={INFO.direction}>Direction</Heading>
-          <SegmentedControl
-            size="xs"
-            value={state.direction}
-            onChange={(v) => setState((s) => ({ ...s, direction: v as Direction }))}
-            data={[
-              { value: "RIGHT", label: "Left to right" },
-              { value: "DOWN", label: "Top to bottom" },
-            ]}
-          />
-        </Group>
       </Stack>
     </Card>
   );

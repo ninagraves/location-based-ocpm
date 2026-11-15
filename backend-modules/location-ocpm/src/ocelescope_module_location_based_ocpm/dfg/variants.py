@@ -98,6 +98,36 @@ def needed_variant_thresholds(ranking: pl.DataFrame) -> dict[str, float]:
     return {t: min(100.0, float(math.floor(round(v, 6)) + 1)) for t, v in shares.iter_rows()}
 
 
+def activity_variant_thresholds(ranking: pl.DataFrame) -> pl.DataFrame:
+    """Per object type and activity: the smallest whole variant threshold that keeps a variant containing it.
+
+    The activity is on an included trace as soon as the best-ranked variant $v$ containing it is kept, i.e. for every
+    threshold above the share of the objects of the variants ranked before $v$ (`covered_before`): the smallest whole
+    percentage is that share rounded down plus 1 (Nina, 2026-11-15, for the activity list). Example: 10 pallets with
+    the variants (5, 3, 1, 1 pallets); SC only in the third variant: covered before 8 -> 81 %.
+
+    Args:
+        ranking: Ranked variants (`variant_ranking`).
+
+    Returns:
+        pl.DataFrame: Columns object_type, activity, needed (percent, 1 to 100).
+    """
+    total = pl.col(d.OBJECTS).sum().over(c.OBJECT_TYPE)
+    return (
+        ranking.with_columns((pl.col("covered_before") * 100 / total).alias("share"))
+        .with_columns(pl.col(d.VARIANT).str.split(d.VARIANT_SEPARATOR).alias(c.ACTIVITY))
+        .explode(c.ACTIVITY)
+        .group_by(c.OBJECT_TYPE, c.ACTIVITY)
+        .agg(pl.col("share").min())
+        .select(
+            c.OBJECT_TYPE,
+            c.ACTIVITY,
+            pl.min_horizontal(pl.col("share").round(6).floor() + 1, pl.lit(100.0)).alias("needed"),
+        )
+        .sort(c.OBJECT_TYPE, c.ACTIVITY)
+    )
+
+
 def default_variant_threshold(ranking: pl.DataFrame, object_types: Collection[str]) -> float:
     """The default variant threshold: one value for all given types that keeps at least their 3 top variants.
 

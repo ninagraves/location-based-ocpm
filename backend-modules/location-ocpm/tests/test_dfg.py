@@ -1,10 +1,12 @@
 """Directly-follows graph (docs/pages/directly-follows-graph.md): traces, projection, variants, arcs, nodes."""
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 import polars as pl
 import pytest
 
+from ocelescope_module_location_based_ocpm.dfg.categories import event_categories
 from ocelescope_module_location_based_ocpm.dfg.projection import default_activity_count
 from ocelescope_module_location_based_ocpm.dfg.variants import object_variants, variant_ranking
 from ocelescope_module_location_based_ocpm.dfg.graph import (
@@ -377,3 +379,40 @@ def test_thresholds_with_decimals(frames):
         for x in (5.5, 5.6)
     ]
     assert counts == [1, 3]
+
+
+def test_variant_threshold_needed_per_activity():
+    """Activities on no included trace name the smallest variant threshold that includes them (pallets, all activities)."""
+    frames = _pallet_example()
+    graph = directly_follows_graph(frames, [TypeSetting(object_type="pallet", variant_threshold=50)], activities=every_activity(frames, "pallet"))
+    options = {o.activity: o for o in graph.activity_options}
+    # Variants: 5 x main (0 % before), 3 x with inspect (50 % before), p9 with scrap (80 % before), p10 (90 % before).
+    assert options["pick"].on_included_trace and options["pick"].variant_threshold_needed == 1
+    assert not options["inspect"].on_included_trace and options["inspect"].variant_threshold_needed == 51
+    assert not options["scrap"].on_included_trace and options["scrap"].variant_threshold_needed == 81
+    graph = directly_follows_graph(frames, [TypeSetting(object_type="pallet", variant_threshold=81)], activities=every_activity(frames, "pallet"))
+    assert {o.activity: o for o in graph.activity_options}["scrap"].on_included_trace
+
+
+def _with_categories(frames: LogFrames) -> LogFrames:
+    """The pallet example with event categories: "load" moves to the truck t1 (a vehicle), "ship" to the yard y1."""
+    events = frames.events.with_columns(
+        uloc=pl.when(pl.col("activity") == "load").then(pl.lit("t1")).when(pl.col("activity") == "ship").then(pl.lit("y1"))
+    )
+    return replace(frames, categories=event_categories(events, vehicles=["t1"], storage_units=[]))
+
+
+def test_deselected_event_categories_are_projected_out_first():
+    """Deselecting "Move to vehicle" removes "load" only; deselecting "Movements" removes "load" and "ship"."""
+    frames = _with_categories(_pallet_example())
+    setting = [TypeSetting(object_type="pallet", variant_threshold=100)]
+    every = every_activity(frames, "pallet")
+    graph = directly_follows_graph(frames, setting, activities=every, excluded_categories=["to_vehicle"])
+    categories = {c.key: c for c in graph.event_categories}
+    assert (categories["movement"].events, categories["to_vehicle"].events, categories["to_storage"].events) == (18, 9, 0)
+    assert not categories["to_vehicle"].selected and categories["movement"].selected
+    assert ("pack", "ship") in arcs_of(graph, "pallet") and "load" not in {a.activity for a in graph.activities}
+    graph = directly_follows_graph(frames, setting, activities=every, excluded_categories=["movement"])
+    assert ("pack", None) in arcs_of(graph, "pallet")
+    assert not {"load", "ship"} & {a.activity for a in graph.activities}
+    assert {o.activity: o for o in graph.activity_options}["load"].variant_threshold_needed is None

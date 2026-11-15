@@ -65,4 +65,6 @@ def get_directly_follows_graph(
     traces = _cached(_traces, (key, types), lambda: selected_traces(frames, types))
     # All arcs of the included traces: the page applies the arc settings itself (lib/dfgArcs.ts; Nina, 2026-11-15).
     all_arcs = [s.model_copy(update={"arc_threshold": 100.0, "arc_count": None}) for s in selection]
-    return directly_follows_graph(frames, all_arcs, traces, request.activities, stay=False)
+    return directly_follows_graph(
+        frames, all_arcs, traces, request.activities, stay=False, excluded_categories=request.excluded_categories
+    )
