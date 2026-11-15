@@ -7,7 +7,8 @@ import { PanelRightOpenIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { getDirectlyFollowsGraph } from "../api/locationBasedOcpm";
 import { DfgGraph } from "../components/DfgGraph";
-import { DEFAULT_STATE, DfgSettings, type DfgState, removeArc, toRequest } from "../components/DfgSettings";
+import { arcSettings, DEFAULT_STATE, DfgSettings, type DfgState, removeArc, toRequest } from "../components/DfgSettings";
+import { applyArcSettings } from "../lib/dfgView";
 import type { LaidOutArc } from "../lib/dfgLayout";
 import { ModulePage } from "../components/ModulePage";
 import { useScheme } from "../components/plots";
@@ -77,11 +78,14 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
     [setState],
   );
   const request = useMemo(() => toRequest(state), [state]);
-  const { data, error, isFetching } = useQuery({
+  const { data: base, error, isFetching } = useQuery({
     queryKey: ["locationBasedOcpm", "dfg", ocelId, request],
     queryFn: ({ signal }) => getDirectlyFollowsGraph(ocelId, request, undefined, undefined, signal),
     placeholderData: keepPreviousData,
   });
+  // Arc threshold, arc count, removed arcs and Stay connected: in the browser, without a request (Nina, 2026-11-15).
+  const arcs = useMemo(() => arcSettings(state), [state]);
+  const data = useMemo(() => (base ? applyArcSettings(base, arcs) : undefined), [base, arcs]);
   // Handling-unit types get the signature colours first, the other types paler colours (Nina, 2026-11-15); each
   // group in the order of all object types (most objects first), so a type keeps its colour.
   const colours = useMemo(() => {

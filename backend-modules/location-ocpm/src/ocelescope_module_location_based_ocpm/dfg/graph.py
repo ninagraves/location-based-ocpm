@@ -30,7 +30,7 @@ from .connectivity import CONNECTING, stay_connected
 from .nodes import activity_frequencies, involved_object_types, shown_activities
 from .projection import default_activities, handling_unit_event_counts, project_traces, type_activity_counts
 from .traces import considered_objects, object_traces
-from .variants import default_variant_threshold, object_variants, variant_filter, variant_ranking
+from .variants import RANK, default_variant_threshold, object_variants, variant_filter, variant_ranking
 
 #: Default arc threshold in percent: all arcs (Nina, 2026-11-15; before: 10 %).
 DEFAULT_ARC_THRESHOLD = 100.0
@@ -61,8 +61,8 @@ class TypeThresholds(BaseModel):
     Attributes:
         object_type: The object type.
         variant_threshold: Own variant threshold in percent, or None.
-        arc_threshold: Own arc threshold in percent, or None.
-        arc_count: Own arc count, or None.
+        arc_threshold: Own arc threshold in percent, or None (Python use; the page applies arc settings itself).
+        arc_count: Own arc count, or None (Python use).
     """
 
     object_type: str
@@ -86,7 +86,12 @@ class ArcKey(BaseModel):
 
 
 class DfgRequest(BaseModel):
-    """Settings of the page (sidebar).
+    """Settings of the page (sidebar) that need the backend: object types, variants, activities.
+
+    The page applies the arc settings (arc threshold, arc count, arcs removed by hand, Stay connected) itself, in the
+    browser (`frontend-modules/location-ocpm/src/lib/dfgArcs.ts`; Nina, 2026-11-15): the route answers with all arcs
+    of the included traces. The arc fields below are for use from Python (`resolve_selection`, notebooks) and ignored
+    by the route.
 
     Attributes:
         object_types: The selected object types; None = the default, every object type with handling units.
@@ -185,6 +190,8 @@ class DfgArc(BaseModel):
         target: Target activity; None = the end node of the object type.
         count: Traversals.
         objects: Distinct objects traversing it.
+        rank: Position (1 = first) in the arc ranking of its type (`arcs.arc_order`: objects, traversals, first
+            occurrence, source, target), among all arcs of the included traces.
         connecting: True if it is shown only because of "Stay connected".
     """
 
@@ -193,6 +200,7 @@ class DfgArc(BaseModel):
     target: str | None
     count: int
     objects: int
+    rank: int = 0
     connecting: bool = False
 
 
@@ -420,7 +428,9 @@ def directly_follows_graph(
     }
     kept_traces = variant_filter(traces, variant_thresholds)
     n_kept = objects_per_type(kept_traces)
-    all_arcs = directly_follows_arcs(kept_traces)
+    all_arcs = directly_follows_arcs(kept_traces).with_columns(
+        pl.int_range(1, pl.len() + 1).over(c.OBJECT_TYPE).alias(RANK)
+    )
     threshold_arcs = arc_share_filter(all_arcs, {t: s.arc_threshold for t, s in settings.items()})
     counted_arcs = arc_count_filter(threshold_arcs, {t: s.arc_count for t, s in settings.items()})
     removed = list(removed)
@@ -468,7 +478,7 @@ def directly_follows_graph(
         by_activity.setdefault(row[c.ACTIVITY], []).append(
             DfgTypeCount(object_type=row[c.OBJECT_TYPE], events=row[d.EVENTS], objects=row[d.OBJECTS])
         )
-    arc_fields = [*KEY, d.COUNT, d.OBJECTS]
+    arc_fields = [*KEY, d.COUNT, d.OBJECTS, RANK]
     return DirectlyFollowsGraph(
         object_types=[type_row(row) for row in type_overview(frames.objects, hu).iter_rows(named=True)],
         activities=[

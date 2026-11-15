@@ -23,6 +23,7 @@ import {
 import { ChevronDownIcon, ChevronRightIcon, InfoIcon, PanelRightCloseIcon, RotateCcwIcon, SearchIcon, XIcon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import type { DfgActivityOption, DfgObjectType, DfgRequest, DirectlyFollowsGraph } from "../api/locationBasedOcpm";
+import type { ArcSettings } from "../lib/dfgArcs";
 import type { ArcLabel, Direction } from "../lib/dfgLayout";
 import { num } from "../lib/format";
 import { UI } from "../lib/palette";
@@ -71,23 +72,26 @@ export const DEFAULT_STATE: DfgState = {
   compact: false,
 };
 
-/** The backend request of a state. */
+/**
+ * The backend request of a state: only object types, variants and activities. The arc settings (arc threshold, arc
+ * count, arcs removed by hand, Stay connected) are applied in the browser (`arcSettings`, lib/dfgArcs.ts), so that
+ * they react without a request (Nina, 2026-11-15).
+ */
 export const toRequest = (state: DfgState): DfgRequest => ({
   object_types: state.objectTypes,
   variant_threshold: state.variantThreshold,
-  arc_threshold: state.arcThreshold,
-  arc_count: state.arcCount,
   type_thresholds: Object.entries(state.own)
-    .filter(([, t]) => t.variant !== undefined || t.arc !== undefined || t.count !== undefined)
-    .map(([object_type, t]) => ({
-      object_type,
-      variant_threshold: t.variant ?? null,
-      arc_threshold: t.arc ?? null,
-      arc_count: t.count ?? null,
-    })),
+    .filter(([, t]) => t.variant !== undefined)
+    .map(([object_type, t]) => ({ object_type, variant_threshold: t.variant ?? null })),
   activities: state.activities,
-  stay_connected: state.stayConnected,
-  removed_arcs: state.removed,
+});
+
+/** The arc settings of a state, for `filterArcs` (own values of a type first, then the general ones). */
+export const arcSettings = (state: DfgState): ArcSettings => ({
+  threshold: (t) => state.own[t]?.arc ?? state.arcThreshold,
+  count: (t) => state.own[t]?.count ?? state.arcCount,
+  removed: state.removed,
+  stayConnected: state.stayConnected,
 });
 
 /** True if two arcs are the same. */
