@@ -8,12 +8,9 @@ import type { ArcLabel, Direction } from "../lib/dfgLayout";
 import { num } from "../lib/format";
 import { DEFAULT_STATE, type DfgState, INFO } from "./DfgSettings";
 
-/** Categories that are part of another one: deselecting the parent removes their events too. */
-const PARENT: Record<string, string> = { to_vehicle: "movement", to_storage: "movement" };
-
 /**
- * One chip per event category, all selected by default; clicking one (de)selects it. A sub-category ("Move to
- * vehicle", "Move to storage") is shown deselected and disabled while its parent ("Movements") is deselected.
+ * One chip per event category, all selected by default; clicking one (de)selects it. A category without events is
+ * disabled. An event is removed only when all its categories are deselected (Nina, 2026-11-15).
  *
  * @param categories The categories of the graph (key, label, events).
  * @param excluded The deselected keys; `onChange` gets the new list.
@@ -29,14 +26,13 @@ const CategoryChips = ({
 }) => (
   <Group gap={4} wrap="wrap">
       {categories.map((c) => {
-        const parentOff = PARENT[c.key] !== undefined && excluded.includes(PARENT[c.key]);
         return (
           <Chip
             key={c.key}
             size="xs"
             variant="light"
-            checked={!excluded.includes(c.key) && !parentOff}
-            disabled={parentOff || c.events === 0}
+            checked={!excluded.includes(c.key)}
+            disabled={c.events === 0}
             onChange={(on) => onChange(on ? excluded.filter((k) => k !== c.key) : [...excluded, c.key])}
           >
             {c.label} ({num(c.events)})

@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import polars as pl
 from ocelescope import OCEL
@@ -26,7 +26,7 @@ from .arcs import (
     objects_per_type,
     remove_arcs,
 )
-from .categories import CATEGORIES, category_counts, event_categories, remove_categories
+from .categories import CATEGORIES, category_counts, counts_by_group, event_categories, grouped_category_counts, remove_categories
 from .connectivity import CONNECTING, stay_connected
 from .nodes import activity_frequencies, involved_object_types, shown_activities
 from .projection import default_activities, handling_unit_event_counts, project_traces, type_activity_counts
@@ -227,6 +227,8 @@ class DfgActivityTypeOption(BaseModel):
         variant_threshold_needed: Smallest whole variant threshold of the type that puts it on an included trace
             (`variants.activity_variant_thresholds`); None if no trace of the type contains it after the projection
             (deselected, its events removed by an event category, or not selected type).
+        categories: Of `events`, how many are in each event category (`categories.CATEGORIES` key -> events; only
+            non-zero ones).
     """
 
     object_type: str
@@ -235,6 +237,7 @@ class DfgActivityTypeOption(BaseModel):
     included: bool
     on_included_trace: bool = False
     variant_threshold_needed: float | None = None
+    categories: dict[str, int] = Field(default_factory=dict)
 
 
 class DfgActivityOption(BaseModel):
@@ -248,6 +251,8 @@ class DfgActivityOption(BaseModel):
             for it; types with handling units first, then by events.
         on_included_trace: True if it is on an included trace of a selected type (the upper part of the list).
         variant_threshold_needed: Smallest of the types' `variant_threshold_needed` (None if none).
+        categories: Of `hu_events`, how many are in each event category (key -> events; only non-zero ones): the
+            badges of the activity.
     """
 
     activity: str
@@ -256,6 +261,7 @@ class DfgActivityOption(BaseModel):
     object_types: list[DfgActivityTypeOption]
     on_included_trace: bool = False
     variant_threshold_needed: float | None = None
+    categories: dict[str, int] = Field(default_factory=dict)
 
 
 class DfgEventCategory(BaseModel):
@@ -311,6 +317,7 @@ class LogFrames:
         type_activities: `projection.type_activity_counts` (None = computed when needed).
         hu_events: `projection.handling_unit_event_counts` (None = computed when needed).
         categories: `categories.event_categories` (None = no categories: nothing can be removed by them).
+        category_badges: `_category_badges` (None = computed when needed).
     """
 
     e2o: pl.DataFrame
@@ -321,6 +328,7 @@ class LogFrames:
     type_activities: pl.DataFrame | None = None
     hu_events: dict[str, int] | None = None
     categories: pl.DataFrame | None = None
+    category_badges: tuple[dict[tuple, dict[str, int]], dict[tuple, dict[str, int]]] | None = None
 
 
 def log_frames(ocel: OCEL, derivation: Derivation) -> LogFrames:
@@ -345,7 +353,7 @@ def log_frames(ocel: OCEL, derivation: Derivation) -> LogFrames:
         c.EVENT, c.TIME, c.ACTIVITY, c.IS_MOVEMENT, c.IS_TRANSFORMATION, c.IS_PROCESSING
     )
     hu = derivation.handling_units[c.HU]
-    return LogFrames(
+    frames = LogFrames(
         e2o=e2o,
         events=events,
         objects=objects,
@@ -359,6 +367,7 @@ def log_frames(ocel: OCEL, derivation: Derivation) -> LogFrames:
             derivation.context.storage_units,
         ),
     )
+    return replace(frames, category_badges=_category_badges(frames))
 
 
 def default_selection(objects: pl.DataFrame, handling_units: Collection[str]) -> list[TypeSetting]:
@@ -557,6 +566,38 @@ def directly_follows_graph(
     )
 
 
+def _category_badges(frames: LogFrames) -> tuple[dict[tuple, dict[str, int]], dict[tuple, dict[str, int]]]:
+    """Event categories of the activity list: per activity among its events with a handling unit, and per object type
+    and activity among the events with a considered object of the type (the counts of `_activity_options`).
+
+    Args:
+        frames: The log's frames.
+
+    Returns:
+        tuple: ({(activity,): {category: events}}, {(object type, activity): {category: events}}); empty without
+        categories.
+    """
+    if frames.categories is None:
+        return {}, {}
+    hu = frames.handling_units.to_list()
+    activity_of = frames.events.lazy().select(c.EVENT, c.ACTIVITY)
+    e2o = frames.e2o.lazy()
+    hu_events = e2o.filter(pl.col(d.OBJECT).is_in(hu)).select(c.EVENT).unique().join(activity_of, on=c.EVENT).collect()
+    types = frames.objects.lazy().select(c.OBJECT_TYPE).unique().collect()[c.OBJECT_TYPE].to_list()
+    considered = considered_objects(frames.objects, types, hu).lazy()
+    type_events = (
+        e2o.select(c.EVENT, d.OBJECT)
+        .join(considered, on=d.OBJECT)
+        .select(c.EVENT, c.OBJECT_TYPE)
+        .unique()
+        .join(activity_of, on=c.EVENT)
+        .collect()
+    )
+    by_activity = counts_by_group(grouped_category_counts(frames.categories, hu_events, [c.ACTIVITY]), [c.ACTIVITY])
+    by_type = [c.OBJECT_TYPE, c.ACTIVITY]
+    return by_activity, counts_by_group(grouped_category_counts(frames.categories, type_events, by_type), by_type)
+
+
 def _activity_options(
     frames: LogFrames,
     type_activities: pl.DataFrame,
@@ -582,6 +623,7 @@ def _activity_options(
     if hu_events is None:
         hu_events = handling_unit_event_counts(frames.e2o, frames.events, frames.handling_units.to_list())
     hu_types = set(frames.objects.filter(pl.col(d.OBJECT).is_in(frames.handling_units.to_list()))[c.OBJECT_TYPE].to_list())
+    activity_categories, type_categories = frames.category_badges or _category_badges(frames)
     per_activity: dict[str, list[DfgActivityTypeOption]] = {}
     for row in type_activities.iter_rows(named=True):
         t = row[c.OBJECT_TYPE]
@@ -593,6 +635,7 @@ def _activity_options(
                 included=row[c.ACTIVITY] in set(included.get(t, ())),
                 on_included_trace=(t, row[c.ACTIVITY]) in on_trace,
                 variant_threshold_needed=(needed or {}).get((t, row[c.ACTIVITY])) if t in included else None,
+                categories=type_categories.get((t, row[c.ACTIVITY]), {}),
             )
         )
     def option(a: str, n: int) -> DfgActivityOption:
@@ -605,6 +648,7 @@ def _activity_options(
             object_types=types,
             on_included_trace=any(o.on_included_trace for o in types),
             variant_threshold_needed=min(values) if values else None,
+            categories=activity_categories.get((a,), {}),
         )
 
     options = [option(a, n) for a, n in log_events.items()]

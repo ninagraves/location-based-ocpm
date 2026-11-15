@@ -12,9 +12,11 @@ traces (projection, as the activity selection in `projection.py`), before anythi
 | `transformation` | Transforming | $T$ |
 
 The categories overlap ("Move to vehicle" and "Move to storage" are movements; $P$ may contain transformation events):
-an event is removed if it belongs to at least one deselected category. Events in no category are always kept.
-Example: deselecting "Move to vehicle" removes a "load truck" event (uloc = truck, a vehicle) but keeps a "crane
-move" to a gate; deselecting "Movements" removes both.
+an event is removed only if **all** its categories are deselected (Nina, 2026-11-15). Events in no category are
+always kept.
+Example: a "load truck" event (uloc = truck, a vehicle) is in Movements and Move to vehicle. Deselecting only one of
+them keeps it; deselecting both removes it. A "crane move" to a gate is only in Movements: deselecting Movements
+removes it.
 """
 
 from __future__ import annotations
@@ -78,7 +80,7 @@ def category_counts(categories: pl.DataFrame) -> dict[str, int]:
 
 
 def remove_categories(traces: pl.DataFrame, categories: pl.DataFrame, excluded: Collection[str]) -> pl.DataFrame:
-    """Remove the events of the deselected categories from the traces (projection).
+    """Remove the events whose categories are all deselected from the traces (projection).
 
     Args:
         traces: Object traces (`traces.object_traces`), sorted by object and position.
@@ -91,8 +93,48 @@ def remove_categories(traces: pl.DataFrame, categories: pl.DataFrame, excluded: 
     excluded = [k for k in excluded if k in CATEGORIES]
     if not excluded:
         return traces
-    removed = categories.filter(pl.any_horizontal(pl.col(k) for k in excluded)).select(c.EVENT)
+    selected = [k for k in CATEGORIES if k not in excluded]
+    in_any = pl.any_horizontal(pl.col(k) for k in CATEGORIES)
+    in_selected = pl.any_horizontal(pl.col(k) for k in selected) if selected else pl.lit(False)
+    removed = categories.filter(in_any & ~in_selected).select(c.EVENT)
     return (
         traces.join(removed, on=c.EVENT, how="anti", maintain_order="left")
         .with_columns(pl.int_range(1, pl.len() + 1, dtype=pl.UInt32).over(d.OBJECT).alias(d.POSITION))
     )
+
+
+def grouped_category_counts(categories: pl.DataFrame, rows: pl.DataFrame, by: Collection[str]) -> pl.DataFrame:
+    """Number of events per category within groups, e.g. per activity or per object type and activity.
+
+    Args:
+        categories: `event_categories`.
+        rows: Column event and the columns `by`; each event at most once per group.
+        by: The group columns.
+
+    Returns:
+        pl.DataFrame: The columns `by` and one count column per key of `CATEGORIES` (groups without any categorised
+        event are left out).
+    """
+    return (
+        rows.lazy()
+        .join(categories.lazy(), on=c.EVENT)
+        .group_by(list(by))
+        .agg(pl.col(k).sum().cast(pl.Int64) for k in CATEGORIES)
+        .filter(pl.any_horizontal(pl.col(k) > 0 for k in CATEGORIES))
+        .collect()
+    )
+
+
+def counts_by_group(counts: pl.DataFrame, by: Collection[str]) -> dict[tuple, dict[str, int]]:
+    """`grouped_category_counts` as a dictionary, with only the non-zero categories.
+
+    Args:
+        counts: `grouped_category_counts`.
+        by: Its group columns.
+
+    Returns:
+        dict[tuple, dict[str, int]]: Group values -> category key -> events, e.g. {("load",): {"movement": 9}}.
+    """
+    return {
+        tuple(row[b] for b in by): {k: row[k] for k in CATEGORIES if row[k]} for row in counts.iter_rows(named=True)
+    }

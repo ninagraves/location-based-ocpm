@@ -120,7 +120,7 @@ export const INFO = {
   objectTypes:
     "Checked object types are drawn with their directly-follows arcs, start and end nodes. Unchecked object types that are involved in the shown events appear only as circles on the activity nodes. Default: the object types of the handling units. Unfold a type for its own values.",
   categories:
-    "Event categories: deselect one to remove all its events from the traces before anything else (a projection, like deselecting an activity). Move to vehicle / storage: movements whose target location is a vehicle / storage unit; they are part of Movements, so deselecting Movements removes them too. An event is removed if it is in at least one deselected category; events in no category are always kept.",
+    "Event categories: an event is removed from the traces (before anything else, like deselecting an activity) only when all categories it belongs to are deselected. Move to vehicle / storage: movements whose target location is a vehicle / storage unit; such an event is also a movement, so it stays until both Movements and its Move to chip are off. Events in no category are not affected by the chips (the activity selection still applies).",
   activities:
     "Activities by number of events that involve a handling unit (in brackets). The events of an unchecked activity are removed from the traces before anything else (as in Ocelescope): a trace a, b, c without b becomes a, c. Unfold an activity for its events per object type and to (de)select it for single selected types. Default per type: its most frequent 40 % of activities, at least 3 and at most 10. Upper part: activities on the included traces (the variants kept by the variant threshold). Lower part: the others, each with the smallest variant threshold that would include it (per type in the unfold).",
   outside:
@@ -418,6 +418,39 @@ const TypeRow = ({
   );
 };
 
+/** Short badge text of each event category (Nina, 2026-11-15: badges like the HU badge). */
+const CATEGORY_BADGE: Record<string, { short: string; long: string }> = {
+  movement: { short: "move", long: "movements" },
+  to_vehicle: { short: "→ vehicle", long: "movements to a vehicle" },
+  to_storage: { short: "→ storage", long: "movements to a storage unit" },
+  processing: { short: "process", long: "processing operations" },
+  transformation: { short: "transform", long: "transformations" },
+};
+
+/**
+ * Badges of the event categories of an activity's events, in the order of `CATEGORY_BADGE`; a badge carries a count
+ * only if not all events are in the category (e.g. "move 3" of 8 events).
+ *
+ * @param categories Category key -> events in it.
+ * @param events All events counted (the number in brackets).
+ */
+const CategoryBadges = ({ categories, events }: { categories?: Record<string, number>; events: number }) => (
+  <>
+    {Object.entries(CATEGORY_BADGE)
+      .filter(([k]) => (categories?.[k] ?? 0) > 0)
+      .map(([k, b]) => {
+        const n = categories?.[k] ?? 0;
+        return (
+          <Tooltip key={k} label={`${num(n)} of ${num(events)} events are ${b.long}`} withinPortal>
+            <Badge size="xs" variant="outline" color="gray" style={{ flexShrink: 0, textTransform: "none" }}>
+              {b.short}{n < events ? ` ${num(n)}` : ""}
+            </Badge>
+          </Tooltip>
+        );
+      })}
+  </>
+);
+
 /** "≥ 81 %": the smallest variant threshold that puts an activity on an included trace (null: none does). */
 const neededText = (needed: number | null | undefined) => (needed == null ? null : `≥ ${num(needed)} %`);
 
@@ -471,6 +504,7 @@ const ActivityRow = ({
             <Group gap={5} wrap="nowrap">
               <Text size="xs">{option.activity}</Text>
               <Text size="xs" c="dimmed">({num(option.hu_events)})</Text>
+              <CategoryBadges categories={option.categories} events={option.hu_events} />
             </Group>
           }
         />
@@ -497,6 +531,7 @@ const ActivityRow = ({
                   <Swatch colour={colours.get(t.object_type)} circle={!t.selected_type} />
                   <Text size="xs">{t.object_type}</Text>
                   <Text size="xs" c="dimmed">({num(t.events)})</Text>
+                  <CategoryBadges categories={t.categories} events={t.events} />
                   {outside && t.selected_type && <Text size="xs" c="dimmed">· {status(t)}</Text>}
                 </Group>
               }
