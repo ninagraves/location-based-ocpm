@@ -101,9 +101,10 @@ SIZE = {"processing": 17, "other": 10, "movement": 16}
 #: dominant; details in the hover): a small open diamond instead of the tick.
 PICKUP_DIFFERS_SYMBOL = "diamond-tall-open"
 PICKUP_DIFFERS_SIZE = 13
-#: Explicit movement marker: an open circle on the band, outlined in the role colour (`MovementMarkers`).
+#: Explicit movement marker: an open circle on the band, outlined in the role colour (`MovementMarkers`); about the size
+#: of the other event markers (Nina 2026-11-15).
 EXPLICIT_MOVEMENT_SYMBOL = "circle-open"
-EXPLICIT_MOVEMENT_SIZE = 20
+EXPLICIT_MOVEMENT_SIZE = 11
 #: Most handling units shown in one timeline (Nina 2026-10-31).
 MAX_HANDLING_UNITS = 50
 
