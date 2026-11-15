@@ -418,38 +418,53 @@ const TypeRow = ({
   );
 };
 
-/** Short badge text of each event category (Nina, 2026-11-15: badges like the HU badge). */
-const CATEGORY_BADGE: Record<string, { short: string; long: string }> = {
-  movement: { short: "move", long: "movements" },
-  to_vehicle: { short: "→ vehicle", long: "movements to a vehicle" },
-  to_storage: { short: "→ storage", long: "movements to a storage unit" },
-  processing: { short: "process", long: "processing operations" },
-  transformation: { short: "transform", long: "transformations" },
+/**
+ * Badge letter of each event category, as in the notation of the concept: M movements, V to a vehicle, W to a storage
+ * unit, P processing operations, T transformations (Nina, 2026-11-15: small, single letters).
+ */
+const CATEGORY_BADGE: Record<string, { letter: string; long: string }> = {
+  movement: { letter: "M", long: "movements" },
+  to_vehicle: { letter: "V", long: "movements to a vehicle" },
+  to_storage: { letter: "W", long: "movements to a storage unit" },
+  processing: { letter: "P", long: "processing operations" },
+  transformation: { letter: "T", long: "transformations" },
 };
 
 /**
- * Badges of the event categories of an activity's events, in the order of `CATEGORY_BADGE`; a badge carries a count
- * only if not all events are in the category (e.g. "move 3" of 8 events).
+ * Small single-letter badges of the event categories of an activity's events, in the order of `CATEGORY_BADGE`; a
+ * letter is underlined (dotted) if only some of the events are in the category. The hover text gives the counts.
  *
  * @param categories Category key -> events in it.
  * @param events All events counted (the number in brackets).
  */
-const CategoryBadges = ({ categories, events }: { categories?: Record<string, number>; events: number }) => (
-  <>
-    {Object.entries(CATEGORY_BADGE)
-      .filter(([k]) => (categories?.[k] ?? 0) > 0)
-      .map(([k, b]) => {
-        const n = categories?.[k] ?? 0;
-        return (
-          <Tooltip key={k} label={`${num(n)} of ${num(events)} events are ${b.long}`} withinPortal>
-            <Badge size="xs" variant="outline" color="gray" style={{ flexShrink: 0, textTransform: "none" }}>
-              {b.short}{n < events ? ` ${num(n)}` : ""}
-            </Badge>
-          </Tooltip>
-        );
-      })}
-  </>
-);
+const CategoryBadges = ({ categories, events }: { categories?: Record<string, number>; events: number }) => {
+  const shown = Object.entries(CATEGORY_BADGE).filter(([k]) => (categories?.[k] ?? 0) > 0);
+  if (shown.length === 0) return null;
+  const hint = shown.map(([k, b]) => `${b.letter}: ${num(categories?.[k] ?? 0)} of ${num(events)} events are ${b.long}`).join("\n");
+  return (
+    <Tooltip label={<span style={{ whiteSpace: "pre-line" }}>{hint}</span>} withinPortal multiline>
+      <Group gap={1} wrap="nowrap" style={{ flexShrink: 0 }}>
+        {shown.map(([k, b]) => (
+          <Box
+            key={k}
+            component="span"
+            style={{
+              fontSize: 9,
+              lineHeight: "11px",
+              padding: "0 2px",
+              borderRadius: 2,
+              color: "var(--mantine-color-dimmed)",
+              background: "var(--mantine-color-default-hover)",
+              textDecoration: (categories?.[k] ?? 0) < events ? "underline dotted" : undefined,
+            }}
+          >
+            {b.letter}
+          </Box>
+        ))}
+      </Group>
+    </Tooltip>
+  );
+};
 
 /** "≥ 81 %": the smallest variant threshold that puts an activity on an included trace (null: none does). */
 const neededText = (needed: number | null | undefined) => (needed == null ? null : `≥ ${num(needed)} %`);
