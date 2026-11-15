@@ -4,7 +4,7 @@ Status: suggestion (Nina 2026-11-14: "an instance page with HU overviews on the 
 User-facing description with a step-by-step example: `overview/module/Instance Page.md` (outside this repo).
 Demo: `notebooks/instances.ipynb`.
 
-The page has no sidebar: three cards one below the other (HU profile, Lineage, HU timeline), every chart with its own settings row above it.
+The page has no sidebar: four cards one below the other (HU profile, Lineage, Object graph, HU timeline), every chart with its own settings row above it.
 It ignores the filter bar of the overview page.
 All values use the low-level location $loc = loc^k$ of the selected level (and $\widehat{hl} = agg(loc)$); visits are not used.
 
@@ -65,16 +65,62 @@ Direction `both`, generations 2 (1–10 or all), transformation events off, sibl
 - Ocelescope's graph viewer (as in the playground): its first fit zooms in too far; React Flow + ELK as on the DFG page instead.
 - One graph per selected handling unit: harder to read when lineages overlap.
 
+## Object graph
+
+### What it shows
+Requested by Nina 2026-11-15.
+Nodes: the selected handling units (`focal`, thick border) and every object related to one of them by a shared event or by an o2o relation in either direction (`related`), handling units and other objects alike (handling units rounded, other objects square, in the colour of their object type).
+Arcs: one undirected arc per pair of nodes sharing at least one event, labelled with the event ids (at most three, then "+ n"; thicker for more events), and one dashed arrow per o2o relation (source → target), labelled with its qualifier.
+The arcs are all arcs between the nodes, also between two related objects.
+Hovering an arc's label lists its events (id, timestamp, activity) or the o2o relation; hovering a node gives its number of events and of events shared with the selection; clicking a handling unit adds it to the selection.
+
+### How it is calculated
+For the selected handling units $S$, with $E(o)$ the events of object $o$ (e2o) and $O2O$ the o2o relations:
+- related objects $R = \{o \notin S \mid E(o) \cap E(S) \neq \emptyset\} \cup \{o \notin S \mid (s, o) \in O2O \lor (o, s) \in O2O, s \in S\}$ (one hop);
+- event arcs: pairs $\{o, o'\} \subseteq S \cup R$ with $E(o) \cap E(o') \neq \emptyset$, carrying $E(o) \cap E(o')$ ordered by time and id;
+- o2o arcs: $(o, o') \in O2O$ with $o, o' \in S \cup R$.
+The backend returns the whole graph once; object types and arc kinds are hidden in the browser, so changing them needs no new request (only a new layout).
+Unlike the rest of the page it reads the log's e2o and o2o tables directly (all objects, not only handling units).
+
+### Example
+`data/object_graph_example` (the running example plus crane1, truck1, op1, op2, customer orders o1, o2, customer k1 and nine o2o relations; same configuration).
+Selecting c2: related objects c1, c3, c4, s1 (shared events), crane1, op1, op2, truck1 (shared events) and o1 (o2o only); c5, o2 and k1 are two hops away and not part of the graph.
+Arcs: c1–c2 with e3, e4, e8, e9, e11; crane1–op1 with e5, e6, e11, e12 (between two related objects); o2o c4 → c2 "cut from", c2 → o1 "part of".
+Tests: `test_object_graph` in `tests/test_instances.py`.
+
+### Settings and defaults
+- Related objects: one chip per object type of the related objects with its number of objects; handling-unit types on, other types off (selected handling units are always shown).
+- Shared events, O2O relations: arc kinds, both on.
+- Arcs between related objects: on (off: only arcs touching a selected handling unit, a star around the selection).
+- Labels: on.
+- At most `MAX_OBJECT_NODES` = 500 nodes (selected first, then handling units, then other objects, each by shared events; cut with a note).
+Kept per log in the page state (`instances.objectGraph.<ocel>`).
+
+### Where it lives in the code
+- `instances/object_graph.py`: `object_frames(ocel)` (e2o, o2o, objects, events renamed), `related_objects(frames, selected)`, `graph_nodes(frames, selected, related, handling_units)`, `event_arcs(frames, nodes)`, `o2o_arcs(frames, nodes)`, `object_graph(frames, selected, handling_units, max_nodes) -> ObjectGraph(nodes, event_arcs, o2o_arcs, notes)`.
+- Route `POST /{ocel_id}/instances/object-graph` (`getObjectGraph`).
+- `components/ObjectGraphChart.tsx`: settings row, `visibleGraph` (hiding), `layoutGraph` (ELK `stress`, one layout edge per pair; arcs drawn as straight lines or, several between two objects, as curves to both sides, clipped at the node boxes), React Flow drawing, label tooltips.
+
+### How to change it
+- More hops (objects related to related objects): repeat `related_objects` with $S \cup R$ in `object_graph`.
+- Label length: `MAX_LABEL_EVENTS`; events listed in the hover: `MAX_HOVER_EVENTS`; default types: `typeShown`.
+- Layout: ELK options in `layoutGraph` (`elk.stress.desiredEdgeLength`); `layered` would suit directed graphs, but most arcs here are undirected.
+
+### Alternatives
+- Arcs only between a selected handling unit and its related objects: available as a setting ("Arcs between related objects" off), not the default, since arcs between related objects show who works together (operator and crane, coils on the same truck).
+- One arc per shared event: unreadable for objects sharing many events; one arc per pair with the list in the hover instead.
+- Filtering in the backend per object type: every change would need a request; the graph of a selection is small, so it is sent whole.
+
 ## HU timeline
 
 ### What it shows
 The resource `docs/resources/object-timeline.md` for the selected handling units, or for all handling units of the loaded lineage (selected first).
 
 ### Settings and defaults
-Handling units `selected`, axis `event order`, rows `as selected` (or by first event), high-level band, activity names, same-timestamp boxes and shared-event lines on. At most 50 rows (`MAX_HANDLING_UNITS`).
+Handling units `selected`, axis `event order`, rows `as selected` (or by first event), movements `implicit` (or `explicit`: open circle on the band; `explicit with label`: also the activity name above the band; Nina 2026-11-15), high-level band, activity names, same-timestamp boxes and shared-event lines on. At most 50 rows (`MAX_HANDLING_UNITS`).
 
 ### Where it lives in the code
-- `instances/charts.py`: `timeline_figure(derivation, handling_units, axis, ..., by_first_event) -> (plotly JSON, notes)`; it renames $loc^k$, $ploc^k$ to `loc`, `ploc` and runs `timeline.object_timeline.timeline_relations` and `object_timeline`.
+- `instances/charts.py`: `timeline_figure(derivation, handling_units, axis, ..., by_first_event, movement_markers) -> (plotly JSON, notes)`; it renames $loc^k$, $ploc^k$ to `loc`, `ploc` and runs `timeline.object_timeline.timeline_relations` and `object_timeline`.
 - Route `POST /{ocel_id}/instances/timeline` (`getHuTimeline`).
 - `components/HuTimelineChart.tsx`: shows the figure with `ThemedPlot` (the figure's template is dropped so Ocelescope's theme applies).
 

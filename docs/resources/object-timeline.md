@@ -8,6 +8,7 @@ For selected handling units, one row each (top to bottom; default by first event
 - **Band**: upper half $loc$, lower half $\widehat{hl} = agg(loc)$; one colour per location (shared by both halves), hatched on vehicles ($V$), empty at ⊥.
 - **Lifespan line** below the band with a tick at the first and last event.
 - **Markers**: processing operations ($P$) stars, other non-movement events circles (both above the band, with the activity name at an angle), movements on the band (▲ produced, ▼ consumed, otherwise a vertical tick; a small open diamond instead of the tick if the pickup location differs from the location after the previous event, details in the hover); colour by role at transformation events: produced green, consumed pink, consumed and produced amber, none dark grey.
+- **Explicit movements** (option `movement_markers`, Nina 2026-11-15): "implicit" (default, as above); "explicit": every movement that is not a processing operation also gets an open circle on the band (transparent, outline in its role colour, so the tick or triangle stays visible); "explicit with label": also its activity name at an angle above the band (with `show_activity_labels`).
 - Legend entry for hatching: "vehicle".
 - **Shared events**: dotted lines between the markers of an event shared by several shown handling units.
 - **Same timestamp**: light grey box over the whole height behind tied events.
@@ -40,7 +41,7 @@ None (draft outside the tool). The playground timeline ignored global filters; t
 - `processing`: event ids of $P$; None = only the transformation events $T$ (Nina 2026-10-31).
 - `roles`: table event, hu, role ("consumed"/"produced"); only rows of transformation events count.
 - `agg`, `vehicles`: from a location table via `visits.context.location_context`.
-- Figure: `show_high_level`, `show_activity_labels`, `mark_ties`, `link_shared_events`, `reach` ($\delta$), `title`, `width`.
+- Figure: `show_high_level`, `show_activity_labels`, `mark_ties`, `link_shared_events`, `movement_markers` (`MovementMarkers`: "implicit", "explicit", "explicit with label"), `reach` ($\delta$), `title`, `width`.
 
 ## Where it lives in the code
 `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/timeline/object_timeline.py`:
@@ -59,7 +60,7 @@ None (draft outside the tool). The playground timeline ignored global filters; t
 Inputs of the running example: `data/running_example/inputs/processing_events.csv`, `transformation_roles.csv`, `locations.csv`. Tests: `tests/test_object_timeline.py`.
 
 ## How to change it
-- Marker symbols, sizes and role colours: `SYMBOL`, `SIZE`, `ROLE_COLOUR`, `NO_ROLE_COLOUR`; pickup disagreement: `PICKUP_DIFFERS_SYMBOL`, `PICKUP_DIFFERS_SIZE`; limit: `MAX_HANDLING_UNITS`.
+- Marker symbols, sizes and role colours: `SYMBOL`, `SIZE`, `ROLE_COLOUR`, `NO_ROLE_COLOUR`; pickup disagreement: `PICKUP_DIFFERS_SYMBOL`, `PICKUP_DIFFERS_SIZE`; explicit movements: `EXPLICIT_MOVEMENT_SYMBOL`, `EXPLICIT_MOVEMENT_SIZE`; limit: `MAX_HANDLING_UNITS`.
 - Geometry: `BAND_TOP`, `BAND_BOTTOM`, `MARKER_Y`, `ROW_GAP`, `LABELLED_ROW_GAP`; reach: `ORDER_CONTINUATION`, `TIME_CONTINUATION`, `MIN_TIME_CONTINUATION`.
 - Tie order: `visits.order.tie_rank` (changes it everywhere); pickup disagreement rule: `add_pickup_differs`.
 - Colours: `trace_figure.location_colours` (ranked by the relations' loc and high_level, as in the trace figure).

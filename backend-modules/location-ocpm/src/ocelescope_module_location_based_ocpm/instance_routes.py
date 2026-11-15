@@ -11,18 +11,34 @@ from typing import Annotated, Literal
 
 import polars as pl
 from fastapi import APIRouter, HTTPException, Query
+from ocelescope_backend.app.dependencies import ApiOcel
 from pydantic import BaseModel, Field
 
-from ocelescope_module_location_based_ocpm.configuration_routes import CurrentDerivation, State
+from ocelescope_module_location_based_ocpm.configuration_routes import (
+    CurrentDerivation,
+    State,
+)
 from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation
 from ocelescope_module_location_based_ocpm.instances.charts import (
     processing_events,
     selection_lineage,
     timeline_figure,
 )
-from ocelescope_module_location_based_ocpm.instances.profile import SORTABLE, hu_profile, query_profile
+from ocelescope_module_location_based_ocpm.instances.object_graph import (
+    object_frames,
+    object_graph,
+)
+from ocelescope_module_location_based_ocpm.instances.profile import (
+    SORTABLE,
+    hu_profile,
+    query_profile,
+)
 from ocelescope_module_location_based_ocpm.lineage.lineage import Direction
-from ocelescope_module_location_based_ocpm.timeline.object_timeline import MAX_HANDLING_UNITS, TimelineAxis
+from ocelescope_module_location_based_ocpm.timeline.object_timeline import (
+    MAX_HANDLING_UNITS,
+    MovementMarkers,
+    TimelineAxis,
+)
 
 router = APIRouter()
 
@@ -224,6 +240,8 @@ class TimelineRequest(BaseModel):
         mark_ties: Grey boxes behind events with the same timestamp.
         link_shared_events: Dotted lines between markers of shared events.
         by_first_event: Rows ordered by first event instead of the given order.
+        movement_markers: How movements are drawn: "implicit", "explicit" (open circle on the band) or
+            "explicit with label" (also the activity name).
     """
 
     handling_units: list[str]
@@ -233,6 +251,7 @@ class TimelineRequest(BaseModel):
     mark_ties: bool = True
     link_shared_events: bool = True
     by_first_event: bool = False
+    movement_markers: MovementMarkers = "implicit"
 
 
 class TimelineResponse(BaseModel):
@@ -257,5 +276,76 @@ def get_hu_timeline(derivation: CurrentDerivation, request: TimelineRequest) -> 
         request.mark_ties,
         request.link_shared_events,
         request.by_first_event,
+        request.movement_markers,
     )
     return TimelineResponse(figure=figure, notes=notes)
+
+
+class ObjectGraphRequest(BaseModel):
+    """The selected handling units of the object graph."""
+
+    handling_units: list[str]
+
+
+class ObjectGraphNode(BaseModel):
+    """A node of the object graph (see `instances.object_graph.ObjectGraph`)."""
+
+    node: str
+    object_type: str | None = None
+    is_hu: bool
+    role: str
+    n_events: int
+    n_shared: int | None = None
+
+
+class ArcEvent(BaseModel):
+    """An event shared by the two objects of an event arc."""
+
+    event: str
+    time: datetime | None = None
+    activity: str | None = None
+
+
+class EventArc(BaseModel):
+    """Undirected arc between two objects that share events."""
+
+    source: str
+    target: str
+    events: list[ArcEvent]
+    n_events: int
+
+
+class O2oArc(BaseModel):
+    """Directed o2o relation."""
+
+    source: str
+    target: str
+    qualifier: str | None = None
+
+
+class ObjectGraphResponse(BaseModel):
+    """The object graph of the selected handling units.
+
+    Attributes:
+        nodes: Selected handling units first, then related handling units, then related other objects.
+        event_arcs: Shared events.
+        o2o_arcs: O2O relations.
+        notes: Remarks.
+    """
+
+    nodes: list[ObjectGraphNode]
+    event_arcs: list[EventArc]
+    o2o_arcs: list[O2oArc]
+    notes: list[str]
+
+
+@router.post("/{ocel_id}/instances/object-graph", operation_id="getObjectGraph")
+def get_object_graph(ocel: ApiOcel, derivation: CurrentDerivation, request: ObjectGraphRequest) -> ObjectGraphResponse:
+    """The object graph of the selected handling units: they, every object related to them and all arcs between these."""
+    graph = object_graph(object_frames(ocel), request.handling_units, derivation.handling_units["hu"].to_list())
+    return ObjectGraphResponse(
+        nodes=[ObjectGraphNode(**row) for row in graph.nodes.to_dicts()],
+        event_arcs=[EventArc(**row) for row in graph.event_arcs.to_dicts()],
+        o2o_arcs=[O2oArc(**row) for row in graph.o2o_arcs.to_dicts()],
+        notes=graph.notes,
+    )

@@ -1,5 +1,5 @@
 // The instance page: the HU profile (one row per handling unit; rows can be selected), then, for the selected
-// handling units, the lineage chart and the HU timeline, each with its own settings row.
+// handling units, the lineage chart, the object graph and the HU timeline, each with its own settings row.
 // Documented in docs/pages/instances.md.
 import { Button, Card, CloseButton, Group, Pill, Stack, Text, Title } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
@@ -14,6 +14,7 @@ import {
   LineageSettingsRow,
   useSelectionLineage,
 } from "../components/LineageChart";
+import { DEFAULT_OBJECT_GRAPH, ObjectGraphChart, type ObjectGraphSettings } from "../components/ObjectGraphChart";
 import { ModulePage } from "../components/ModulePage";
 import { useScheme } from "../components/plots";
 import { usePageState } from "../lib/pageState";
@@ -66,7 +67,9 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
   const [selected, setSelected] = usePageState<string[]>(`instances.selected.${ocelId}`, []);
   const [lineageStored, setLineage] = usePageState<LineageSettings>(`instances.lineage.${ocelId}`, DEFAULT_LINEAGE);
   const [timelineStored, setTimeline] = usePageState<TimelineSettings>(`instances.timeline.${ocelId}`, DEFAULT_TIMELINE);
+  const [objectGraphStored, setObjectGraph] = usePageState<ObjectGraphSettings>(`instances.objectGraph.${ocelId}`, DEFAULT_OBJECT_GRAPH);
   const lineageSettings = { ...DEFAULT_LINEAGE, ...lineageStored };
+  const objectGraphSettings = useMemo(() => ({ ...DEFAULT_OBJECT_GRAPH, ...objectGraphStored }), [objectGraphStored]);
   const timelineSettings = { ...DEFAULT_TIMELINE, ...timelineStored };
   const lineage = useSelectionLineage(ocelId, selected, lineageSettings);
   // Object types of the log (most handling units first) for fixed colours; the first profile page carries them.
@@ -89,18 +92,28 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
       <ChartCard title="HU profile">
         <Text size="xs" c="dimmed">
           One row per handling unit; values use the low-level locations of the selected level (no visits). Tick rows to
-          show their lineage and timeline below; the selection is kept when paging, searching and sorting.
+          show their lineage, object graph and timeline below; the selection is kept when paging, searching and sorting.
         </Text>
         <HuProfileTable ocelId={ocelId} selected={selected} onSelected={setSelected} />
       </ChartCard>
       {selected.length === 0 ? (
-        <Text size="sm" c="dimmed">Select one or more handling units in the HU profile to see their lineage and timeline.</Text>
+        <Text size="sm" c="dimmed">Select one or more handling units in the HU profile to see their lineage, object graph and timeline.</Text>
       ) : (
         <>
           <SelectionBar selected={selected} onChange={setSelected} />
           <ChartCard title="Lineage" onReset={() => setLineage(DEFAULT_LINEAGE)}>
             <LineageSettingsRow settings={lineageSettings} onChange={setLineage} />
             <LineageChart query={lineage} colours={colours} settings={lineageSettings} onPick={pick} />
+          </ChartCard>
+          <ChartCard title="Object graph" onReset={() => setObjectGraph(DEFAULT_OBJECT_GRAPH)}>
+            <ObjectGraphChart
+              ocelId={ocelId}
+              handlingUnits={selected}
+              colours={colours}
+              settings={objectGraphSettings}
+              onChange={setObjectGraph}
+              onPick={pick}
+            />
           </ChartCard>
           <ChartCard title="HU timeline" onReset={() => setTimeline(DEFAULT_TIMELINE)}>
             <TimelineSettingsRow

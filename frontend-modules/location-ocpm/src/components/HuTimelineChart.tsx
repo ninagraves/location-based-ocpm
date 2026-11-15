@@ -4,7 +4,7 @@
 import { Alert, Checkbox, Group, Loader, SegmentedControl, Stack, Text } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { getHuTimeline, type TimelineRequestAxis } from "../api/locationBasedOcpm";
+import { getHuTimeline, type TimelineRequestAxis, type TimelineRequestMovementMarkers } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
 import { plotConfig, ThemedPlot } from "./plots";
 
@@ -19,6 +19,8 @@ export type TimelineSettings = {
   linkSharedEvents: boolean;
   /** Row order: as selected (lineage: selected first) or by first event. */
   order: "given" | "first event";
+  /** Movements: implicit (tick, ▲/▼, ◇ on the band), explicit (open circle on the band) or explicit with label. */
+  movements: TimelineRequestMovementMarkers;
 };
 
 /** Defaults: selected handling units, event order, everything shown, rows in selection order. */
@@ -30,6 +32,7 @@ export const DEFAULT_TIMELINE: TimelineSettings = {
   markTies: true,
   linkSharedEvents: true,
   order: "given",
+  movements: "implicit",
 };
 
 /** The legend, in grey above the chart (see the resource "HU Timeline"). */
@@ -37,7 +40,7 @@ const Legend = () => (
   <Text fz={11} lh={1.3} c="dimmed">
     Band: upper half the location after each event (loc), lower half its high-level location; hatched: vehicle; empty: not located ·
     ★ processing operation, ● other event, on the band: movement (▲ produced, ▼ consumed, | otherwise; ◇ pickup location differs
-    from the previous location) · colours: green produced, pink consumed, amber both, dark grey neither · dotted line: event shared
+    from the previous location; open circle: movement shown explicitly) · colours: green produced, pink consumed, amber both, dark grey neither · dotted line: event shared
     by shown handling units · grey box: same timestamp · line below the band: lifespan
   </Text>
 );
@@ -98,6 +101,19 @@ export const TimelineSettingsRow = ({
         ]}
       />
     </div>
+    <div>
+      <Text size="xs" fw={500}>Movements</Text>
+      <SegmentedControl
+        size="xs"
+        value={settings.movements}
+        onChange={(v) => onChange({ ...settings, movements: v as TimelineRequestMovementMarkers })}
+        data={[
+          { value: "implicit", label: "implicit" },
+          { value: "explicit", label: "explicit" },
+          { value: "explicit with label", label: "explicit with label" },
+        ]}
+      />
+    </div>
     {hasHighLevel && (
       <Checkbox size="xs" label="High-level band" checked={settings.showHighLevel} onChange={(e) => onChange({ ...settings, showHighLevel: e.currentTarget.checked })} />
     )}
@@ -124,6 +140,7 @@ export const HuTimelineChart = ({ ocelId, handlingUnits, settings }: { ocelId: s
       mark_ties: settings.markTies,
       link_shared_events: settings.linkSharedEvents,
       by_first_event: settings.order === "first event",
+      movement_markers: settings.movements,
     }),
     [handlingUnits, settings],
   );

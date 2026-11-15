@@ -49,6 +49,10 @@ from ..visits.trace_figure import (
 TimelineAxis = Literal["event order", "time"]
 #: Band options: the low-level band (loc) or the high-level band (agg(loc)).
 BandLevel = Literal["low", "high"]
+#: How movements (e ∈ M \ P) are drawn on the band (Nina 2026-11-15): "implicit" (tick, ▲/▼, ◇ only),
+#: "explicit" (an open circle around them, like an event marker without filling) or "explicit with label"
+#: (also their activity name above the band).
+MovementMarkers = Literal["implicit", "explicit", "explicit with label"]
 
 # Input columns (the columns of a saved level mapping).
 #: Current location loc((e, hu)); null = ⊥.
@@ -97,6 +101,9 @@ SIZE = {"processing": 17, "other": 10, "movement": 16}
 #: dominant; details in the hover): a small open diamond instead of the tick.
 PICKUP_DIFFERS_SYMBOL = "diamond-tall-open"
 PICKUP_DIFFERS_SIZE = 13
+#: Explicit movement marker: an open circle on the band, outlined in the role colour (`MovementMarkers`).
+EXPLICIT_MOVEMENT_SYMBOL = "circle-open"
+EXPLICIT_MOVEMENT_SIZE = 20
 #: Most handling units shown in one timeline (Nina 2026-10-31).
 MAX_HANDLING_UNITS = 50
 
@@ -674,6 +681,7 @@ def object_timeline(
     show_activity_labels: bool = True,
     mark_ties: bool = True,
     link_shared_events: bool = True,
+    movement_markers: MovementMarkers = "implicit",
     reach=None,
     title: str | None = None,
     width: int = WIDTH,
@@ -692,6 +700,9 @@ def object_timeline(
       colour by role: produced green, consumed pink, consumed and produced amber, none dark grey.
     Dotted lines join the markers of an event shared by several handling units (`link_shared_events`), and
     events with the same timestamp get a light grey box over the whole height (`mark_ties`).
+    With `movement_markers` "explicit", every movement that is not a processing operation also gets an open
+    circle on the band (outline in its role colour, transparent, so the tick or triangle stays visible); with
+    "explicit with label" its activity name is written above the band as well (if `show_activity_labels`).
 
     Args:
         relations: Output of `timeline_relations`.
@@ -699,6 +710,7 @@ def object_timeline(
         show_activity_labels: Write the activity name above every marker that is not on the band.
         mark_ties: Grey boxes behind events with the same timestamp.
         link_shared_events: Dotted lines joining shared events.
+        movement_markers: "implicit", "explicit" or "explicit with label" (see `MovementMarkers`).
         reach: Length of band lead-ins and continuations (see `band_segments`); None = default.
         title: Figure title.
         width: Figure width in pixels.
@@ -710,7 +722,9 @@ def object_timeline(
     if reach is None:
         reach = continuation(relations)
     lives = lifespans(relations)
-    labelled = show_activity_labels and (relations[MARKER] != "movement").any()
+    explicit = movement_markers != "implicit" and (relations[MARKER] == "movement").any()
+    label_movements = explicit and movement_markers == "explicit with label"
+    labelled = show_activity_labels and ((relations[MARKER] != "movement").any() or label_movements)
     gap = LABELLED_ROW_GAP if labelled else ROW_GAP
     n = lives.height
     row_y = {
@@ -917,16 +931,42 @@ def object_timeline(
                 hovertemplate="%{customdata}<extra></extra>",
             )
         )
+    if explicit:
+        moves = rel.filter(pl.col(MARKER) == "movement")
+        for role, part in moves.sort(ROLE, nulls_last=True).group_by(ROLE, maintain_order=True):
+            role = role[0]
+            fig.add_trace(
+                go.Scatter(
+                    x=part[X],
+                    y=part["_y"],
+                    mode="markers",
+                    name=f"movement (explicit){': ' + role if role else ''}",
+                    legendgroup="event",
+                    legendgrouptitle_text="event",
+                    marker={
+                        "symbol": EXPLICIT_MOVEMENT_SYMBOL,
+                        "size": EXPLICIT_MOVEMENT_SIZE,
+                        "color": ROLE_COLOUR.get(role, NO_ROLE_COLOUR),
+                        "line": {"width": 2},
+                    },
+                    customdata=part["_hover"],
+                    hovertemplate="%{customdata}<extra></extra>",
+                )
+            )
     if labelled:
-        for x, y, activity in (
-            rel.filter(~pl.col(c.IS_MOVEMENT).fill_null(False))
-            .select(X, "_y", c.ACTIVITY)
+        # Movements on the band are labelled from the band's top (only with "explicit with label").
+        written = ~pl.col(c.IS_MOVEMENT).fill_null(False)
+        if label_movements:
+            written = written | (pl.col(MARKER) == "movement")
+        for x, y, activity, on_band in (
+            rel.filter(written)
+            .select(X, "_y", c.ACTIVITY, pl.col(MARKER) == "movement")
             .iter_rows()
         ):
             annotations.append(
                 {
                     "x": x,
-                    "y": y,
+                    "y": y - on_band_y + BAND_TOP if on_band else y,
                     "text": activity,
                     "textangle": LABEL_ANGLE,
                     "showarrow": False,

@@ -1,14 +1,29 @@
-"""Tests of the instance page (HU profile, lineage of a selection, HU timeline) on the running example (Level 3)."""
+"""Tests of the instance page (HU profile, lineage of a selection, HU timeline, object graph).
+
+The running example (Level 3); the object graph uses `data/object_graph_example`.
+"""
 
 import json
+import sys
 
 import polars as pl
 import pytest
 from conftest import EXAMPLE
+
 from ocelescope_module_location_based_ocpm.derivation.config import DerivationConfig
 from ocelescope_module_location_based_ocpm.derivation.pipeline import derive
-from ocelescope_module_location_based_ocpm.instances.charts import selection_lineage, timeline_figure
-from ocelescope_module_location_based_ocpm.instances.profile import hu_profile, query_profile
+from ocelescope_module_location_based_ocpm.instances.charts import (
+    selection_lineage,
+    timeline_figure,
+)
+from ocelescope_module_location_based_ocpm.instances.object_graph import (
+    object_frames,
+    object_graph,
+)
+from ocelescope_module_location_based_ocpm.instances.profile import (
+    hu_profile,
+    query_profile,
+)
 
 HOUR = 3600.0
 
@@ -108,3 +123,49 @@ def test_timeline_figure(full):
     figure, notes = timeline_figure(full, ["c2", "zz"])
     assert figure["data"] and "layout" in figure
     assert notes == ["Not handling units of this log: zz."]
+
+
+def test_timeline_movement_markers(full):
+    """Explicit movements: one open circle per movement of c2 (5) on the band; with labels also their activity names."""
+    implicit, _ = timeline_figure(full, ["c2"])
+    explicit, _ = timeline_figure(full, ["c2"], movement_markers="explicit")
+    labelled, _ = timeline_figure(full, ["c2"], movement_markers="explicit with label")
+    circles = [t for t in explicit["data"] if t.get("name", "").startswith("movement (explicit)")]
+    assert sum(len(t["customdata"]) for t in circles) == 5
+    assert not any(t.get("name", "").startswith("movement (explicit)") for t in implicit["data"])
+    texts = lambda figure: [a["text"] for a in figure["layout"].get("annotations", [])]
+    assert texts(explicit) == texts(implicit)
+    assert sorted(set(texts(labelled)) - set(texts(implicit))) == ["crane move", "load truck", "unload truck"]
+
+
+@pytest.fixture(scope="module")
+def object_example():
+    """The object graph example (running example plus crane, truck, operators, orders, customer and o2o relations)."""
+    sys.path.insert(0, str(EXAMPLE.parent / "object_graph_example"))
+    import make_object_graph_example
+
+    return object_frames(make_object_graph_example.build_ocel())
+
+
+def test_object_graph(object_example):
+    """c2: related by events (c1, c3, c4, s1, crane1, op1, op2, truck1) and by o2o (o1, c4); arcs among all of them."""
+    graph = object_graph(object_example, ["c2", "zz"], ["s1", "c1", "c2", "c3", "c4", "c5"])
+    assert graph.nodes["node"].to_list() == ["c2", "c1", "c3", "c4", "s1", "crane1", "op1", "op2", "truck1", "o1"]
+    assert dict(graph.nodes.select("node", "role").iter_rows())["c2"] == "focal"
+    assert dict(graph.nodes.select("node", "n_shared").iter_rows())["o1"] == 0
+    arcs = {(s, t): [e["event"] for e in events] for s, t, events in graph.event_arcs.select("source", "target", "events").iter_rows()}
+    assert arcs[("c1", "c2")] == ["e3", "e4", "e8", "e9", "e11"]
+    assert arcs[("crane1", "op1")] == ["e5", "e6", "e11", "e12"]  # between two related objects
+    assert ("c2", "c5") not in arcs and "c5" not in graph.nodes["node"].to_list()
+    first = graph.event_arcs.filter(pl.col("source") == "c1", pl.col("target") == "c2")["events"][0][0]
+    assert (first["activity"], first["time"].hour) == ("roll", 3)
+    assert sorted(graph.o2o_arcs.iter_rows()) == [
+        ("c1", "o1", "part of"),
+        ("c2", "o1", "part of"),
+        ("c4", "c2", "cut from"),
+        ("op1", "crane1", "operates"),
+        ("op2", "truck1", "drives"),
+    ]
+    assert graph.notes == ["Not handling units of this log: zz."]
+    cut = object_graph(object_example, ["c2"], ["s1", "c1", "c2", "c3", "c4", "c5"], max_nodes=3)
+    assert cut.nodes["node"].to_list() == ["c2", "c1", "c3"] and cut.notes == ["10 objects; only the first 3 are drawn."]
