@@ -337,8 +337,10 @@ export const useSelectionLineage = (ocelId: string, handlingUnits: string[], set
  * @param colours Colour per object type (all object types of the log, so colours stay fixed).
  * @param settings The settings (for the shape of the graph).
  * @param onPick Called with a handling unit clicked in the graph.
+ * @param layoutKey Changing it lays the graph out again and fits it (drops zoom and pan; "Reset settings").
  */
 export const LineageChart = ({
+  layoutKey = 0,
   query,
   colours,
   settings,
@@ -348,6 +350,7 @@ export const LineageChart = ({
   colours: Map<string, string>;
   settings: LineageSettings;
   onPick: (hu: string) => void;
+  layoutKey?: number;
 }) => {
   const scheme = useScheme();
   const [flow, setFlow] = useState<Awaited<ReturnType<typeof layoutLineage>> | null>(null);
@@ -363,7 +366,8 @@ export const LineageChart = ({
     return () => {
       cancelled = true;
     };
-  }, [data, colours, settings.withEvents, settings.layout, scheme, onPick]);
+    // layoutKey only triggers a new layout.
+  }, [data, colours, settings.withEvents, settings.layout, scheme, onPick, layoutKey]);
 
   if (query.isError) return <Alert color="red">{errorText(query.error)}</Alert>;
   if (layoutError) return <Alert color="red">Layout failed: {layoutError}</Alert>;

@@ -122,6 +122,22 @@ LABELLED_ROW_GAP = 1.4
 LABEL_ROOM = 0.45
 #: Angle of the activity names.
 LABEL_ANGLE = -35
+#: Activity names longer than this are cut with "…" (full name in the hover), so that they do not run into the row
+#: above (Nina 2026-11-15).
+MAX_LABEL_CHARS = 16
+
+
+def short_label(text: str, max_chars: int = MAX_LABEL_CHARS) -> str:
+    """Cut a label to at most `max_chars` characters, ending with "…" if it was cut.
+
+    Args:
+        text: The label.
+        max_chars: Characters kept at most (including "…").
+
+    Returns:
+        str: The label, or its first `max_chars - 1` characters and "…".
+    """
+    return text if len(text) <= max_chars else text[: max_chars - 1].rstrip() + "…"
 #: Pixels per y unit.
 PX_PER_UNIT = 90
 #: Default figure width in pixels.
@@ -967,7 +983,8 @@ def object_timeline(
                 {
                     "x": x,
                     "y": y - on_band_y + BAND_TOP if on_band else y,
-                    "text": activity,
+                    "text": short_label(activity or ""),
+                    "hovertext": activity if len(activity or "") > MAX_LABEL_CHARS else None,
                     "textangle": LABEL_ANGLE,
                     "showarrow": False,
                     "xanchor": "left",

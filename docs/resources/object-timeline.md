@@ -41,6 +41,7 @@ None (draft outside the tool). The playground timeline ignored global filters; t
 - `processing`: event ids of $P$; None = only the transformation events $T$ (Nina 2026-10-31).
 - `roles`: table event, hu, role ("consumed"/"produced"); only rows of transformation events count.
 - `agg`, `vehicles`: from a location table via `visits.context.location_context`.
+- Activity names longer than `MAX_LABEL_CHARS` (16) are cut with "…" (`short_label`), the full name is in the hover of the label (Nina 2026-11-15).
 - Figure: `show_high_level`, `show_activity_labels`, `mark_ties`, `link_shared_events`, `movement_markers` (`MovementMarkers`: "implicit", "explicit", "explicit with label"), `reach` ($\delta$), `title`, `width`.
 
 ## Where it lives in the code

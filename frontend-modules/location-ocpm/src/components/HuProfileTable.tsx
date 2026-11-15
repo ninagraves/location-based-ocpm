@@ -98,7 +98,7 @@ const TimeSplit = ({ row, scheme }: { row: HuProfileRow; scheme: Scheme }) => {
 
 /** Badge of the lifecycle class. */
 const LIFECYCLE: Record<string, { label: string; info: string }> = {
-  full: { label: "full", info: "produced and finally consumed in the log" },
+  both: { label: "both", info: "produced and finally consumed in the log" },
   produced: { label: "produced", info: "produced in the log, not finally consumed" },
   consumed: { label: "consumed", info: "finally consumed in the log, not produced in it" },
   open: { label: "open", info: "neither produced nor finally consumed in the log" },
@@ -120,7 +120,7 @@ const columns = (groups: Group[], page: HuProfilePage | undefined, scheme: Schem
       sortable: true,
       render: (r) => (
         <Tooltip label={LIFECYCLE[r.lifecycle]?.info} withinPortal>
-          <Badge size="xs" variant={r.lifecycle === "full" ? "filled" : "light"} color={UI[scheme].primary} style={{ textTransform: "none" }}>{LIFECYCLE[r.lifecycle]?.label ?? r.lifecycle}</Badge>
+          <Badge size="xs" variant={r.lifecycle === "both" ? "filled" : "light"} color={UI[scheme].primary} style={{ textTransform: "none" }}>{LIFECYCLE[r.lifecycle]?.label ?? r.lifecycle}</Badge>
         </Tooltip>
       ),
     },

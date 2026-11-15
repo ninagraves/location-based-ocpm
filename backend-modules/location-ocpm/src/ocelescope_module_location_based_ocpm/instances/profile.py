@@ -38,7 +38,7 @@ LOC, HL, POS = "loc", "hl", "pos"
 #: Location kinds of `time_per_location_kind`, in this order of precedence (V before W, see F10).
 KINDS = ("vehicle", "storage", "other", "unlocated")
 #: Lifecycle classes of `transformation_profile`.
-LifecycleClass = Literal["full", "produced", "consumed", "open"]
+LifecycleClass = Literal["both", "produced", "consumed", "open"]
 #: Columns of the profile that `query_profile` can sort by (all scalar columns).
 SORTABLE = (
     "hu",
@@ -217,7 +217,7 @@ def transformation_profile(roles: pl.DataFrame, traces: pl.LazyFrame) -> pl.Lazy
     - Final consumption: a consumption event $e \\in E_{cons}(hu)$ at the hu's last timestamp.
     - Partial consumptions: the other consumption events $E_{cons}(hu)$, i.e. consumptions after which the
       hu still has events (by AS-T3 only in events that also produce something).
-    - Lifecycle: `full` (produced and finally consumed in the log), `produced` (only produced), `consumed`
+    - Lifecycle: `both` (produced and finally consumed in the log), `produced` (only produced), `consumed`
       (only finally consumed) or `open` (neither).
 
     Args:
@@ -275,7 +275,7 @@ def transformation_profile(roles: pl.DataFrame, traces: pl.LazyFrame) -> pl.Lazy
             pl.col("children").list.len().alias("n_children"),
             pl.col("siblings").list.len().alias("n_siblings"),
             pl.when(produced & final)
-            .then(pl.lit("full"))
+            .then(pl.lit("both"))
             .when(produced)
             .then(pl.lit("produced"))
             .when(final)

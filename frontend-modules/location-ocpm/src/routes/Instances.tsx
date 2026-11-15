@@ -3,7 +3,7 @@
 // Documented in docs/pages/instances.md.
 import { Button, Card, CloseButton, Group, Pill, Stack, Text, Title } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getHuProfile } from "../api/locationBasedOcpm";
 import { HuProfileTable } from "../components/HuProfileTable";
 import { DEFAULT_TIMELINE, HuTimelineChart, type TimelineSettings, TimelineSettingsRow, TimelineUnitsBar } from "../components/HuTimelineChart";
@@ -69,6 +69,9 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
   const [timelineStored, setTimeline] = usePageState<TimelineSettings>(`instances.timeline.${ocelId}`, DEFAULT_TIMELINE);
   const [objectGraphStored, setObjectGraph] = usePageState<ObjectGraphSettings>(`instances.objectGraph.${ocelId}`, DEFAULT_OBJECT_GRAPH);
   const lineageSettings = { ...DEFAULT_LINEAGE, ...lineageStored };
+  // Raised by "Reset settings" so that the graphs are laid out again (drops dragged positions, zoom and pan).
+  const [lineageLayout, setLineageLayout] = useState(0);
+  const [objectGraphLayout, setObjectGraphLayout] = useState(0);
   const objectGraphSettings = useMemo(() => ({ ...DEFAULT_OBJECT_GRAPH, ...objectGraphStored }), [objectGraphStored]);
   const timelineSettings = { ...DEFAULT_TIMELINE, ...timelineStored };
   const lineage = useSelectionLineage(ocelId, selected, lineageSettings);
@@ -115,12 +118,19 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
       ) : (
         <>
           <SelectionBar selected={selected} onChange={setSelected} />
-          <ChartCard title="Lineage" onReset={() => setLineage(DEFAULT_LINEAGE)}>
+          <ChartCard title="Lineage" onReset={() => {
+              setLineage(DEFAULT_LINEAGE);
+              setLineageLayout((k) => k + 1);
+            }}>
             <LineageSettingsRow settings={lineageSettings} onChange={setLineage} />
-            <LineageChart query={lineage} colours={colours} settings={lineageSettings} onPick={pick} />
+            <LineageChart layoutKey={lineageLayout} query={lineage} colours={colours} settings={lineageSettings} onPick={pick} />
           </ChartCard>
-          <ChartCard title="Object graph" onReset={() => setObjectGraph(DEFAULT_OBJECT_GRAPH)}>
+          <ChartCard title="Object graph" onReset={() => {
+              setObjectGraph(DEFAULT_OBJECT_GRAPH);
+              setObjectGraphLayout((k) => k + 1);
+            }}>
             <ObjectGraphChart
+              layoutKey={objectGraphLayout}
               ocelId={ocelId}
               handlingUnits={selected}
               colours={colours}

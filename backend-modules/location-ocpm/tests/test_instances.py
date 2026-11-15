@@ -52,7 +52,7 @@ def row(profile: pl.DataFrame, hu: str) -> dict:
 def test_lifecycle(profile):
     """Creation, final consumption and lifecycle class follow the transformation roles."""
     assert profile["hu"].to_list() == ["c1", "c2", "c3", "c4", "c5", "s1"]
-    expected = {"s1": "full", "c1": "produced", "c2": "full", "c3": "open", "c4": "produced", "c5": "open"}
+    expected = {"s1": "both", "c1": "produced", "c2": "both", "c3": "open", "c4": "produced", "c5": "open"}
     assert dict(profile.select("hu", "lifecycle").iter_rows()) == expected
     c2 = row(profile, "c2")
     assert (c2["creation_event"], c2["creation_activity"]) == ("e3", "roll")

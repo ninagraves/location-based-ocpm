@@ -400,8 +400,10 @@ export const useObjectGraph = (ocelId: string, handlingUnits: string[]) => {
  * @param settings The settings.
  * @param onChange Called with the changed settings.
  * @param onPick Called with a handling unit clicked in the graph.
+ * @param layoutKey Changing it lays the graph out again (drops dragged positions; "Reset settings").
  */
 export const ObjectGraphChart = ({
+  layoutKey = 0,
   ocelId,
   handlingUnits,
   colours,
@@ -415,6 +417,7 @@ export const ObjectGraphChart = ({
   settings: ObjectGraphSettings;
   onChange: (s: ObjectGraphSettings) => void;
   onPick: (hu: string) => void;
+  layoutKey?: number;
 }) => {
   const scheme = useScheme();
   const query = useObjectGraph(ocelId, handlingUnits);
@@ -446,7 +449,8 @@ export const ObjectGraphChart = ({
     return () => {
       cancelled = true;
     };
-  }, [visible, allColours, scheme, onPick, setNodes]);
+    // layoutKey only triggers a new layout.
+  }, [visible, allColours, scheme, onPick, setNodes, layoutKey]);
   const edges = useMemo(() => (flow ? routeArcs(flow.arcs, nodes, settings.labels, scheme) : []), [flow, nodes, settings.labels, scheme]);
   const o2oColour = UI[scheme].accent;
 

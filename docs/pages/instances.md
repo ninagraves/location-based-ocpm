@@ -26,7 +26,7 @@ Clicking a row unfolds it (several rows can be open) with the names behind the c
 - Traces: the relations of a handling unit in `seq` order (time, AS4 via `visits/order.sort_by_seq`, event id).
 - Creation event $ev_{prod}$, consumption events $E_{cons}$, parents, children, siblings: `lineage/relations.py` (concept: Transformations, "Instance Lineage").
 - Final consumption: an $e \in E_{cons}(hu)$ with $time(e) = last(hu)$; partial consumptions: the other $E_{cons}(hu)$.
-- Lifecycle: `full` (produced and finally consumed), `produced`, `consumed`, `open`.
+- Lifecycle: `both` (produced and finally consumed; Nina 2026-11-15, previously `full`), `produced`, `consumed`, `open`.
 - Location change: $loc(r_j) \neq \bot$ and different from the last $loc \neq \bot$ before $r_j$.
 - Locatedness: General Concepts, "Locatedness" (handling-unit version).
 - Time per location kind: $r_j$ contributes $time(r_{j+1}) - time(r_j)$ to the kind of $loc(r_j)$ (vehicle if in $V$, else storage if in $W$, else other; unlocated if $\bot$); the last relation contributes nothing, so the four times add up to the lifespan.
@@ -34,7 +34,7 @@ Clicking a row unfolds it (several rows can be open) with the names behind the c
 - Location path (unfolded row): a new entry at every location change (as above), so A, ⊥, A is one entry.
 
 ### Example
-Running example, `data/running_example/configuration.json` (Level 3): c1 has 9 events, lifespan 11 h, lifecycle `produced` (roll e3), 4 locations, 3 high-level locations, 5 location changes, 2 h on vehicles, 1 h in storage, 8 h at other locations; c2 is `full` (roll e3, cut e15), shares 5 of its 6 non-transformation events (e4, e8, e9, e11, e12; not e6) with c1 and c3 (connectedness 83 %), location path A1 (e3), A2 (e6), T (e8), A2 (e9), B1 (e12); c5 is unlocated for 1 h.
+Running example, `data/running_example/configuration.json` (Level 3): c1 has 9 events, lifespan 11 h, lifecycle `produced` (roll e3), 4 locations, 3 high-level locations, 5 location changes, 2 h on vehicles, 1 h in storage, 8 h at other locations; c2 is `both` (roll e3, cut e15), shares 5 of its 6 non-transformation events (e4, e8, e9, e11, e12; not e6) with c1 and c3 (connectedness 83 %), location path A1 (e3), A2 (e6), T (e8), A2 (e9), B1 (e12); c5 is unlocated for 1 h.
 Tests: `backend-modules/location-ocpm/tests/test_instances.py`.
 
 ### Filtering
