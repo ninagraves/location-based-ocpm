@@ -98,8 +98,9 @@ def arc_filter(arcs: pl.DataFrame, thresholds: Mapping[str, float]) -> pl.DataFr
             inner.sum().over(c.OBJECT_TYPE).alias("_n"),
         )
     )
-    # rank <= ceil(alpha / 100 * n)  <=>  (rank - 1) * 100 < alpha * n  (exact in whole numbers for whole percents).
-    keep = ~inner | ((pl.col("_rank") - 1) * 100 < threshold * pl.col("_n"))
+    # rank <= ceil(alpha / 100 * n)  <=>  (rank - 1) * 100 < alpha * n; alpha may have decimals, so the product is
+    # rounded against floating-point noise.
+    keep = ~inner | ((pl.col("_rank") - 1) * 100 < (threshold * pl.col("_n")).round(6))
     return ranked.filter(keep).sort("_order").drop("_order", "_rank", "_n")
 
 

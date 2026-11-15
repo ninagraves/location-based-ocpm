@@ -12,7 +12,7 @@ import { ModulePage } from "../components/ModulePage";
 import { useScheme } from "../components/plots";
 import { errorText } from "../lib/errors";
 import { usePageState } from "../lib/pageState";
-import { colourMap } from "../lib/palette";
+import { emphasisColourMap } from "../lib/palette";
 
 /** Default, smallest and largest width of the settings sidebar in pixels. */
 const SIDEBAR_WIDTH = { initial: 300, min: 220, max: 640 };
@@ -60,7 +60,7 @@ const ResizeHandle = ({ width, onChange }: { width: number; onChange: (width: nu
 
 /** Sidebar and graph of one log. */
 const DfgContent = ({ ocelId }: { ocelId: string }) => {
-  const [stored, setStored] = usePageState<DfgState>(`dfg.v2.${ocelId}`, DEFAULT_STATE);
+  const [stored, setStored] = usePageState<DfgState>(`dfg.v3.${ocelId}`, DEFAULT_STATE);
   // Settings saved by an older version may lack fields: fill them with the defaults.
   const state = useMemo(() => ({ ...DEFAULT_STATE, ...stored }), [stored]);
   const setState = useCallback(
@@ -75,8 +75,16 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
     queryFn: ({ signal }) => getDirectlyFollowsGraph(ocelId, request, undefined, undefined, signal),
     placeholderData: keepPreviousData,
   });
-  // Colours follow the order of all object types (most objects first), so a type keeps its colour.
-  const colours = useMemo(() => colourMap(data?.object_types.map((t) => t.object_type) ?? [], scheme), [data, scheme]);
+  // Handling-unit types get the signature colours first, the other types paler colours (Nina, 2026-11-15); each
+  // group in the order of all object types (most objects first), so a type keeps its colour.
+  const colours = useMemo(() => {
+    const types = data?.object_types ?? [];
+    return emphasisColourMap(
+      types.filter((t) => t.handling_units).map((t) => t.object_type),
+      types.filter((t) => !t.handling_units).map((t) => t.object_type),
+      scheme,
+    );
+  }, [data, scheme]);
 
   if (error) return <Alert color="red">{errorText(error)}</Alert>;
   if (!data) return <Loader size="sm" />;

@@ -20,10 +20,11 @@ from . import columns as d
 from .arcs import arc_filter, directly_follows_arcs, objects_per_type, remove_activities
 from .nodes import activity_frequencies, involved_object_types, shown_activities
 from .traces import considered_objects, object_traces
-from .variants import object_variants, path_filter
+from .variants import auto_path_thresholds, object_variants, path_filter, variant_ranking
 
-#: Default path threshold (percent; Nina, 2026-11-14).
-DEFAULT_PATH_THRESHOLD = 30.0
+#: Default path threshold: None = automatic, the `variants.AUTO_PATHS` (3) most frequent paths of each type in full,
+#: so the percentage depends on the data (Nina, 2026-11-15; before: 30 %).
+DEFAULT_PATH_THRESHOLD: float | None = None
 #: Default arc threshold (percent; Nina, 2026-11-14).
 DEFAULT_ARC_THRESHOLD = 10.0
 
@@ -33,12 +34,13 @@ class TypeSetting(BaseModel):
 
     Attributes:
         object_type: The object type.
-        path_threshold: Path threshold in percent (`variants.py`); 100 = all paths.
+        path_threshold: Path threshold in percent (`variants.py`); 100 = all paths; None = automatic (the three
+            most frequent paths).
         arc_threshold: Arc threshold in percent (`arcs.py`); 100 = all arcs.
     """
 
     object_type: str
-    path_threshold: float = Field(DEFAULT_PATH_THRESHOLD, ge=0, le=100)
+    path_threshold: float | None = Field(DEFAULT_PATH_THRESHOLD, ge=0, le=100)
     arc_threshold: float = Field(DEFAULT_ARC_THRESHOLD, ge=0, le=100)
 
 
@@ -61,7 +63,8 @@ class DfgRequest(BaseModel):
 
     Attributes:
         object_types: The selected object types; None = the default, every object type with handling units.
-        path_threshold: General path threshold in percent, for every type without an own one.
+        path_threshold: General path threshold in percent, for every type without an own one; None = automatic
+            (the three most frequent paths of each type).
         arc_threshold: General arc threshold in percent, for every type without an own one.
         type_thresholds: Own thresholds of single object types (kept also while the type is not selected).
         excluded_activities: Deselected activities: their nodes and every arc touching them are removed
@@ -69,7 +72,7 @@ class DfgRequest(BaseModel):
     """
 
     object_types: list[str] | None = None
-    path_threshold: float = Field(DEFAULT_PATH_THRESHOLD, ge=0, le=100)
+    path_threshold: float | None = Field(DEFAULT_PATH_THRESHOLD, ge=0, le=100)
     arc_threshold: float = Field(DEFAULT_ARC_THRESHOLD, ge=0, le=100)
     type_thresholds: list[TypeThresholds] = Field(default_factory=list)
     excluded_activities: list[str] = Field(default_factory=list)
@@ -83,7 +86,9 @@ class DfgObjectType(BaseModel):
         objects: Number of objects of the type (for a type with handling units: its handling units).
         handling_units: True if the type contains handling units.
         selected: True if the type's arcs are shown.
-        path_threshold: Path threshold used (percent), for selected types.
+        path_threshold: Path threshold used (percent), for selected types; with the automatic threshold the
+            share of objects of the three most frequent paths.
+        path_auto: True if the automatic path threshold is used.
         arc_threshold: Arc threshold used (percent), for selected types.
         kept_objects: Objects whose path is kept (selected types; 0 otherwise).
         paths: Distinct paths (variants) of the type's objects (selected types; 0 otherwise).
@@ -96,7 +101,8 @@ class DfgObjectType(BaseModel):
     objects: int
     handling_units: bool
     selected: bool
-    path_threshold: float = DEFAULT_PATH_THRESHOLD
+    path_threshold: float = 100.0
+    path_auto: bool = False
     arc_threshold: float = DEFAULT_ARC_THRESHOLD
     kept_objects: int = 0
     paths: int = 0
@@ -339,6 +345,7 @@ def directly_follows_graph(
     ]
 
     variants = object_variants(traces)
+    auto = auto_path_thresholds(variant_ranking(variants))
     kept_variants = object_variants(kept_traces)
     paths = _count_per_type(variants.unique([c.OBJECT_TYPE, d.VARIANT]))
     kept_paths = _count_per_type(kept_variants.unique([c.OBJECT_TYPE, d.VARIANT]))
@@ -353,7 +360,8 @@ def directly_follows_graph(
             selected=row[c.OBJECT_TYPE] in settings,
             **(
                 {
-                    "path_threshold": settings[row[c.OBJECT_TYPE]].path_threshold,
+                    "path_threshold": _effective(settings[row[c.OBJECT_TYPE]].path_threshold, auto.get(row[c.OBJECT_TYPE], 100.0)),
+                    "path_auto": settings[row[c.OBJECT_TYPE]].path_threshold is None,
                     "arc_threshold": settings[row[c.OBJECT_TYPE]].arc_threshold,
                     "kept_objects": n_kept.get(row[c.OBJECT_TYPE], 0),
                     "paths": paths.get(row[c.OBJECT_TYPE], 0),
@@ -386,6 +394,11 @@ def directly_follows_graph(
         arcs=[DfgArc(**row) for row in kept_arcs.iter_rows(named=True)],
         activity_options=activity_options,
     )
+
+
+def _effective(threshold: float | None, automatic: float) -> float:
+    """The path threshold in percent that applies: the given one, or the automatic one if None (rounded to 2 decimals)."""
+    return round(automatic if threshold is None else threshold, 2)
 
 
 def selected_traces(frames: LogFrames, object_types: Collection[str]) -> pl.DataFrame:

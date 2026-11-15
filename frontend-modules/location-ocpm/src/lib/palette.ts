@@ -169,6 +169,49 @@ export function colourMap(domain: readonly string[], scheme: Scheme = "light"): 
   return map;
 }
 
+/**
+ * Nina's signature colours, in this order: petrol, pink, turquoise, blue, orange (Nina, 2026-11-15).
+ * For the things that should stand out most (e.g. the handling-unit types in the directly-follows graph).
+ */
+export const SIGNATURE: Record<Scheme, readonly string[]> = {
+  light: ["#006165", "#CE108A", "#0098A1", "#00549F", "#F6A800"],
+  dark: ["#188489", "#CE108A", "#0098A1", "#196cbf", "#F6A800"],
+};
+
+/** Opacity of the colours of de-emphasised values (`emphasisColourMap`): paler, so emphasised values stand out. */
+export const FADED_ALPHA = 0.55;
+
+/**
+ * Colours for two groups of values: `emphasised` values get the signature colours first (then further
+ * categorical colours), the `other` values get the remaining categorical colours (none of the signature
+ * colours), made paler by `FADED_ALPHA`. Pass full domains (in their order) so a value keeps its colour.
+ *
+ * @param emphasised Values to stand out, e.g. the handling-unit types, most important first.
+ * @param other All other values.
+ * @param scheme Light or dark.
+ * @returns Colour per value (8-digit hex with alpha for `other`).
+ */
+export function emphasisColourMap(
+  emphasised: readonly string[],
+  other: readonly string[],
+  scheme: Scheme = "light",
+): Map<string, string> {
+  const signature = SIGNATURE[scheme];
+  const taken = new Set(signature.map((c) => c.toLowerCase()));
+  // The categorical colours without the signature colours and the categorical orange (close to the signature orange).
+  const pool: string[] = [];
+  for (let i = 0; pool.length < emphasised.length + other.length; i++) {
+    const colour = categoricalColour(i, scheme);
+    if (!taken.has(colour.toLowerCase()) && colour.toLowerCase() !== CATEGORICAL[scheme][1].toLowerCase()) pool.push(colour);
+  }
+  let next = 0;
+  const map = new Map<string, string>();
+  emphasised.forEach((value, i) => map.set(value, i < signature.length ? signature[i] : pool[next++]));
+  const alpha = Math.round(FADED_ALPHA * 255).toString(16).padStart(2, "0");
+  for (const value of other) if (!map.has(value)) map.set(value, `${pool[next++]}${alpha}`);
+  return map;
+}
+
 /** Turn a ramp into a Plotly colorscale ([[0, c0], ..., [1, cn]]). */
 export function plotlyScale(ramp: readonly string[]): [number, string][] {
   return ramp.map((c, i) => [i / (ramp.length - 1), c]);

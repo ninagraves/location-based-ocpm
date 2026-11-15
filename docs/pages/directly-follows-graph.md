@@ -41,8 +41,8 @@ Involved types of $a$: for every object type (selected or not), the frequency ev
 |---|---|---|---|
 | **Compact** (header, next to Reset) | on / off | off | smaller spacing between nodes, arcs and layers (`COMPACT_OPTIONS`), e.g. to export the whole graph as a figure for a paper |
 | **Reset** (header) | button | – | every setting of the page back to its default (selection, general and own thresholds, activities, display); not the sidebar's width |
-| **General thresholds: Paths** | 0–100 %, step 1 | 30 % | path threshold $\pi_{ot}$ of every selected type **without own value** |
-| **General thresholds: Arcs** | 0–100 %, step 1 | 10 % | arc threshold $\alpha_{ot}$ of every selected type without own value |
+| **General thresholds: Paths** | 0–100 %, slider or typed (decimals allowed) | **automatic** (`DEFAULT_PATH_THRESHOLD` = None): the `AUTO_PATHS` = 3 top-ranked paths of each type in full, so the percentage depends on the data (Nina, 2026-11-15) | path threshold $\pi_{ot}$ of every selected type **without own value**; *auto* returns to automatic |
+| **General thresholds: Arcs** | 0–100 %, slider or typed (decimals allowed) | 10 % | arc threshold $\alpha_{ot}$ of every selected type without own value |
 | **Object types** (searchable, scrollable list; types with handling units first, then the others, each by number of objects; checkbox, colour swatch, number of considered objects, badge "HU") | any subset of $OT$ | the types with handling units | checked: arcs, start and end nodes of the type are drawn; unchecked: the type only appears as circles on the activity nodes whose events involve it. Unchecking all types leaves an empty graph. |
 | **Own thresholds** (unfold with the arrow of a type) | Paths and Arcs, 0–100 % | the general values | own $\pi_{ot}$ / $\alpha_{ot}$ of this type; the general sliders no longer change it. A type with an own value is marked in the list, e.g. "P 100 % · A 100 %"; "Use the general thresholds" removes the own values. The line next to a slider says "x of y paths · a objects" / "x of y arcs" kept. |
 | **Activities** (searchable, scrollable list, by number of events in the log, descending; ties alphabetically) | any subset | all | see "Activity selection" below |
@@ -51,7 +51,7 @@ Involved types of $a$: for every object type (selected or not), the frequency ev
 
 For both thresholds, **100 % keeps everything** and lower values keep less (Nina, 2026-11-14).
 
-**Path threshold** $\pi_{ot}$ (`dfg/variants.py`): the path (variant) of an object is the sequence of its activities. Paths of $ot$ are ranked by their number of objects (descending; ties alphabetically by the path), and a path is kept if the objects of the paths ranked before it cover less than $\pi_{ot}/100 \cdot |O_{ot}|$. So the most frequent paths are kept until they cover at least $\pi_{ot}$ % of the objects. 0 % keeps none.
+**Path threshold** $\pi_{ot}$ (`dfg/variants.py`): the path (variant) of an object is the sequence of its activities. Paths of $ot$ are ranked by their number of objects (descending; ties by their first occurrence in the log, i.e. the earliest first event of their objects (Nina, 2026-11-15), then alphabetically by the path), and a path is kept if the objects of the paths ranked before it cover less than $\pi_{ot}/100 \cdot |O_{ot}|$. So the most frequent paths are kept until they cover at least $\pi_{ot}$ % of the objects. 0 % keeps none.
 Ties are deliberately not kept together: in logistics logs most objects often have a path of their own, and keeping ties would then keep everything at any threshold.
 
 **Arc threshold** $\alpha_{ot}$ (`dfg/arcs.py`, `arc_filter`): of the $n$ arcs of $ot$ **between two activities** on the included traces, the $\lceil \alpha_{ot}/100 \cdot n \rceil$ most frequent are kept (ranked by traversals, then objects, then source and target alphabetically). Start and end arcs are **always** kept. 0 % keeps only start and end arcs. The path filter is applied first.
@@ -64,7 +64,7 @@ An arc filter can leave an activity without outgoing (or incoming) arc; it is st
 Settings are kept per log across page switches and reloads (`lib/pageState.ts`, key `dfg.v2.<log id>`; settings saved by an older version are completed with the defaults). A slider sends its value when released.
 
 **Example** (running example, Level 3, default selection coil and slab): with 100 % / 100 %: 9 activities; slab: ▶ → cast slab → inspect slab → roll → ■ (1 each); coil: 18 arcs (6 start/end, 12 between activities), e.g. load truck → unload truck 3 traversals (3 coils), ▶ → roll 2, quality check → ■ 4; frequencies crane move 4, quality check 4, load truck 2, roll 1.
-Defaults (30 % / 10 %): all 5 coils have different paths, so 2 paths (2 coils) are kept, and 10 % of their arcs between activities, rounded up.
+Defaults (automatic / 10 %): all 5 coils have different paths, ranked by first event (c2, c1 at 3:00, then c3, c4, c5); the top 3 (c2, c1, c3; shown as 60 %) are kept, and 10 % of their arcs between activities, rounded up.
 coil with Paths 50 %: 3 paths (3 coils). coil with Paths 100 % and Arcs 20 %: $\lceil 0.2 \cdot 12 \rceil = 3$ arcs between activities (load truck → unload truck 3, unload truck → crane move 3, crane move → load truck 2) plus the 6 start and end arcs.
 
 ## 3. Layout
@@ -73,7 +73,7 @@ ELK layered (`lib/dfgLayout.ts`, `layoutGraph`, options `ELK_OPTIONS`; with "Com
 - Activity nodes are tight around their text (`SIZES`: name 12 px, frequency 10 px, padding 2 × 5 px) and sized from the rendered text (`textWidth` measures with an invisible span in the page), so names are never cut; names wrap at spaces beyond 150 px (`wrapName`).
 - Arc labels are ELK edge labels (centre placement, `elk.edgeLabels.inline`: the arc is routed through its label), so ELK reserves room for them; the object-type name below start and end nodes is an outside node label (`OUTSIDE V_BOTTOM H_CENTER`).
 - Arrowheads have a fixed size (about 8 px), independent of the arc's thickness.
-- Colours: `colourMap` (`lib/palette.ts`) over all object types of the log, most objects first, so a type keeps its colour when the selection changes.
+- Colours: `emphasisColourMap` (`lib/palette.ts`): handling-unit types get the signature colours `SIGNATURE` (petrol, pink, turquoise, blue, orange) first, all other types further categorical colours with opacity `FADED_ALPHA` (0.55), each group in the order of all object types (most objects first), so a type keeps its colour (Nina, 2026-11-15).
 - Rendering: React Flow (`@xyflow/react`), nodes not draggable; the edge paths come from ELK (`sectionPath`; spline bend points are cubic Bézier control points).
 
 ## 4. Code
@@ -82,12 +82,13 @@ ELK layered (`lib/dfgLayout.ts`, `layoutGraph`, options `ELK_OPTIONS`; with "Com
   - `dfg/variants.py`: `object_variants`, `variant_ranking`, `kept_variants(ranking, thresholds)`, `path_filter(traces, thresholds)`.
   - `dfg/arcs.py`: `directly_follows_arcs(traces)`, `objects_per_type`, `arc_filter(arcs, thresholds)`, `remove_activities(arcs, activities)`.
   - `dfg/nodes.py`: `shown_activities`, `activity_frequencies`, `involved_object_types(traces, activities, typed_e2o)`.
-  - `dfg/graph.py`: defaults `DEFAULT_PATH_THRESHOLD` (30) and `DEFAULT_ARC_THRESHOLD` (10); request and response models (`TypeSetting`, `TypeThresholds`, `DfgRequest`, `DirectlyFollowsGraph`, `DfgActivityOption`, …), `log_frames(ocel, derivation)`, `default_selection`, `resolve_selection(request, objects, handling_units)`, `type_overview`, `selected_traces`, `directly_follows_graph(frames, selection, traces, excluded_activities)`.
+  - `dfg/graph.py`: defaults `DEFAULT_PATH_THRESHOLD` (None = automatic, `variants.AUTO_PATHS` = 3 top paths; `variants.auto_path_thresholds` gives the resulting percentage) and `DEFAULT_ARC_THRESHOLD` (10); request and response models (`TypeSetting`, `TypeThresholds`, `DfgRequest`, `DirectlyFollowsGraph`, `DfgActivityOption`, …), `log_frames(ocel, derivation)`, `default_selection`, `resolve_selection(request, objects, handling_units)`, `type_overview`, `selected_traces`, `directly_follows_graph(frames, selection, traces, excluded_activities)`.
   - `dfg_routes.py`: `POST /{ocel_id}/dfg` (`getDirectlyFollowsGraph`), body `{"object_types": [...] | null, "path_threshold", "arc_threshold", "type_thresholds": [{"object_type", "path_threshold"?, "arc_threshold"?}], "excluded_activities": [...]}`; caches the log's frames and the traces per selection (LRU, `CACHE_SIZE`), keyed by the derivation's cache key, so a slider only reruns the filters.
 - Frontend (`frontend-modules/location-ocpm/src/`): `routes/DirectlyFollowsGraph.tsx` (page, state, query), `components/DfgSettings.tsx` (sidebar, `DEFAULT_STATE`, `toRequest`; hover texts `INFO`), `components/DfgGraph.tsx` (drawing, legend), `lib/dfgLayout.ts` (layout, sizes `SIZES`, `ELK_OPTIONS`, `COMPACT_OPTIONS`).
 - Tests: `tests/test_dfg.py` (`test_worked_example_of_the_module_note` checks the worked example of the module note; update both together). Demo notebook: `notebooks/directly_follows_graph.ipynb`.
 
 ## 5. How to change
+- Number of paths of the automatic threshold: `AUTO_PATHS` in `dfg/variants.py` (and the texts "top 3 paths" in `DfgSettings.tsx`).
 - Other defaults: `DEFAULT_PATH_THRESHOLD` / `DEFAULT_ARC_THRESHOLD` in `dfg/graph.py` **and** `DEFAULT_STATE` in `DfgSettings.tsx`.
 - Other tie order of traces: `visits/order.py`, `tie_rank` (changes all pages).
 - Other path filter (e.g. keep ties, rank by other criteria): `variants.kept_variants`; adapt `test_path_threshold_keeps_most_frequent_paths`.

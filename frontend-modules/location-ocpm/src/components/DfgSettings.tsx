@@ -10,6 +10,7 @@ import {
   Collapse,
   Divider,
   Group,
+  NumberInput,
   ScrollArea,
   SegmentedControl,
   Slider,
@@ -30,8 +31,8 @@ import { useScheme } from "./plots";
 /** The page's settings. `objectTypes` null = the object types with handling units. */
 export type DfgState = {
   objectTypes: string[] | null;
-  /** General path threshold (percent) for every type without an own one. */
-  pathThreshold: number;
+  /** General path threshold (percent) for every type without an own one; null = automatic (the 3 most frequent paths). */
+  pathThreshold: number | null;
   /** General arc threshold (percent) for every type without an own one. */
   arcThreshold: number;
   /** Own thresholds per object type (kept while the type is unselected). */
@@ -43,10 +44,10 @@ export type DfgState = {
   compact: boolean;
 };
 
-/** Defaults (Nina, 2026-11-14): paths 30 %, arcs 10 %, handling-unit types, all activities. */
+/** Defaults (Nina, 2026-11-14/15): paths automatic (the 3 most frequent paths of each type), arcs 10 %, handling-unit types, all activities. */
 export const DEFAULT_STATE: DfgState = {
   objectTypes: null,
-  pathThreshold: 30,
+  pathThreshold: null,
   arcThreshold: 10,
   own: {},
   excluded: [],
@@ -72,8 +73,8 @@ export const INFO = {
   general:
     "General thresholds: apply to every object type that has no own value (set in the type's unfold). Types with own values are marked in the list.",
   paths:
-    "Path threshold: keeps the most frequent paths (activity sequences of the objects) of a type until they cover at least this share of its objects. Only these objects' traces are used for everything else. 100 % keeps all.",
-  arcs: "Arc threshold: keeps this share of the type's directly-follows relations between activities, the most frequent first (rounded up). Arcs from the start and to the end are always kept. 100 % keeps all.",
+    "Path threshold: keeps the most frequent paths (activity sequences of the objects) of a type until they cover at least this share of its objects; equally frequent paths by their first occurrence in the log. Only these objects' traces are used for everything else. 100 % keeps all. Automatic (default): the 3 most frequent paths of each type in full. Click the number to type a value (decimals allowed).",
+  arcs: "Arc threshold: keeps this share of the type's directly-follows relations between activities, the most frequent first (rounded up). Arcs from the start and to the end are always kept. 100 % keeps all. Click the number to type a value (decimals allowed).",
   objectTypes:
     "Checked object types are drawn with their directly-follows arcs, start and end nodes. Unchecked object types that are involved in the shown events appear only as circles on the activity nodes. Default: the object types of the handling units. Unfold a type for its own thresholds.",
   activities:
@@ -104,29 +105,89 @@ export const Swatch = ({ colour, circle }: { colour?: string; circle?: boolean }
   />
 );
 
-/** A labelled 0-100 % slider that only reports its value when released (no request per step while dragging). */
+/**
+ * A labelled 0-100 % slider whose value can also be typed (decimals allowed). Both only report their value when
+ * the slider is released or the typed value is confirmed (Enter or leaving the field), not per step.
+ *
+ * @param value The current value; null = automatic (shown as `autoText`, the slider then shows `autoValue`).
+ * @param onCommit Called with the new value.
+ * @param onAuto If given and the value is not automatic: a button to return to the automatic value.
+ */
 const PercentSlider = ({
   label,
   info,
   value,
   onCommit,
   note,
+  autoText,
+  autoValue,
+  onAuto,
 }: {
   label: string;
   info: string;
-  value: number;
+  value: number | null;
   onCommit: (v: number) => void;
   note?: ReactNode;
+  autoText?: string;
+  autoValue?: number;
+  onAuto?: () => void;
 }) => {
-  const [local, setLocal] = useState(value);
-  useEffect(() => setLocal(value), [value]);
+  const [local, setLocal] = useState<number | null>(value);
+  const [typed, setTyped] = useState<string | number>(value ?? "");
+  useEffect(() => {
+    setLocal(value);
+    setTyped(value ?? "");
+  }, [value]);
+  const commitTyped = () => {
+    const v = typeof typed === "number" ? typed : Number.parseFloat(String(typed).replace(",", "."));
+    if (Number.isFinite(v)) onCommit(Math.min(100, Math.max(0, Math.round(v * 100) / 100)));
+    else setTyped(value ?? "");
+  };
   return (
     <Stack gap={0}>
       <Group justify="space-between" gap={4} wrap="nowrap">
-        <Heading info={info}>{label} {local} %</Heading>
+        <Group gap={4} wrap="nowrap">
+          <Heading info={info}>{label}</Heading>
+          <NumberInput
+            aria-label={`${label} in percent`}
+            size="xs"
+            variant="unstyled"
+            w={64}
+            min={0}
+            max={100}
+            decimalScale={2}
+            hideControls
+            suffix=" %"
+            placeholder={autoText ? "auto" : undefined}
+            value={typed}
+            onChange={setTyped}
+            onBlur={commitTyped}
+            onKeyDown={(e) => e.key === "Enter" && (e.currentTarget as HTMLInputElement).blur()}
+            styles={{ input: { fontWeight: 600, fontSize: 12, height: 20, minHeight: 20, borderBottom: "1px dashed var(--mantine-color-default-border)" } }}
+          />
+          {local === null && autoText && <Text size="xs" c="dimmed">{autoText}</Text>}
+          {local !== null && onAuto && (
+            <Button size="compact-xs" variant="subtle" px={4} onClick={onAuto}>
+              auto
+            </Button>
+          )}
+        </Group>
         {note && <Text size="xs" c="dimmed">{note}</Text>}
       </Group>
-      <Slider aria-label={label} size="xs" min={0} max={100} step={1} value={local} onChange={setLocal} onChangeEnd={onCommit} label={(v) => `${v} %`} />
+      <Slider
+        aria-label={label}
+        size="xs"
+        min={0}
+        max={100}
+        step={1}
+        value={local ?? autoValue ?? 0}
+        color={local === null ? "gray" : undefined}
+        // Automatic without a value to show: no thumb (clicking the track sets a value).
+        styles={local === null && autoValue === undefined ? { thumb: { display: "none" }, bar: { display: "none" } } : undefined}
+        onChange={setLocal}
+        onChangeEnd={onCommit}
+        label={(v) => `${v} %`}
+      />
     </Stack>
   );
 };
@@ -196,6 +257,8 @@ const TypeRow = ({
             label="Paths"
             info={INFO.paths}
             value={own.path ?? state.pathThreshold}
+            autoText="top 3 paths"
+            autoValue={type.path_threshold}
             onCommit={(v) => setOwn({ path: v })}
             note={type.selected ? `${num(type.kept_paths)} of ${num(type.paths)} paths · ${num(type.kept_objects)} objects` : undefined}
           />
@@ -283,7 +346,14 @@ export const DfgSettings = ({
         </Group>
 
         <Divider label="General thresholds" labelPosition="left" />
-        <PercentSlider label="Paths" info={`${INFO.general} ${INFO.paths}`} value={state.pathThreshold} onCommit={(v) => setState((s) => ({ ...s, pathThreshold: v }))} />
+        <PercentSlider
+          label="Paths"
+          info={`${INFO.general} ${INFO.paths}`}
+          value={state.pathThreshold}
+          autoText="top 3 paths per type"
+          onCommit={(v) => setState((s) => ({ ...s, pathThreshold: v }))}
+          onAuto={() => setState((s) => ({ ...s, pathThreshold: null }))}
+        />
         <PercentSlider label="Arcs" info={`${INFO.general} ${INFO.arcs}`} value={state.arcThreshold} onCommit={(v) => setState((s) => ({ ...s, arcThreshold: v }))} />
 
         <Divider label="Object types" labelPosition="left" />

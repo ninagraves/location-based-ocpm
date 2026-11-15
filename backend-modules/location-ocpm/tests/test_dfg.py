@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import polars as pl
 import pytest
 
+from ocelescope_module_location_based_ocpm.dfg.variants import object_variants, variant_ranking
 from ocelescope_module_location_based_ocpm.dfg.graph import (
     DfgRequest,
     LogFrames,
@@ -47,8 +48,18 @@ def test_default_selects_the_handling_unit_types(frames):
 def test_default_thresholds(frames):
     graph = directly_follows_graph(frames)
     coil = next(t for t in graph.object_types if t.object_type == "coil")
-    # 30 % of 5 coils with 5 different paths: 2 paths; 10 % of their arcs between activities, rounded up.
-    assert (coil.path_threshold, coil.arc_threshold, coil.kept_paths, coil.kept_objects) == (30, 10, 2, 2)
+    # Automatic path threshold: the 3 most frequent of 5 different paths, i.e. 60 % of the coils; arcs 10 %.
+    assert (coil.path_threshold, coil.path_auto, coil.arc_threshold, coil.kept_paths, coil.kept_objects) == (60.0, True, 10, 3, 3)
+    slab = next(t for t in graph.object_types if t.object_type == "slab")
+    assert (slab.path_threshold, slab.kept_paths) == (100.0, 1)
+
+
+def test_equally_frequent_paths_are_ranked_by_first_occurrence(frames):
+    # All coils have their own path: ranked by the first event of the coil (c1 and c2 both start at 3:00, then
+    # alphabetically by the path: "roll, label, crane move, load truck" < "roll, label, crane move, quality check").
+    ranking = variant_ranking(object_variants(selected_traces(frames, ["coil"])))
+    first = {v: o for o, v in object_variants(selected_traces(frames, ["coil"])).select("object", "variant").iter_rows()}
+    assert [first[v] for v in ranking["variant"]] == ["c2", "c1", "c3", "c4", "c5"]
 
 
 def test_running_example_arcs(frames):
@@ -265,4 +276,13 @@ def test_worked_example_of_the_module_note():
     truck = directly_follows_graph(frames, [*setting, TypeSetting(object_type="truck", path_threshold=100, arc_threshold=100)])
     assert {a.activity: a.events for a in truck.activities}["load"] == 9
     default = directly_follows_graph(frames)
-    assert set(arcs_of(default, "pallet")) == {(None, "produce"), ("load", "ship"), ("ship", None)}
+    pallet = next(t for t in default.object_types if t.object_type == "pallet")
+    assert (pallet.path_threshold, pallet.kept_paths, pallet.kept_objects) == (90.0, 3, 9)
+
+
+def test_thresholds_with_decimals(frames):
+    # 33.3 % of 5 coils = 1.665 coils: two paths; 16.7 % of 12 arcs between activities = 2.004: 3 arcs.
+    graph = directly_follows_graph(frames, [TypeSetting(object_type="coil", path_threshold=33.3, arc_threshold=100)])
+    assert next(t for t in graph.object_types if t.object_type == "coil").kept_paths == 2
+    graph = directly_follows_graph(frames, [TypeSetting(object_type="coil", path_threshold=100, arc_threshold=16.7)])
+    assert len([k for k in arcs_of(graph, "coil") if None not in k]) == 3
