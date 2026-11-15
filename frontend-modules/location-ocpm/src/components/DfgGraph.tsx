@@ -31,7 +31,7 @@ import {
 import { num } from "../lib/format";
 
 type NodeData = (ActivityNodeData | TerminalNodeData) & { colours: Map<string, string> };
-type ArcData = LaidOutArc & { colour: string; width: number };
+type ArcData = LaidOutArc & { colour: string; width: number; onRemove?: (arc: LaidOutArc) => void };
 
 /** Invisible handles: React Flow needs them to draw an edge, the path itself comes from ELK. */
 const Handles = () => (
@@ -140,18 +140,32 @@ const TerminalNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
   );
 });
 
-/** Arc: ELK's route in the object type's colour, with a small plain label (count or objects) that interrupts the line. */
+/**
+ * Arc: ELK's route in the object type's colour (dashed if shown only because of "Stay connected"), with a small
+ * plain label (count or objects) that interrupts the line. A right click on the arc or its label removes it.
+ */
 const ArcEdge = memo(({ id, data, markerEnd }: EdgeProps<Edge<ArcData>>) => {
   if (!data?.path) return null;
   const position = data.labelPosition;
+  const hint = `${data.objectType}: ${num(data.count)} traversals, ${num(data.objects)} objects${data.connecting ? " (shown to stay connected)" : ""} · right click to remove`;
   return (
     <>
-      <BaseEdge id={id} path={data.path} markerEnd={markerEnd} style={{ stroke: data.colour, strokeWidth: data.width }} />
+      <BaseEdge
+        id={id}
+        path={data.path}
+        markerEnd={markerEnd}
+        interactionWidth={12}
+        style={{ stroke: data.colour, strokeWidth: data.width, strokeDasharray: data.connecting ? "5 3" : undefined }}
+      />
       {position && (
         <EdgeLabelRenderer>
-          <Tooltip label={`${data.objectType}: ${num(data.count)} traversals, ${num(data.objects)} objects`} withinPortal>
+          <Tooltip label={hint} withinPortal>
             <Box
               className="nodrag nopan"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                data.onRemove?.(data);
+              }}
               style={{
                 position: "absolute",
                 transform: `translate(-50%, -50%) translate(${position.x}px, ${position.y}px)`,
@@ -180,8 +194,8 @@ const Legend = () => (
   <Text fz={11} lh={1.3} c="dimmed">
     ▶ / ■ in a circle: start / end of an object type (named below; arcs from and to them are grey) · coloured line:
     directly-follows arc of a selected object type (thicker = more traversals) · number on an arc: traversals or objects ·
-    number in an activity: its events on the included traces · small circle on an activity: an unselected object type
-    involved in these events
+    dashed: shown only to stay connected · number in an activity: its events on the included traces · small circle on an
+    activity: an unselected object type involved in these events · right click on an arc: remove it
   </Text>
 );
 
@@ -192,7 +206,7 @@ const EDGE_TYPES = { arc: ArcEdge };
 const strokeWidth = (count: number, max: number) => 1.2 + 2.8 * Math.sqrt(count / Math.max(max, 1));
 
 /** React Flow nodes and edges of a layout. */
-const toFlow = (layout: Layout, colours: Map<string, string>) => {
+const toFlow = (layout: Layout, colours: Map<string, string>, onRemove?: (arc: LaidOutArc) => void) => {
   const maxCount = new Map<string, number>();
   for (const a of layout.arcs) maxCount.set(a.objectType, Math.max(maxCount.get(a.objectType) ?? 0, a.count));
   const nodes: Node<NodeData>[] = layout.nodes.map((n) => ({
@@ -212,7 +226,7 @@ const toFlow = (layout: Layout, colours: Map<string, string>) => {
       source: a.source,
       target: a.target,
       type: "arc",
-      data: { ...a, colour, width: strokeWidth(a.count, maxCount.get(a.objectType) ?? 1) },
+      data: { ...a, colour, width: strokeWidth(a.count, maxCount.get(a.objectType) ?? 1), onRemove },
       // React Flow draws the arrow in a 20-unit box of which it fills 5: 30 px gives an arrow of about 8 px, whatever the stroke width.
       markerEnd: { type: MarkerType.ArrowClosed, color: colour, width: 30, height: 30, markerUnits: "userSpaceOnUse" },
     };
@@ -238,6 +252,7 @@ const FitOnChange = ({ layout }: { layout: Layout | null }) => {
  * @param arcLabel What the arc labels show: traversals (`count`) or distinct objects.
  * @param compact Compact layout (little white space, `COMPACT_OPTIONS`).
  * @param height Height of the drawing area in pixels.
+ * @param onRemoveArc Called when the user right-clicks an arc (to remove it).
  */
 export const DfgGraph = ({
   graph,
@@ -246,6 +261,7 @@ export const DfgGraph = ({
   arcLabel,
   compact,
   height,
+  onRemoveArc,
 }: {
   graph: DirectlyFollowsGraph;
   colours: Map<string, string>;
@@ -253,6 +269,7 @@ export const DfgGraph = ({
   arcLabel: ArcLabel;
   compact: boolean;
   height: number;
+  onRemoveArc?: (arc: LaidOutArc) => void;
 }) => {
   const [layout, setLayout] = useState<Layout | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -267,12 +284,12 @@ export const DfgGraph = ({
       cancelled = true;
     };
   }, [graph, direction, arcLabel, compact]);
-  const flow = useMemo(() => (layout ? toFlow(layout, colours) : null), [layout, colours]);
+  const flow = useMemo(() => (layout ? toFlow(layout, colours, onRemoveArc) : null), [layout, colours, onRemoveArc]);
 
   if (error) return <Alert color="red">Layout failed: {error}</Alert>;
   if (!flow) return <Loader size="sm" />;
   if (flow.nodes.length === 0)
-    return <Alert color="gray">Nothing to show: select an object type, or lower its arc threshold or raise its path threshold.</Alert>;
+    return <Alert color="gray">Nothing to show: select an object type, raise its variant or arc threshold, or restore removed arcs.</Alert>;
   return (
     <Stack gap={4}>
       <Legend />
@@ -290,6 +307,12 @@ export const DfgGraph = ({
           maxZoom={3}
           fitView
           fitViewOptions={{ padding: 0.08, maxZoom: 1 }}
+          // Right click removes an arc (a left click is reserved for later interactions; Nina, 2026-11-15).
+          onEdgeContextMenu={(event, edge) => {
+            event.preventDefault();
+            const data = edge.data as ArcData | undefined;
+            if (data) onRemoveArc?.(data);
+          }}
         >
           <Controls showInteractive={false} />
           <FitOnChange layout={layout} />

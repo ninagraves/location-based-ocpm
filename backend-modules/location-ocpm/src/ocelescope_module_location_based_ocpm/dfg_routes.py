@@ -57,10 +57,11 @@ def _cached(cache: OrderedDict, key, compute: Callable[[], T]) -> T:
 def get_directly_follows_graph(
     ocel_id: str, ocel: ApiOcel, derivation: CurrentDerivation, state: State, request: DfgRequest
 ) -> DirectlyFollowsGraph:
-    """The directly-follows graph of the selected object types with their path and arc thresholds, without the deselected activities."""
+    """The directly-follows graph of the selected object types: projected on their selected activities, with their variant and arc settings."""
     key = state.cache[ocel_id].key
     frames = _cached(_frames, key, lambda: log_frames(ocel, derivation))
     selection = resolve_selection(request, frames.objects, frames.handling_units.to_list())
     types = tuple(sorted({s.object_type for s in selection}))
     traces = _cached(_traces, (key, types), lambda: selected_traces(frames, types))
-    return directly_follows_graph(frames, selection, traces, request.excluded_activities)
+    removed = [(a.object_type, a.source, a.target) for a in request.removed_arcs]
+    return directly_follows_graph(frames, selection, traces, request.activities, request.stay_connected, removed)

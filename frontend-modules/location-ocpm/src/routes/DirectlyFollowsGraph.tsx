@@ -7,7 +7,8 @@ import { PanelRightOpenIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { getDirectlyFollowsGraph } from "../api/locationBasedOcpm";
 import { DfgGraph } from "../components/DfgGraph";
-import { DEFAULT_STATE, DfgSettings, type DfgState, toRequest } from "../components/DfgSettings";
+import { DEFAULT_STATE, DfgSettings, type DfgState, removeArc, toRequest } from "../components/DfgSettings";
+import type { LaidOutArc } from "../lib/dfgLayout";
 import { ModulePage } from "../components/ModulePage";
 import { useScheme } from "../components/plots";
 import { errorText } from "../lib/errors";
@@ -60,7 +61,7 @@ const ResizeHandle = ({ width, onChange }: { width: number; onChange: (width: nu
 
 /** Sidebar and graph of one log. */
 const DfgContent = ({ ocelId }: { ocelId: string }) => {
-  const [stored, setStored] = usePageState<DfgState>(`dfg.v3.${ocelId}`, DEFAULT_STATE);
+  const [stored, setStored] = usePageState<DfgState>(`dfg.v4.${ocelId}`, DEFAULT_STATE);
   // Settings saved by an older version may lack fields: fill them with the defaults.
   const state = useMemo(() => ({ ...DEFAULT_STATE, ...stored }), [stored]);
   const setState = useCallback(
@@ -69,6 +70,12 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
   );
   const [sidebar, setSidebar] = usePageState<SidebarState>("dfg.sidebar", { width: SIDEBAR_WIDTH.initial, hidden: false });
   const scheme = useScheme();
+  // Right click on an arc removes it (Nina, 2026-11-15).
+  const onRemoveArc = useCallback(
+    (arc: LaidOutArc) =>
+      setState((s) => removeArc(s, { object_type: arc.objectType, source: arc.sourceActivity, target: arc.targetActivity })),
+    [setState],
+  );
   const request = useMemo(() => toRequest(state), [state]);
   const { data, error, isFetching } = useQuery({
     queryKey: ["locationBasedOcpm", "dfg", ocelId, request],
@@ -98,6 +105,7 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
           arcLabel={state.arcLabel}
           compact={state.compact}
           height={GRAPH_HEIGHT}
+          onRemoveArc={onRemoveArc}
         />
         {sidebar.hidden && (
           <Tooltip label="Show the settings" withinPortal>
@@ -117,8 +125,7 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
           <ResizeHandle width={sidebar.width} onChange={(width) => setSidebar((s) => ({ ...s, width }))} />
           <Box w={sidebar.width} style={{ flexShrink: 0, position: "sticky", top: 8 }}>
             <DfgSettings
-              objectTypes={data.object_types}
-              activityOptions={data.activity_options}
+              graph={data}
               colours={colours}
               state={state}
               setState={setState}

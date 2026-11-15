@@ -9,6 +9,7 @@ The page will be extended (more interaction) later; the code is split into one s
 - All settings in a sidebar of the page.
 - Only the directly-follows relations of the handling units are shown by default; other object types involved appear only as circles on the activity nodes (as in TOTeM's discovery view, https://totem-tool.com/#discovery), unless they are selected.
 - Arc and path filter thresholds per object type.
+- Round 6 (Nina, 2026-11-15): "paths" renamed "variants"; activity selection as in Ocelescope (projection before everything else), per object type, default 40 % of a type's activities (3 to 10); arc threshold as Ocelescope's DFG filter, default 100 %; optional "Stay connected" (default on); an arc count slider like Ocelescope's DFG viewer; default variant threshold: one value for all types keeping at least the top 3 variants of each; arcs removable by right click.
 - Object types named in the model; activity frequencies in the nodes.
 - Layout and look of Ocelescope's earlier graph view of DFGs (ELK, `DirectlyFollowsGraph._visualize_graph` in `ocelescope/resource/default/dfg.py`), with smaller arc labels and complete activity names.
 
@@ -32,40 +33,43 @@ For a log with object types $OT$, the user selects $OT_{sel} \subseteq OT$ (defa
 | Hover arc label | traversals and objects of the arc | `DfgGraph.tsx`, `ArcEdge` |
 
 Definitions (`dfg/arcs.py`): for an object $o$ of type $ot$ with trace $\langle e_1, \dots, e_n \rangle$, the arcs are $(\triangleright_{ot}, act(e_1))$, $(act(e_i), act(e_{i+1}))$ and $(act(e_n), \square_{ot})$. $count(arc)$ = traversals (an object repeating an arc counts once per traversal), $objects(arc)$ = distinct objects.
-**Included traces**: the traces of the objects whose path is kept by the path filter. They are the baseline of everything else: arcs, frequencies, involved types and the activity list only use events on included traces (Nina, 2026-11-14).
-Shown activities: every activity that is the source or target of a kept arc and is not deselected. Frequency of activity $a$: $|\{e \mid act(e) = a,\ e$ on an included trace$\}|$.
+**Order of the steps** (Nina, 2026-11-15): 1. traces, 2. **projection** on the selected activities, 3. **variant filter**, 4. arcs, **arc threshold**, **arc count**, **arcs removed by hand**, 5. **Stay connected** (optional), 6. nodes.
+**Included traces**: the projected traces of the objects whose variant is kept by the variant filter. They are the baseline of everything after the variant filter: arcs, frequencies and involved types only use events on included traces.
+Shown activities: every activity that is the source or target of a shown arc. Frequency of activity $a$: $|\{e \mid act(e) = a,\ e$ on an included trace$\}|$.
 Involved types of $a$: for every object type (selected or not), the frequency events of $a$ that involve at least one object of that type, and its distinct objects there.
 
 ## 2. Settings (sidebar, top to bottom)
 | Setting | Values | Default | Effect |
 |---|---|---|---|
-| **Compact** (header, next to Reset) | on / off | off | smaller spacing between nodes, arcs and layers (`COMPACT_OPTIONS`), e.g. to export the whole graph as a figure for a paper |
-| **Reset** (header) | button | – | every setting of the page back to its default (selection, general and own thresholds, activities, display); not the sidebar's width |
-| **General thresholds: Paths** | 0–100 %, slider or typed (decimals allowed) | **automatic** (`DEFAULT_PATH_THRESHOLD` = None): the `AUTO_PATHS` = 3 top-ranked paths of each type in full, so the percentage depends on the data (Nina, 2026-11-15) | path threshold $\pi_{ot}$ of every selected type **without own value**; *auto* returns to automatic |
-| **General thresholds: Arcs** | 0–100 %, slider or typed (decimals allowed) | 10 % | arc threshold $\alpha_{ot}$ of every selected type without own value |
-| **Object types** (searchable, scrollable list; types with handling units first, then the others, each by number of objects; checkbox, colour swatch, number of considered objects, badge "HU") | any subset of $OT$ | the types with handling units | checked: arcs, start and end nodes of the type are drawn; unchecked: the type only appears as circles on the activity nodes whose events involve it. Unchecking all types leaves an empty graph. |
-| **Own thresholds** (unfold with the arrow of a type) | Paths and Arcs, 0–100 % | the general values | own $\pi_{ot}$ / $\alpha_{ot}$ of this type; the general sliders no longer change it. A type with an own value is marked in the list, e.g. "P 100 % · A 100 %"; "Use the general thresholds" removes the own values. The line next to a slider says "x of y paths · a objects" / "x of y arcs" kept. |
-| **Activities** (searchable, scrollable list, by number of events in the log, descending; ties alphabetically) | any subset | all | see "Activity selection" below |
-| **Arc labels** | Traversals / Objects | Traversals | the number on every arc: $count$ or $objects$ |
-| **Direction** | Left to right / Top to bottom | Left to right | ELK's `elk.direction` (RIGHT / DOWN) |
+| **Compact** (header, next to Reset) | on / off | off | smaller spacing between nodes, arcs and layers (`COMPACT_OPTIONS`) |
+| **Reset** (header) | button | – | every setting back to its default (selection, general and own values, activities, Stay connected, arcs removed by hand, display); not the sidebar's width |
+| **General: Variants** | 0–100 %, slider or typed (decimals allowed) | **default** (None): `variants.default_variant_threshold`, one value for all selected types (see below) | variant threshold $\pi_{ot}$ of every selected type without own value; *auto* returns to the default |
+| **General: Arcs** | 0–100 %, slider or typed | **100 %** (`DEFAULT_ARC_THRESHOLD`) | arc threshold $\alpha_{ot}$ of every selected type without own value |
+| **General: Arc count** | 0 to the most arcs of one type, slider or typed (empty = all) | all (None) | arc count $N$ per type for every selected type without own value; the line shows "shown of total arcs" (shown after everything, total = left by the arc threshold) |
+| **Stay connected** | on / off | **on** (`DEFAULT_STAY_CONNECTED`) | every shown arc lies on a start-to-end path; arcs added for this are dashed |
+| **Arcs removed by hand** (only while there are any) | list with × per arc, "Restore all" | none | right click on an arc (or its label) in the graph adds it; the General divider is marked **manual** while the list is not empty, as the sliders then no longer describe the graph on their own (Nina, 2026-11-15) |
+| **Object types** (searchable list; types with handling units first, then by number of objects) | any subset of $OT$ | the types with handling units | checked: arcs, start and end nodes drawn; unchecked: only circles on the activity nodes |
+| **Own values** (unfold of a type) | Variants, Arcs, Arc count | the general values | own $\pi_{ot}$, $\alpha_{ot}$, $N_{ot}$; marked in the list, e.g. "V 100 % · A 50 % · N 4"; "Use the general values" removes them |
+| **Activities** (searchable list, by events with at least one handling unit, then events in the log, then name) | per selected type any subset | per type: its most frequent 40 % of activities, at least 3, at most 10 | see "Activity selection" below |
+| **Arc labels** | Traversals / Objects | Traversals | the number on every arc |
+| **Direction** | Left to right / Top to bottom | Left to right | ELK's `elk.direction` |
 
-For both thresholds, **100 % keeps everything** and lower values keep less (Nina, 2026-11-14).
+**Activity selection (projection)** (`dfg/projection.py`; Nina, 2026-11-15): as in Ocelescope's DFG discovery (`ocelescope.discovery.algorithms.dfg_miner`, which removes excluded activities before the directly-follows relations). For every selected type the events of its deselected activities are removed from its traces before anything else: a trace $\langle a, b, c \rangle$ with $b$ deselected becomes $\langle a, c \rangle$, so variants, arcs and frequencies are computed on the projected traces. An object whose projected trace is empty is left out.
+The list shows per activity its events with at least one handling unit (`handling_unit_event_counts`); its checkbox (de)selects it for every selected type with events of it (indeterminate if selected for some of them). The unfold lists every object type with events of the activity (`type_activity_counts`: events with at least one considered object of the type); only selected types can be (de)selected. Default per type (`default_activities`, `default_activity_count`): the $\min(n, \max(3, \min(10, \lceil 0.4\,n \rceil)))$ most frequent of its $n$ activities (by events of its considered objects; ties by first occurrence, then name). E.g. $n$ = 7 → 3, 12 → 5, 30 → 10. Once the user changes a type, its full list is stored (`DfgState.activities`), so it no longer follows the default; "Default" in the list header clears all.
 
-**Path threshold** $\pi_{ot}$ (`dfg/variants.py`): the path (variant) of an object is the sequence of its activities. Paths of $ot$ are ranked by their number of objects (descending; ties by their first occurrence in the log, i.e. the earliest first event of their objects (Nina, 2026-11-15), then alphabetically by the path), and a path is kept if the objects of the paths ranked before it cover less than $\pi_{ot}/100 \cdot |O_{ot}|$. So the most frequent paths are kept until they cover at least $\pi_{ot}$ % of the objects. 0 % keeps none.
-Ties are deliberately not kept together: in logistics logs most objects often have a path of their own, and keeping ties would then keep everything at any threshold.
+**Variant threshold** $\pi_{ot}$ (`dfg/variants.py`): the variant of an object is the sequence of the activities of its projected trace. Variants of $ot$ are ranked by their number of objects (descending; ties by first occurrence in the log, then alphabetically), and a variant is kept if the objects of the variants ranked before it cover less than $\pi_{ot}/100 \cdot |O_{ot}|$. 0 % keeps none; ties are deliberately not kept together.
+**Default** (`default_variant_threshold`, Nina 2026-11-15): one threshold for all selected types, the smallest whole percentage that keeps at least the 3 top-ranked variants of every type. A type's third variant is kept by every threshold above the share $s_2$ of its first two variants, so the type needs $\lfloor s_2 \rfloor + 1$ % (`needed_variant_thresholds`; with fewer than 3 variants: above the share of all but its last; 1 variant: 1 %); the default is the largest of these. E.g. running example: 5 coils with a variant each need 41 %, the slab 1 % → 41 % for both.
 
-**Arc threshold** $\alpha_{ot}$ (`dfg/arcs.py`, `arc_filter`): of the $n$ arcs of $ot$ **between two activities** on the included traces, the $\lceil \alpha_{ot}/100 \cdot n \rceil$ most frequent are kept (ranked by traversals, then objects, then source and target alphabetically). Start and end arcs are **always** kept. 0 % keeps only start and end arcs. The path filter is applied first.
-Both comparisons are done in whole numbers times 100, so e.g. 60 % of 5 objects is exactly 3.
-An arc filter can leave an activity without outgoing (or incoming) arc; it is still shown, as long as one kept arc touches it.
+**Arc threshold** $\alpha_{ot}$ (`arcs.arc_share_filter`, as `DirectlyFollowsGraph.filter_edges` of Ocelescope without its repair): all $n$ arcs of $ot$, **start and end arcs included**, are ranked by objects, then traversals; the first $\lceil \alpha_{ot}/100 \cdot n \rceil$ are kept, plus every arc tied with the last kept one. 0 % keeps none.
+**Arc count** $N_{ot}$ (`arcs.arc_count_filter`, like the slider of Ocelescope's DFG viewer `OCDFGViewer` in `@r4pm/components`): of the arcs left by the arc threshold, the first $N_{ot}$ in the order objects, traversals (descending), first occurrence (time of the first traversal), source, target; exactly $N_{ot}$ (ties broken by this order; Nina, 2026-11-15).
+**Arcs removed by hand** (`arcs.remove_arcs`): removed after the arc count.
+**Stay connected** (`dfg/connectivity.py`, `stay_connected`; as the repair in Ocelescope's `filter_edges`): per type, base graph = the arcs of the included traces without the arcs removed by hand, reduced to the arcs on a start-to-end path (`on_start_end_paths`); required activities = the endpoints of the arcs left after the hand removals; every other base arc is then taken out, least frequent first, unless this cuts a required activity off from the start or the end node. It overrides the arc threshold and the arc count, nothing else: it never adds arcs of removed variants, of deselected activities or removed by hand (Nina, 2026-11-15). Added arcs have `connecting` = true and are drawn dashed.
+All percentage comparisons are done in whole numbers times 100 (rounded to 6 decimals), so e.g. 60 % of 5 objects is exactly 3.
 
-**Activity selection** (`arcs.remove_activities`): an activity is shown as checked when it lies on an included trace, whether or not it is drawn; activities on no included trace are greyed out (checking them could not add anything). Unchecking an activity removes its node and every arc touching it; no new arc is drawn between its neighbours (no projection). Unchecking an activity that is not drawn changes nothing. The arc counts in the type unfolds are taken after this removal.
+**Independence of settings**: changing one setting leaves all others as they are. Settings are kept per log across page switches and reloads (`lib/pageState.ts`, key `dfg.v4.<log id>`; settings saved by an older version are completed with the defaults). A slider sends its value when released.
 
-**Independence of settings**: changing one setting leaves all others as they are (e.g. a deselected activity stays deselected when a threshold changes; a general slider does not touch own values).
-Settings are kept per log across page switches and reloads (`lib/pageState.ts`, key `dfg.v2.<log id>`; settings saved by an older version are completed with the defaults). A slider sends its value when released.
-
-**Example** (running example, Level 3, default selection coil and slab): with 100 % / 100 %: 9 activities; slab: ▶ → cast slab → inspect slab → roll → ■ (1 each); coil: 18 arcs (6 start/end, 12 between activities), e.g. load truck → unload truck 3 traversals (3 coils), ▶ → roll 2, quality check → ■ 4; frequencies crane move 4, quality check 4, load truck 2, roll 1.
-Defaults (automatic / 10 %): all 5 coils have different paths, ranked by first event (c2, c1 at 3:00, then c3, c4, c5); the top 3 (c2, c1, c3; shown as 60 %) are kept, and 10 % of their arcs between activities, rounded up.
-coil with Paths 50 %: 3 paths (3 coils). coil with Paths 100 % and Arcs 20 %: $\lceil 0.2 \cdot 12 \rceil = 3$ arcs between activities (load truck → unload truck 3, unload truck → crane move 3, crane move → load truck 2) plus the 6 start and end arcs.
+**Example** (running example, Level 3, default selection coil and slab): defaults: coil activities crane move, quality check, load truck (3 of 7); slab: cast slab, inspect slab, roll (3 of 3); variants 41 % (coil: 3 of 5 variants, 3 coils); arcs 100 %: coil 10 arcs, slab 4.
+coil with all activities, Variants 100 %, Arcs 20 %: 18 arcs, $\lceil 3.6 \rceil = 4$, the fourth (2 objects) is tied with four more → 8 arcs. Arc count 2 instead: quality check → ■ (4) and load truck → unload truck (3). slab with Arc count 1: ▶ → cast slab, and Stay connected adds the other three (dashed).
 
 ## 3. Layout
 ELK layered (`lib/dfgLayout.ts`, `layoutGraph`, options `ELK_OPTIONS`; with "Compact layout" `COMPACT_OPTIONS`): the options of Ocelescope's `DIRECTED_ELK_GRAPH_LAYOUT` (network-simplex layering and node placement, layer-sweep crossing minimisation, spline edges), with somewhat smaller spacing between layers.
@@ -78,31 +82,35 @@ ELK layered (`lib/dfgLayout.ts`, `layoutGraph`, options `ELK_OPTIONS`; with "Com
 
 ## 4. Code
 - Backend (`backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/`):
-  - `dfg/traces.py`: `considered_objects(objects, object_types, handling_units)`, `object_traces(e2o, events, objects, processing)`.
-  - `dfg/variants.py`: `object_variants`, `variant_ranking`, `kept_variants(ranking, thresholds)`, `path_filter(traces, thresholds)`.
-  - `dfg/arcs.py`: `directly_follows_arcs(traces)`, `objects_per_type`, `arc_filter(arcs, thresholds)`, `remove_activities(arcs, activities)`.
+  - `dfg/traces.py`: `considered_objects(objects, object_types, handling_units)`, `object_traces(e2o, events, objects, processing)`, `boundary_rank`.
+  - `dfg/projection.py`: `type_activity_counts`, `handling_unit_event_counts`, `default_activity_count`, `default_activities(counts, object_types)`, `project_traces(traces, included)`; constants `DEFAULT_ACTIVITY_SHARE` (40), `MIN_ACTIVITIES` (3), `MAX_ACTIVITIES` (10).
+  - `dfg/variants.py`: `object_variants`, `variant_ranking`, `needed_variant_thresholds`, `default_variant_threshold(ranking, object_types)`, `kept_variants(ranking, thresholds)`, `variant_filter(traces, thresholds)`; `TOP_VARIANTS` (3).
+  - `dfg/arcs.py`: `directly_follows_arcs(traces)` (with `first_time`), `arc_order`, `arc_share_filter(arcs, thresholds)`, `arc_count_filter(arcs, counts)`, `remove_arcs(arcs, removed)`, `objects_per_type`, `arcs_per_type`.
+  - `dfg/connectivity.py`: `on_start_end_paths(arcs)`, `stay_connected(base, kept)` (networkx).
   - `dfg/nodes.py`: `shown_activities`, `activity_frequencies`, `involved_object_types(traces, activities, typed_e2o)`.
-  - `dfg/graph.py`: defaults `DEFAULT_PATH_THRESHOLD` (None = automatic, `variants.AUTO_PATHS` = 3 top paths; `variants.auto_path_thresholds` gives the resulting percentage) and `DEFAULT_ARC_THRESHOLD` (10); request and response models (`TypeSetting`, `TypeThresholds`, `DfgRequest`, `DirectlyFollowsGraph`, `DfgActivityOption`, …), `log_frames(ocel, derivation)`, `default_selection`, `resolve_selection(request, objects, handling_units)`, `type_overview`, `selected_traces`, `directly_follows_graph(frames, selection, traces, excluded_activities)`.
-  - `dfg_routes.py`: `POST /{ocel_id}/dfg` (`getDirectlyFollowsGraph`), body `{"object_types": [...] | null, "path_threshold", "arc_threshold", "type_thresholds": [{"object_type", "path_threshold"?, "arc_threshold"?}], "excluded_activities": [...]}`; caches the log's frames and the traces per selection (LRU, `CACHE_SIZE`), keyed by the derivation's cache key, so a slider only reruns the filters.
-- Frontend (`frontend-modules/location-ocpm/src/`): `routes/DirectlyFollowsGraph.tsx` (page, state, query), `components/DfgSettings.tsx` (sidebar, `DEFAULT_STATE`, `toRequest`; hover texts `INFO`), `components/DfgGraph.tsx` (drawing, legend), `lib/dfgLayout.ts` (layout, sizes `SIZES`, `ELK_OPTIONS`, `COMPACT_OPTIONS`).
+  - `dfg/graph.py`: `DEFAULT_ARC_THRESHOLD` (100), `DEFAULT_STAY_CONNECTED` (True); models `TypeSetting`, `TypeThresholds`, `ArcKey`, `DfgRequest`, `DirectlyFollowsGraph` (with `variant_default`, `arc_count_max`, `removed_arcs`), `DfgObjectType`, `DfgArc` (with `connecting`), `DfgActivityOption`, `DfgActivityTypeOption`; `log_frames(ocel, derivation)`, `default_selection`, `resolve_selection(request, objects, handling_units)`, `type_overview`, `selected_traces`, `directly_follows_graph(frames, selection, traces, activities, stay, removed)`.
+  - `dfg_routes.py`: `POST /{ocel_id}/dfg` (`getDirectlyFollowsGraph`), body `DfgRequest` (`object_types`, `variant_threshold`, `arc_threshold`, `arc_count`, `type_thresholds`, `activities`, `stay_connected`, `removed_arcs`); caches the log's frames and the traces per selection (LRU, `CACHE_SIZE`), keyed by the derivation's cache key.
+- Frontend (`frontend-modules/location-ocpm/src/`): `routes/DirectlyFollowsGraph.tsx` (page, state, query, right click handler), `components/DfgSettings.tsx` (sidebar, `DEFAULT_STATE`, `toRequest`, `removeArc`, `PercentSlider`, `CountSlider`, `ActivityRow`; hover texts `INFO`), `components/DfgGraph.tsx` (drawing, legend, `onEdgeContextMenu`), `lib/dfgLayout.ts` (layout, sizes `SIZES`, `ELK_OPTIONS`, `COMPACT_OPTIONS`).
 - Tests: `tests/test_dfg.py` (`test_worked_example_of_the_module_note` checks the worked example of the module note; update both together). Demo notebook: `notebooks/directly_follows_graph.ipynb`.
 
 ## 5. How to change
-- Number of paths of the automatic threshold: `AUTO_PATHS` in `dfg/variants.py` (and the texts "top 3 paths" in `DfgSettings.tsx`).
-- Other defaults: `DEFAULT_PATH_THRESHOLD` / `DEFAULT_ARC_THRESHOLD` in `dfg/graph.py` **and** `DEFAULT_STATE` in `DfgSettings.tsx`.
+- Default activities: `DEFAULT_ACTIVITY_SHARE`, `MIN_ACTIVITIES`, `MAX_ACTIVITIES` in `dfg/projection.py`.
+- Number of variants of the default threshold: `TOP_VARIANTS` in `dfg/variants.py`.
+- Other defaults: `DEFAULT_ARC_THRESHOLD` / `DEFAULT_STAY_CONNECTED` in `dfg/graph.py` **and** `DEFAULT_STATE` in `DfgSettings.tsx`.
 - Other tie order of traces: `visits/order.py`, `tie_rank` (changes all pages).
-- Other path filter (e.g. keep ties, rank by other criteria): `variants.kept_variants`; adapt `test_path_threshold_keeps_most_frequent_paths`.
-- Other arc filter (e.g. a minimum share of objects per arc, or Ocelescope's connectivity-preserving filter): `arcs.arc_filter`; adapt `test_arc_threshold_keeps_most_frequent_relations_and_all_start_and_end_arcs`.
-- Activity deselection with projection (connect the neighbours): `arcs.remove_activities` would have to work on the traces instead of the arcs.
-- Other frequency in the nodes (e.g. all events of the activity in the log, `log_events`, already sent): `nodes.activity_frequencies` or the frontend `ActivityNode`.
+- Other variant filter: `variants.kept_variants`; other arc ranking: `arcs.arc_order` (arc count) and the key in `arcs.arc_share_filter` (arc threshold).
+- Stay connected overriding hand removals too: pass `all_arcs` instead of `remove_arcs(all_arcs, removed)` as the base in `graph.directly_follows_graph`.
+- Other frequency in the nodes: `nodes.activity_frequencies` or the frontend `ActivityNode`.
 - A new setting: field in `DfgRequest` (backend), `pnpm run build:modules`, a field in `DfgState`/`DEFAULT_STATE`/`toRequest` and a control in `DfgSettings.tsx`, a row in section 2 here and in the module note.
-- Look: `SIZES`, `ELK_OPTIONS` and `COMPACT_OPTIONS` in `lib/dfgLayout.ts`; arc thickness `strokeWidth`, start/end grey `GREY` and arrow size in `DfgGraph.tsx`.
+- Look: `SIZES`, `ELK_OPTIONS` and `COMPACT_OPTIONS` in `lib/dfgLayout.ts`; arc thickness `strokeWidth`, start/end grey `GREY`, dashes of connecting arcs and arrow size in `DfgGraph.tsx`.
 
 ## 6. Alternatives considered
 - **Ocelescope's `Graph` visualisation** (`<Visualization>` of `@ocelescope/resources`): same layout engine, but no circles on nodes, fixed node width (cut names) and no room for later interaction. Own React Flow rendering instead.
-- **Arc threshold as a minimum share of objects per arc** (round 1): replaced so that both sliders read the same way, 100 % = all (Nina, 2026-11-14).
-- **Path filter keeping ties**: degenerates when every object has its own path (see section 2).
-- **Frequency = all events of the activity in the log**: does not change with the selection and the path filter; kept as hover information and as the order of the activity list.
+- **Activity deselection without projection** (rounds 1–4: removing the node and its arcs, no arc between its neighbours): replaced by the projection, as in Ocelescope (Nina, 2026-11-15).
+- **Arc threshold on arcs between activities only, start and end arcs always kept, no ties** (rounds 2–5): replaced by Ocelescope's ranking (Nina, 2026-11-15).
+- **Automatic variant threshold per type** (round 4: the top 3 of each type in full): replaced by one default value for all types (Nina, 2026-11-15).
+- **Default variant threshold = share of the top 3, rounded up** (e.g. 60 % for 5 equally frequent coils): keeps the same variants here, but forces 100 % whenever a type has at most 3 variants, although these need much less; the smallest threshold that keeps the top 3 avoids this.
+- **Path filter keeping ties**: degenerates when every object has its own variant.
 - **Start nodes in the first layer** (as in the current Ocelescope viewer): what Nina disliked.
 
 ## 7. Open points (for Nina)

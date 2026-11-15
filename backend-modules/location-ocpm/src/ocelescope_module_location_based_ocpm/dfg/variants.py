@@ -1,38 +1,41 @@
-"""Step 2: the path filter, per object type.
+"""Step 2: the variant filter, per object type (called "paths" before; Nina, 2026-11-15).
 
-A *path* (variant) of an object is the sequence of the activities of its trace.
-The path threshold $\\pi_{ot} \\in [0, 100]$ (percent) of an object type $ot$ keeps the most frequent paths of $ot$ until
-they cover at least $\\pi_{ot}$ % of its objects: paths are ranked by their number of objects
-(descending; equally frequent paths by their first occurrence in the log, i.e. the earliest first event of
-their objects, Nina 2026-11-15; then by the path itself), and a path is kept if the objects of the paths
-ranked before it cover less than $\\pi_{ot} / 100 \\cdot |O_{ot}|$.
-Ties are not kept together on purpose: in logistics logs most objects often have a path of their own (all paths
-have one object), and keeping ties would then keep every path for any threshold.
-$\\pi_{ot} = 100$ keeps every path, $\\pi_{ot} = 0$ keeps none.
-Default ("automatic", $\\pi_{ot}$ = None): the `AUTO_PATHS` = 3 most frequent paths in full, i.e. the threshold
-depends on the data: $\\pi_{ot}$ = share of the objects of the three top-ranked paths (Nina, 2026-11-15).
-Only the objects of kept paths contribute to the arcs and nodes of the graph.
+A *variant* of an object is the sequence of the activities of its (projected) trace.
+The variant threshold $\\pi_{ot} \\in [0, 100]$ (percent) of an object type $ot$ keeps the most frequent variants of
+$ot$ until they cover at least $\\pi_{ot}$ % of its objects: variants are ranked by their number of objects
+(descending; equally frequent variants by their first occurrence in the log, i.e. the earliest first event of
+their objects, Nina 2026-11-15; then by the variant itself), and a variant is kept if the objects of the
+variants ranked before it cover less than $\\pi_{ot} / 100 \\cdot |O_{ot}|$.
+Ties are not kept together on purpose: in logistics logs most objects often have a variant of their own (all
+variants have one object), and keeping ties would then keep every variant for any threshold.
+$\\pi_{ot} = 100$ keeps every variant, $\\pi_{ot} = 0$ keeps none.
+Default (Nina, 2026-11-15): one threshold for all selected types, the smallest whole percentage that keeps at
+least the `TOP_VARIANTS` = 3 top-ranked variants of every selected type (`default_variant_threshold`).
+("The percentage it would take": since ties are not kept together, every threshold above the share of the first
+two variants keeps the third; rounded up to the next whole percentage.)
+Only the objects of kept variants contribute to the arcs and nodes of the graph.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import math
+from collections.abc import Collection, Mapping
 
 import polars as pl
 
 from ..derivation import columns as c
 from . import columns as d
 
-#: Number of top-ranked paths kept by the automatic (default) path threshold (Nina, 2026-11-15).
-AUTO_PATHS = 3
-#: Column: time of the first event of an object (and the earliest of a path's objects).
+#: Number of top-ranked variants of every type that the default variant threshold keeps (Nina, 2026-11-15).
+TOP_VARIANTS = 3
+#: Column: time of the first event of an object (and the earliest of a variant's objects).
 FIRST_TIME = "first_time"
-#: Column: rank of a path within its object type (1 = most frequent).
+#: Column: rank of a variant within its object type (1 = most frequent).
 RANK = "rank"
 
 
 def object_variants(traces: pl.DataFrame) -> pl.DataFrame:
-    """The path (variant) of every object.
+    """The variant of every object.
 
     Args:
         traces: Object traces, sorted by object and position (`traces.object_traces`).
@@ -48,10 +51,10 @@ def object_variants(traces: pl.DataFrame) -> pl.DataFrame:
 
 
 def variant_ranking(variants: pl.DataFrame) -> pl.DataFrame:
-    """The paths of every object type with their number of objects, most frequent first.
+    """The variants of every object type with their number of objects, most frequent first.
 
-    Equally frequent paths are ranked by their first occurrence in the log (the earliest first event of
-    their objects; Nina, 2026-11-15), then by the path itself.
+    Equally frequent variants are ranked by their first occurrence in the log (the earliest first event of
+    their objects; Nina, 2026-11-15), then by the variant itself.
 
     Args:
         variants: Columns object, object_type, variant, first_time (`object_variants`).
@@ -72,52 +75,70 @@ def variant_ranking(variants: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def auto_path_thresholds(ranking: pl.DataFrame) -> dict[str, float]:
-    """The automatic (default) path threshold per object type: the share of objects of its `AUTO_PATHS` top paths.
+def needed_variant_thresholds(ranking: pl.DataFrame) -> dict[str, float]:
+    """Per object type: the smallest whole percentage that keeps its `TOP_VARIANTS` (3) top-ranked variants.
 
-    With this threshold exactly the `AUTO_PATHS` top-ranked paths are kept (all paths if there are fewer).
+    A variant is kept if the variants ranked before it cover less than the threshold, so the third variant is
+    kept by every threshold above the share $s_2$ of the objects of the first two: the smallest whole percentage is
+    $\\lfloor s_2 \\rfloor + 1$ (with fewer than 3 variants: the share of all but the last one; 1 variant: 1 %).
+    Example: 5 coils with a variant each: $s_2$ = 40 % -> 41 % (keeps exactly 3 variants, which cover 60 %).
 
     Args:
-        ranking: Ranked paths (`variant_ranking`).
+        ranking: Ranked variants (`variant_ranking`).
 
     Returns:
-        dict[str, float]: Object type -> threshold in percent (100 if the type has at most `AUTO_PATHS` paths).
+        dict[str, float]: Object type -> threshold in percent (at most 100).
     """
-    shares = ranking.group_by(c.OBJECT_TYPE).agg(
-        (pl.col(d.OBJECTS).filter(pl.col(RANK) <= AUTO_PATHS).sum() * 100 / pl.col(d.OBJECTS).sum()).alias("share")
+    last = pl.col(RANK) == pl.min_horizontal(pl.lit(TOP_VARIANTS), pl.col(RANK).max().over(c.OBJECT_TYPE))
+    shares = (
+        ranking.with_columns((pl.col("covered_before") * 100 / pl.col(d.OBJECTS).sum().over(c.OBJECT_TYPE)).alias("share"))
+        .filter(last)
+        .select(c.OBJECT_TYPE, "share")
     )
-    return dict(zip(shares[c.OBJECT_TYPE], shares["share"], strict=True))
+    return {t: min(100.0, float(math.floor(round(v, 6)) + 1)) for t, v in shares.iter_rows()}
 
 
-def kept_variants(ranking: pl.DataFrame, thresholds: Mapping[str, float | None]) -> pl.DataFrame:
-    """The paths kept by the path thresholds.
+def default_variant_threshold(ranking: pl.DataFrame, object_types: Collection[str]) -> float:
+    """The default variant threshold: one value for all given types that keeps at least their 3 top variants.
+
+    The largest `needed_variant_thresholds` of the types (Nina, 2026-11-15). Example: pallets need 41 %, trucks
+    61 % -> 61 % for both (pallets then keep 3 or more variants).
 
     Args:
-        ranking: Ranked paths (`variant_ranking`).
-        thresholds: Path threshold per object type in percent (0 to 100, decimals allowed); None = automatic
-            (the `AUTO_PATHS` top-ranked paths); a missing type uses 100 (all paths).
+        ranking: Ranked variants (`variant_ranking`).
+        object_types: The selected object types.
+
+    Returns:
+        float: Threshold in percent (100 if no type has variants).
+    """
+    needed = [v for t, v in needed_variant_thresholds(ranking).items() if t in set(object_types)]
+    return max(needed) if needed else 100.0
+
+
+def kept_variants(ranking: pl.DataFrame, thresholds: Mapping[str, float]) -> pl.DataFrame:
+    """The variants kept by the variant thresholds.
+
+    Args:
+        ranking: Ranked variants (`variant_ranking`).
+        thresholds: Variant threshold per object type in percent (0 to 100, decimals allowed); a missing type uses
+            100 (all variants).
 
     Returns:
         pl.DataFrame: The rows of `ranking` that are kept.
     """
-    auto = [t for t, v in thresholds.items() if v is None]
-    fixed = {t: v for t, v in thresholds.items() if v is not None}
-    threshold = pl.col(c.OBJECT_TYPE).replace_strict(fixed, default=100.0, return_dtype=pl.Float64)
+    threshold = pl.col(c.OBJECT_TYPE).replace_strict(dict(thresholds), default=100.0, return_dtype=pl.Float64)
     total = pl.col(d.OBJECTS).sum().over(c.OBJECT_TYPE)
     # Compared in objects times percent (rounded against floating-point noise), so that e.g. 7 % of 100 objects
     # is exactly 7 objects.
-    by_share = pl.col("covered_before") * 100 < (threshold * total).round(6)
-    by_rank = pl.col(RANK) <= AUTO_PATHS
-    return ranking.filter(pl.when(pl.col(c.OBJECT_TYPE).is_in(auto)).then(by_rank).otherwise(by_share))
+    return ranking.filter(pl.col("covered_before") * 100 < (threshold * total).round(6))
 
 
-def path_filter(traces: pl.DataFrame, thresholds: Mapping[str, float | None]) -> pl.DataFrame:
-    """Keep the traces of the objects whose path is kept by the path threshold of their object type.
+def variant_filter(traces: pl.DataFrame, thresholds: Mapping[str, float]) -> pl.DataFrame:
+    """Keep the traces of the objects whose variant is kept by the variant threshold of their object type.
 
     Args:
-        traces: Object traces (`traces.object_traces`).
-        thresholds: Path threshold per object type in percent; None = automatic (`kept_variants`); a missing
-            type uses 100 (all paths).
+        traces: Object traces (`traces.object_traces`, projected by `projection.project_traces`).
+        thresholds: Variant threshold per object type in percent; a missing type uses 100 (all variants).
 
     Returns:
         pl.DataFrame: The rows of `traces` of kept objects, in the same order.
