@@ -466,7 +466,8 @@ export const ObjectGraphChart = ({
           {data.nodes.length === handlingUnits.length && (
             <Text size="xs" c="dimmed">The selected handling units share no events and no o2o relations with other objects.</Text>
           )}
-          <Box style={{ height: HEIGHT, border: "1px solid var(--mantine-color-default-border)", borderRadius: 8, opacity: query.isFetching ? 0.6 : 1 }}>
+          {/* Resizable at the bottom edge (drag the corner); React Flow follows the new size. */}
+      <Box style={{ height: HEIGHT, minHeight: 200, resize: "vertical", overflow: "hidden", border: "1px solid var(--mantine-color-default-border)", borderRadius: 8, opacity: query.isFetching ? 0.6 : 1 }}>
             <svg style={{ position: "absolute", width: 0, height: 0 }} aria-hidden="true">
               <defs>
                 <marker id={`og-arrow-${scheme}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse">

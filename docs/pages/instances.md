@@ -6,6 +6,7 @@ Demo: `notebooks/instances.ipynb`.
 
 The page has no sidebar: four cards one below the other (HU profile, Lineage, Object graph, HU timeline), every chart with its own settings row above it.
 It ignores the filter bar of the overview page.
+The graph canvases (lineage, object graph) can be made taller by dragging their bottom-right corner (CSS `resize: vertical`; Nina 2026-11-15).
 All values use the low-level location $loc = loc^k$ of the selected level (and $\widehat{hl} = agg(loc)$); visits are not used.
 
 ## HU profile

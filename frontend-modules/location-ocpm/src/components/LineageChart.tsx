@@ -378,7 +378,8 @@ export const LineageChart = ({
           The selected handling units have no {settings.direction === "both" ? "components or products" : settings.direction} in the log.
         </Text>
       )}
-      <Box style={{ height: HEIGHT, border: "1px solid var(--mantine-color-default-border)", borderRadius: 8, opacity: query.isFetching ? 0.6 : 1 }}>
+      {/* Resizable at the bottom edge (drag the corner); React Flow follows the new size. */}
+      <Box style={{ height: HEIGHT, minHeight: 200, resize: "vertical", overflow: "hidden", border: "1px solid var(--mantine-color-default-border)", borderRadius: 8, opacity: query.isFetching ? 0.6 : 1 }}>
         <ReactFlowProvider>
           <ReactFlow
             nodes={flow.nodes}
