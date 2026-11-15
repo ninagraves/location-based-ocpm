@@ -30,6 +30,7 @@ from ocelescope_module_location_based_ocpm.instances.object_graph import (
 )
 from ocelescope_module_location_based_ocpm.instances.profile import (
     SORTABLE,
+    hu_details,
     hu_profile,
     query_profile,
 )
@@ -107,6 +108,8 @@ class HuProfileRow(BaseModel):
     n_movements: int = 0
     n_processing: int = 0
     processing_activities: list[str] = Field(default_factory=list)
+    n_shared_events: int = 0
+    connectedness: float | None = None
     n_co_handled: int = 0
     time_vehicle: float = 0
     time_storage: float = 0
@@ -165,6 +168,65 @@ def get_hu_profile(
         has_vehicles=bool(derivation.context.vehicles),
         has_storage=bool(derivation.context.storage_units),
     )
+
+
+class DetailEvent(BaseModel):
+    """An event in the details of a handling unit."""
+
+    event: str
+    activity: str | None = None
+    time: datetime | None = None
+
+
+class PathEntry(BaseModel):
+    """A location of the location path: the location and the event that reached it."""
+
+    location: str
+    event: str
+    time: datetime | None = None
+
+
+class ActivityCount(BaseModel):
+    """An activity with its number of events."""
+
+    activity: str | None = None
+    count: int
+
+
+class CoHandled(BaseModel):
+    """Another handling unit sharing non-transformation events with the handling unit."""
+
+    hu: str
+    count: int
+    events: list[str]
+
+
+class HuDetails(BaseModel):
+    """What an unfolded row of the HU profile shows (see `instances.profile.hu_details`)."""
+
+    hu: str
+    first_event: DetailEvent | None = None
+    last_event: DetailEvent | None = None
+    creation: DetailEvent | None = None
+    final_consumption: DetailEvent | None = None
+    partial_consumptions: list[DetailEvent]
+    parents: list[str]
+    children: list[str]
+    siblings: list[str]
+    location_path: list[PathEntry]
+    processing: list[ActivityCount]
+    co_handled: list[CoHandled]
+
+
+@router.get("/{ocel_id}/instances/details", operation_id="getHuDetails")
+def get_hu_details(ocel_id: str, derivation: CurrentDerivation, state: State, hu: str) -> HuDetails:
+    """Details of one handling unit for its unfolded row in the HU profile."""
+    profile = cached_profile(state.cache[ocel_id].key, derivation)
+    rows = profile.filter(pl.col("hu") == hu).to_dicts()
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"Not a handling unit of this log: {hu}.")
+    details = hu_details(derivation.relations, rows[0], derivation.loc, derivation.hl, processing_events(derivation))
+    return HuDetails(hu=hu, **details)
 
 
 class LineageRequest(BaseModel):

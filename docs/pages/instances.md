@@ -11,8 +11,15 @@ All values use the low-level location $loc = loc^k$ of the selected level (and $
 ## HU profile
 
 ### What it shows
-One row per handling unit (also those without events): object type, lifecycle class, events, first and last timestamp, lifespan, creation event, final consumption, partial consumptions, parents, children, siblings, distinct low- and high-level locations, first and last location, location changes, locatedness, time on vehicles / in storage / at other locations / unlocated (with a bar of the shares), movements, processing operations, processing activities, co-handled handling units.
-Columns come in groups (Lifecycle, Lineage, Locations, Time, Activities) that can be hidden.
+One row per handling unit (also those without events): object type, lifecycle class, events, first and last timestamp, lifespan, number of partial consumptions, numbers of parents, children and siblings, distinct low- and high-level locations, first and last location, location changes, locatedness, time on vehicles / in storage / at other locations / unlocated (with a bar of the shares), movements, processing operations, shared events, connectedness, co-handled handling units.
+The overview shows counts, so that every column sorts (Nina 2026-11-15, "like in the activity profile").
+Columns come in groups (Lifecycle, Lineage, Locations, Time, Activities, Connectedness) that can be hidden.
+
+Clicking a row unfolds it (several rows can be open) with the names behind the counts, loaded per handling unit:
+- start and end: first and last event, creation event, final consumption, partial consumptions (activity, id, timestamp);
+- lineage: parents, children, siblings (clicking one adds it to the selection);
+- locations: the location path, one entry per location change with the event that reached it and its timestamp;
+- activities and connectedness: processing activities with counts, co-handled handling units with their shared events (clickable).
 
 ### How it is calculated
 - Traces: the relations of a handling unit in `seq` order (time, AS4 via `visits/order.sort_by_seq`, event id).
@@ -22,10 +29,11 @@ Columns come in groups (Lifecycle, Lineage, Locations, Time, Activities) that ca
 - Location change: $loc(r_j) \neq \bot$ and different from the last $loc \neq \bot$ before $r_j$.
 - Locatedness: General Concepts, "Locatedness" (handling-unit version).
 - Time per location kind: $r_j$ contributes $time(r_{j+1}) - time(r_j)$ to the kind of $loc(r_j)$ (vehicle if in $V$, else storage if in $W$, else other; unlocated if $\bot$); the last relation contributes nothing, so the four times add up to the lifespan.
-- Co-handled: distinct other handling units sharing at least one event.
+- Connectedness (Nina 2026-11-15): with $E'(hu)$ the events of $hu$ that are not transformation events, shared events $= |\{e \in E'(hu) \mid e$ involves another handling unit$\}|$, connectedness = shared events $/ |E'(hu)|$ (– if $E'(hu) = \emptyset$), co-handled = distinct other handling units in the shared events. Shared transformation events are left out, as they are lineage.
+- Location path (unfolded row): a new entry at every location change (as above), so A, ⊥, A is one entry.
 
 ### Example
-Running example, `data/running_example/configuration.json` (Level 3): c1 has 9 events, lifespan 11 h, lifecycle `produced` (roll e3), 4 locations, 3 high-level locations, 5 location changes, 2 h on vehicles, 1 h in storage, 8 h at other locations; c2 is `full` (roll e3, cut e15) and co-handled with 4 handling units; c5 is unlocated for 1 h.
+Running example, `data/running_example/configuration.json` (Level 3): c1 has 9 events, lifespan 11 h, lifecycle `produced` (roll e3), 4 locations, 3 high-level locations, 5 location changes, 2 h on vehicles, 1 h in storage, 8 h at other locations; c2 is `full` (roll e3, cut e15), shares 5 of its 6 non-transformation events (e4, e8, e9, e11, e12; not e6) with c1 and c3 (connectedness 83 %), location path A1 (e3), A2 (e6), T (e8), A2 (e9), B1 (e12); c5 is unlocated for 1 h.
 Tests: `backend-modules/location-ocpm/tests/test_instances.py`.
 
 ### Filtering
@@ -35,13 +43,14 @@ Own search and object-type filter only. Search: every word must occur in the low
 Sort by any scalar column (`profile.SORTABLE`; nulls last, ties by id), 10/25/50/100 rows per page (default 25), all column groups shown. Kept per log in the page state (`instances.table.<ocel>`), as is the selection (`instances.selected.<ocel>`).
 
 ### Where it lives in the code
-- `backend-modules/.../instances/profile.py`: `ordered_traces`, `lifecycle_basics`, `location_profile`, `location_kind`, `time_per_location_kind`, `transformation_profile`, `co_handled`, `hu_profile` (joins them), `search_text`, `query_profile(profile, search, object_types, sort_by, descending, offset, limit) -> (page, total)`.
-- `backend-modules/.../instance_routes.py`: `GET /{ocel_id}/instances/profile` (`getHuProfile`); the profile is cached per derivation key (`cached_profile`, LRU of 4), so paging and sorting only rerun `query_profile`.
-- `frontend-modules/.../components/HuProfileTable.tsx` (mantine-datatable, server-side paging and sorting; `duration` formats seconds), `routes/Instances.tsx` (selection pills, cards).
+- `backend-modules/.../instances/profile.py`: `ordered_traces`, `lifecycle_basics`, `location_profile`, `location_kind`, `time_per_location_kind`, `transformation_profile`, `connectedness`, `hu_profile` (joins them), `search_text`, `query_profile(profile, search, object_types, sort_by, descending, offset, limit) -> (page, total)`; `location_path`, `hu_details(relations, profile_row, loc, hl, processing)` for an unfolded row.
+- `backend-modules/.../instance_routes.py`: `GET /{ocel_id}/instances/profile` (`getHuProfile`); the profile is cached per derivation key (`cached_profile`, LRU of 4), so paging and sorting only rerun `query_profile`; `GET /{ocel_id}/instances/details?hu=` (`getHuDetails`) for an unfolded row.
+- `frontend-modules/.../components/HuProfileTable.tsx` (mantine-datatable, server-side paging and sorting, `rowExpansion` with `HuDetailsPanel`, kept in view when the table scrolls sideways; `duration` formats seconds), `routes/Instances.tsx` (selection pills, cards).
 
 ### How to change it
 - New column: add it to the matching step function in `profile.py`, to `SORTABLE` if scalar, to `HuProfileRow` in `instance_routes.py`, rebuild the API client (`pnpm run build:modules`) and add it to `columns` in `HuProfileTable.tsx`; extend the test.
-- Other notion of final consumption or lifecycle: `transformation_profile`.
+- Other notion of final consumption or lifecycle: `transformation_profile`; counting transformation events in the connectedness: drop the filter in `connectedness` (and in `hu_details`).
+- More in the unfolded row: add it to `hu_details`, `HuDetails` in `instance_routes.py` and `HuDetailsPanel`.
 - Precedence of vehicle over storage: `location_kind`.
 
 ### Alternatives
@@ -73,6 +82,7 @@ Nodes: the selected handling units (`focal`, thick border) and every object rela
 Arcs: one undirected arc per pair of nodes sharing at least one event, labelled with the event ids (at most three, then "+ n"; thicker for more events), and one dashed arrow per o2o relation (source → target), labelled with its qualifier.
 The arcs are all arcs between the nodes, also between two related objects.
 Hovering an arc's label lists its events (id, timestamp, activity) or the o2o relation; hovering a node gives its number of events and of events shared with the selection; clicking a handling unit adds it to the selection.
+Objects can be dragged (Nina 2026-11-15); the arcs follow, and positions are kept until the graph is laid out again (other selection or other visible part).
 
 ### How it is calculated
 For the selected handling units $S$, with $E(o)$ the events of object $o$ (e2o) and $O2O$ the o2o relations:
@@ -99,7 +109,7 @@ Kept per log in the page state (`instances.objectGraph.<ocel>`).
 ### Where it lives in the code
 - `instances/object_graph.py`: `object_frames(ocel)` (e2o, o2o, objects, events renamed), `related_objects(frames, selected)`, `graph_nodes(frames, selected, related, handling_units)`, `event_arcs(frames, nodes)`, `o2o_arcs(frames, nodes)`, `object_graph(frames, selected, handling_units, max_nodes) -> ObjectGraph(nodes, event_arcs, o2o_arcs, notes)`.
 - Route `POST /{ocel_id}/instances/object-graph` (`getObjectGraph`).
-- `components/ObjectGraphChart.tsx`: settings row, `visibleGraph` (hiding), `layoutGraph` (ELK `stress`, one layout edge per pair; arcs drawn as straight lines or, several between two objects, as curves to both sides, clipped at the node boxes), React Flow drawing, label tooltips.
+- `components/ObjectGraphChart.tsx`: settings row, `visibleGraph` (hiding), `layoutGraph` (ELK `stress`, one layout edge per pair), `routeArcs` (from the current node positions, so arcs follow dragged nodes: straight lines or, several between two objects, curves to both sides, clipped at the node boxes), React Flow drawing, label tooltips.
 
 ### How to change it
 - More hops (objects related to related objects): repeat `related_objects` with $S \cup R$ in `object_graph`.
@@ -114,10 +124,11 @@ Kept per log in the page state (`instances.objectGraph.<ocel>`).
 ## HU timeline
 
 ### What it shows
-The resource `docs/resources/object-timeline.md` for the selected handling units, or for all handling units of the loaded lineage (selected first).
+The resource `docs/resources/object-timeline.md` for the timeline's own list of handling units (Nina 2026-11-15).
+The list is reset to the selection whenever the selection changes; pills remove single handling units, *Add all HUs of the lineage* and *Add all HUs of the object graph* append the handling units of the loaded lineage chart (with its current settings) or of the object graph (all its handling units, also hidden ones) that are not in the list yet, *Reset to selection* goes back.
 
 ### Settings and defaults
-Handling units `selected`, axis `event order`, rows `as selected` (or by first event), movements `implicit` (or `explicit`: open circle on the band; `explicit with label`: also the activity name above the band; Nina 2026-11-15), high-level band, activity names, same-timestamp boxes and shared-event lines on. At most 50 rows (`MAX_HANDLING_UNITS`).
+List = selection, axis `event order`, rows `as listed` (or by first event), movements `implicit` (or `explicit`: open circle on the band; `explicit with label`: also the activity name above the band; Nina 2026-11-15), high-level band, activity names, same-timestamp boxes and shared-event lines on. At most 50 rows (`MAX_HANDLING_UNITS`).
 
 ### Where it lives in the code
 - `instances/charts.py`: `timeline_figure(derivation, handling_units, axis, ..., by_first_event, movement_markers) -> (plotly JSON, notes)`; it renames $loc^k$, $ploc^k$ to `loc`, `ploc` and runs `timeline.object_timeline.timeline_relations` and `object_timeline`.

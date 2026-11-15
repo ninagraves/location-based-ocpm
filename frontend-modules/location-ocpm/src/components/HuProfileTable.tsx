@@ -1,13 +1,14 @@
 // HU profile of the instance page: one row per handling unit, searchable, filterable by object type, sortable,
-// paginated, with a checkbox per row to select handling units for the charts below.
+// paginated, with a checkbox per row to select handling units for the charts below. The overview shows counts (easy
+// to sort); clicking a row unfolds it with the names behind the counts (as in the activity profile).
 // Documented in docs/pages/instances.md, section "HU profile".
-import { Badge, Box, Chip, Group, MultiSelect, Stack, Text, TextInput, Tooltip } from "@mantine/core";
-import { useDebouncedValue } from "@mantine/hooks";
+import { Anchor, Badge, Box, Chip, Group, Loader, MultiSelect, SimpleGrid, Stack, Text, TextInput, Tooltip } from "@mantine/core";
+import { useDebouncedValue, useElementSize } from "@mantine/hooks";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { SearchIcon } from "lucide-react";
 import { type DataTableColumn, DataTable, type DataTableSortStatus } from "mantine-datatable";
 import { useMemo } from "react";
-import { getHuProfile, type GetHuProfileSortBy, type HuProfilePage, type HuProfileRow } from "../api/locationBasedOcpm";
+import { type DetailEvent, getHuDetails, getHuProfile, type GetHuProfileSortBy, type HuProfilePage, type HuProfileRow } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
 import { num } from "../lib/format";
 import { usePageState } from "../lib/pageState";
@@ -19,7 +20,7 @@ import { useScheme } from "./plots";
 const PAGE_SIZES = [10, 25, 50, 100];
 
 /** Column groups that can be shown or hidden. */
-const GROUPS = ["Lifecycle", "Lineage", "Locations", "Time", "Activities"] as const;
+const GROUPS = ["Lifecycle", "Lineage", "Locations", "Time", "Activities", "Connectedness"] as const;
 type Group = (typeof GROUPS)[number];
 
 /** Table state kept per log. */
@@ -106,8 +107,6 @@ const LIFECYCLE: Record<string, { label: string; info: string }> = {
 /** An event with its activity, e.g. "roll (e3)". */
 const eventText = (activity?: string | null, event?: string | null) => (event ? `${activity ?? "?"} (${event})` : "–");
 
-/** A list of ids, shortened (see `ShortList`), "–" if empty. */
-const ids = (values: string[] | undefined) => (values?.length ? <ShortList items={values} separator=", " /> : "–");
 
 /** The columns of the shown groups. */
 const columns = (groups: Group[], page: HuProfilePage | undefined, scheme: Scheme): DataTableColumn<HuProfileRow>[] => {
@@ -132,21 +131,13 @@ const columns = (groups: Group[], page: HuProfilePage | undefined, scheme: Schem
       { accessor: "first", title: "First", sortable: true, render: (r) => stamp(r.first) },
       { accessor: "last", title: "Last", sortable: true, render: (r) => stamp(r.last) },
       { accessor: "lifespan", title: "Lifespan", sortable: true, textAlign: "right", render: (r) => duration(r.lifespan) },
-      { accessor: "creation_activity", title: "Starts with", sortable: true, render: (r) => eventText(r.creation_activity, r.creation_event) },
-      { accessor: "final_consumption_activity", title: "Ends with", sortable: true, render: (r) => eventText(r.final_consumption_activity, r.final_consumption_event) },
-      {
-        accessor: "n_partial_consumptions",
-        title: "Partial consumptions",
-        sortable: true,
-        textAlign: "right",
-        render: (r) => (r.n_partial_consumptions ? <Tooltip label={r.partial_consumptions?.join(", ")} withinPortal><span>{num(r.n_partial_consumptions)}</span></Tooltip> : "0"),
-      },
+      { accessor: "n_partial_consumptions", title: "Partial consumptions", sortable: true, textAlign: "right", render: (r) => num(r.n_partial_consumptions) },
     );
   if (on("Lineage"))
     cols.push(
-      { accessor: "n_parents", title: "Parents", sortable: true, render: (r) => ids(r.parents) },
-      { accessor: "n_children", title: "Children", sortable: true, render: (r) => ids(r.children) },
-      { accessor: "n_siblings", title: "Siblings", sortable: true, render: (r) => ids(r.siblings) },
+      { accessor: "n_parents", title: "Parents", sortable: true, textAlign: "right", render: (r) => num(r.n_parents) },
+      { accessor: "n_children", title: "Children", sortable: true, textAlign: "right", render: (r) => num(r.n_children) },
+      { accessor: "n_siblings", title: "Siblings", sortable: true, textAlign: "right", render: (r) => num(r.n_siblings) },
     );
   if (on("Locations")) {
     cols.push({ accessor: "n_locations", title: "Locations", sortable: true, textAlign: "right", render: (r) => num(r.n_locations) });
@@ -172,11 +163,123 @@ const columns = (groups: Group[], page: HuProfilePage | undefined, scheme: Schem
     cols.push(
       { accessor: "n_movements", title: "Movements", sortable: true, textAlign: "right", render: (r) => num(r.n_movements) },
       { accessor: "n_processing", title: "Processing operations", sortable: true, textAlign: "right", render: (r) => num(r.n_processing) },
-      { accessor: "processing_activities", title: "Processing activities", render: (r) => ids(r.processing_activities) },
-      { accessor: "n_co_handled", title: "Co-handled HUs", sortable: true, textAlign: "right", render: (r) => num(r.n_co_handled) },
     );
-  // One line per row: long lists are shortened (ShortList), so no cell needs to wrap.
+  if (on("Connectedness"))
+    cols.push(
+      {
+        accessor: "n_shared_events",
+        title: <Tooltip label="Events that are not transformation events and involve at least one other handling unit" withinPortal><span>Shared events</span></Tooltip>,
+        sortable: true,
+        textAlign: "right",
+        render: (r) => num(r.n_shared_events),
+      },
+      {
+        accessor: "connectedness",
+        title: <Tooltip label="Shared events / events that are not transformation events" withinPortal><span>Connectedness</span></Tooltip>,
+        sortable: true,
+        textAlign: "right",
+        render: (r) => (r.connectedness == null ? "–" : `${Math.round(r.connectedness * 100)} %`),
+      },
+      {
+        accessor: "n_co_handled",
+        title: <Tooltip label="Other handling units in the shared events" withinPortal><span>Co-handled HUs</span></Tooltip>,
+        sortable: true,
+        textAlign: "right",
+        render: (r) => num(r.n_co_handled),
+      },
+    );
+  // One line per row: names are in the unfolded row, so no cell needs to wrap.
   return cols.map((col) => ({ ...col, noWrap: true }) as DataTableColumn<HuProfileRow>);
+};
+
+/** An event as "roll (e3) · 2026-01-01 03:00:00", "–" if missing. */
+const eventLine = (e: DetailEvent | null | undefined) => (e ? `${eventText(e.activity, e.event)} · ${stamp(e.time)}` : "–");
+
+/** Handling units listed as links at most (the rest as "(+n)" with the list on hover). */
+const MAX_LINKS = 20;
+
+/** Handling-unit ids as links that add the handling unit to the selection; "–" if none. */
+const HuLinks = ({ ids, onPick }: { ids: string[]; onPick: (hu: string) => void }) =>
+  ids.length ? (
+    <Group gap={6}>
+      {ids.slice(0, MAX_LINKS).map((hu) => (
+        <Anchor key={hu} size="xs" component="button" type="button" onClick={() => onPick(hu)} title="add to the selection">
+          {hu}
+        </Anchor>
+      ))}
+      {ids.length > MAX_LINKS && <ShortList items={ids.slice(MAX_LINKS)} limit={0} />}
+    </Group>
+  ) : (
+    <Text span size="xs" c="dimmed">–</Text>
+  );
+
+/** A labelled line of the unfolded row. */
+const Line = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <Group gap={6} wrap="nowrap" align="flex-start">
+    <Text size="xs" c="dimmed" w={130} style={{ flexShrink: 0 }}>{label}</Text>
+    <Box style={{ fontSize: "var(--mantine-font-size-xs)" }}>{children}</Box>
+  </Group>
+);
+
+/**
+ * An unfolded row: the names behind the counts, start and end, the location path and the co-handled handling units.
+ *
+ * @param ocelId The log.
+ * @param hu The handling unit.
+ * @param onPick Called with a handling unit clicked in the details (adds it to the selection).
+ * @param width Visible width of the table: the panel stays in view when the table scrolls sideways.
+ */
+const HuDetailsPanel = ({ ocelId, hu, onPick, width }: { ocelId: string; hu: string; onPick: (hu: string) => void; width: number }) => {
+  const { data, error } = useQuery({
+    queryKey: ["locationBasedOcpm", "instances", "details", ocelId, hu],
+    queryFn: ({ signal }) => getHuDetails(ocelId, { hu }, undefined, signal),
+  });
+  if (error) return <Text size="xs" c="red">{errorText(error)}</Text>;
+  if (!data) return <Loader size="xs" m="xs" />;
+  return (
+    <SimpleGrid cols={width > 1100 ? 4 : width > 560 ? 2 : 1} spacing="md" px="md" py="xs" style={{ position: "sticky", left: 0, width: width || undefined }}>
+      <Stack gap={2}>
+        <Text size="xs" fw={600}>Start and end</Text>
+        <Line label="First event">{eventLine(data.first_event)}</Line>
+        <Line label="Last event">{eventLine(data.last_event)}</Line>
+        <Line label="Created by">{eventLine(data.creation)}</Line>
+        <Line label="Finally consumed by">{eventLine(data.final_consumption)}</Line>
+        <Line label={`Partial cons. (${data.partial_consumptions.length})`}>
+          {data.partial_consumptions.length ? data.partial_consumptions.map((e) => <div key={e.event}>{eventLine(e)}</div>) : "–"}
+        </Line>
+      </Stack>
+      <Stack gap={2}>
+        <Text size="xs" fw={600}>Lineage</Text>
+        <Line label={`Parents (${data.parents.length})`}><HuLinks ids={data.parents} onPick={onPick} /></Line>
+        <Line label={`Children (${data.children.length})`}><HuLinks ids={data.children} onPick={onPick} /></Line>
+        <Line label={`Siblings (${data.siblings.length})`}><HuLinks ids={data.siblings} onPick={onPick} /></Line>
+      </Stack>
+      <Stack gap={2}>
+        <Text size="xs" fw={600}>Locations ({data.location_path.length} stays)</Text>
+        {data.location_path.length ? (
+          data.location_path.map((p, i) => (
+            <Line key={`${p.event}-${i}`} label={stamp(p.time)}>{`${i ? "→ " : ""}${p.location} (${p.event})`}</Line>
+          ))
+        ) : (
+          <Text size="xs" c="dimmed">never located</Text>
+        )}
+      </Stack>
+      <Stack gap={2}>
+        <Text size="xs" fw={600}>Activities and connectedness</Text>
+        <Line label="Processing">{data.processing.length ? data.processing.map((a) => `${a.activity} ${a.count}`).join(", ") : "–"}</Line>
+        <Line label={`Co-handled (${data.co_handled.length})`}>
+          {data.co_handled.length
+            ? data.co_handled.map((h) => (
+                <div key={h.hu}>
+                  <Anchor size="xs" component="button" type="button" onClick={() => onPick(h.hu)} title="add to the selection">{h.hu}</Anchor>
+                  {`: ${h.count} (${h.events.join(", ")})`}
+                </div>
+              ))
+            : "–"}
+        </Line>
+      </Stack>
+    </SimpleGrid>
+  );
 };
 
 /** Legend of the time split colours. */
@@ -221,10 +324,11 @@ export const HuProfileTable = ({ ocelId, selected, onSelected }: { ocelId: strin
     placeholderData: keepPreviousData,
   });
   const cols = useMemo(() => columns(state.groups, data, scheme), [state.groups, data, scheme]);
+  const { ref, width } = useElementSize();
   const selectedRecords = useMemo(() => selected.map((hu) => ({ hu }) as HuProfileRow), [selected]);
 
   return (
-    <Stack gap="xs">
+    <Stack gap="xs" ref={ref}>
       <Group gap="md" align="flex-end">
         <TextInput
           size="xs"
@@ -278,6 +382,10 @@ export const HuProfileTable = ({ ocelId, selected, onSelected }: { ocelId: strin
           onRecordsPerPageChange={(pageSize) => set({ pageSize, page: 1 })}
           sortStatus={state.sort as DataTableSortStatus<HuProfileRow>}
           onSortStatusChange={(s) => set({ sort: { columnAccessor: s.columnAccessor as GetHuProfileSortBy, direction: s.direction }, page: 1 })}
+          rowExpansion={{
+            allowMultiple: true,
+            content: ({ record }) => <HuDetailsPanel ocelId={ocelId} hu={record.hu} width={width - 2} onPick={(hu) => onSelected(selected.includes(hu) ? selected : [...selected, hu])} />,
+          }}
           selectedRecords={selectedRecords}
           onSelectedRecordsChange={(records) => onSelected(records.map((r) => r.hu))}
           noRecordsText="No handling unit matches."

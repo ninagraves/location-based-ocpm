@@ -15,6 +15,7 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
+  useNodesState,
   useReactFlow,
 } from "@xyflow/react";
 import ELK, { type ElkNode } from "elkjs/lib/elk.bundled.js";
@@ -62,11 +63,10 @@ const ObjectNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
   const pickable = data.is_hu && !focal && data.onPick;
   return (
     <Tooltip
-      label={`${data.node} (${data.object_type ?? "?"}) · ${data.n_events} events${data.n_shared != null ? `, ${data.n_shared} shared with the selection` : ""}${focal ? " · selected" : pickable ? " · click to select" : ""}`}
+      label={`${data.node} (${data.object_type ?? "?"}) · ${data.n_events} events${data.n_shared != null ? `, ${data.n_shared} shared with the selection` : ""}${focal ? " · selected" : pickable ? " · click to select" : ""} · drag to move`}
       withinPortal
     >
       <Box
-        onClick={() => pickable && data.onPick?.(data.node)}
         style={{
           width: data.width,
           height: data.height,
@@ -78,7 +78,7 @@ const ObjectNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
           alignItems: "center",
           justifyContent: "center",
           lineHeight: 1.1,
-          cursor: pickable ? "pointer" : "default",
+          cursor: "grab",
         }}
       >
         {/* React Flow needs handles to draw an edge; the arcs are routed by `layoutGraph` and ignore them. */}
@@ -194,18 +194,17 @@ export const visibleGraph = (graph: ObjectGraphResponse, settings: ObjectGraphSe
 };
 
 /**
- * Lay out the visible graph with ELK (stress) and turn it into React Flow nodes and edges.
+ * Lay out the visible graph with ELK (stress) and turn its objects into React Flow nodes (the arcs are routed from
+ * the current node positions by `routeArcs`, so that they follow nodes the user drags).
  *
  * @param graph The visible part (`visibleGraph`).
  * @param colours Colour per object type.
- * @param labels Write event ids and qualifiers on the arcs.
  * @param scheme Colour scheme.
- * @param onPick Called with a handling unit when its node is clicked.
+ * @param onPick Shown in the hover of handling units that can be added to the selection.
  */
 const layoutGraph = async (
   graph: ReturnType<typeof visibleGraph>,
   colours: Map<string, string>,
-  labels: boolean,
   scheme: Scheme,
   onPick?: (hu: string) => void,
 ) => {
@@ -237,10 +236,25 @@ const layoutGraph = async (
       type: "object",
       position: { x: c.x - size.width / 2, y: c.y - size.height / 2 },
       data: { ...n, ...size, colour: colours.get(n.object_type ?? "") ?? OTHER[scheme], onPick },
-      draggable: false,
       connectable: false,
     };
   });
+  return { nodes, arcs: graph.arcs };
+};
+
+/**
+ * Route the arcs between the current node positions: straight lines, or curves to both sides for several arcs between
+ * the same two objects, clipped at the node boxes, with the label in the middle.
+ *
+ * @param arcs The visible arcs.
+ * @param nodes The React Flow nodes (current positions, sizes in `data`).
+ * @param labels Write event ids and qualifiers on the arcs.
+ * @param scheme Colour scheme.
+ */
+const routeArcs = (arcs: Arc[], nodes: Node<NodeData>[], labels: boolean, scheme: Scheme): Edge<EdgeData>[] => {
+  const centre = new Map(nodes.map((n) => [n.id, { x: n.position.x + n.data.width / 2, y: n.position.y + n.data.height / 2 }]));
+  const sizes = new Map(nodes.map((n) => [n.id, { width: n.data.width, height: n.data.height }]));
+  const graph = { arcs };
   // Arcs between the same two objects are spread as curves to both sides of the straight line.
   const groups = new Map<string, number[]>();
   graph.arcs.forEach(({ arc }, i) => {
@@ -249,7 +263,7 @@ const layoutGraph = async (
   });
   const eventColour = scheme === "dark" ? "#909296" : "#666666";
   const o2oColour = UI[scheme].accent;
-  const edges: Edge<EdgeData>[] = graph.arcs.map((a, i) => {
+  return graph.arcs.map((a, i) => {
     const { source, target } = a.arc;
     const [lo, hi] = [source, target].sort();
     const group = groups.get([lo, hi].join("\u0000")) ?? [i];
@@ -282,7 +296,6 @@ const layoutGraph = async (
       },
     };
   });
-  return { nodes, edges, o2oColour };
 };
 
 const FitOnChange = ({ token }: { token: unknown }) => {
@@ -298,7 +311,7 @@ const Legend = () => (
   <Text fz={11} lh={1.3} c="dimmed">
     Rounded box: handling unit, square box: other object, in the colour of its object type (thick border: selected) · solid
     line: shared events, labelled with their ids (thicker: more events) · dashed arrow: o2o relation, labelled with its
-    qualifier · hover a label for the events (id, timestamp, activity) · click a handling unit to add it to the selection
+    qualifier · hover a label for the events (id, timestamp, activity) · drag objects to move them · click a handling unit to add it to the selection
   </Text>
 );
 
@@ -367,6 +380,17 @@ const ObjectGraphSettingsRow = ({
   );
 };
 
+/** Fetch the object graph of the selected handling units (shared with the HU timeline's "add" button). */
+export const useObjectGraph = (ocelId: string, handlingUnits: string[]) => {
+  const request = useMemo(() => ({ handling_units: handlingUnits }), [handlingUnits]);
+  return useQuery({
+    queryKey: ["locationBasedOcpm", "instances", "objectGraph", ocelId, request],
+    queryFn: ({ signal }) => getObjectGraph(ocelId, request, undefined, undefined, signal),
+    enabled: handlingUnits.length > 0,
+    placeholderData: keepPreviousData,
+  });
+};
+
 /**
  * The object graph card's content: settings row and graph.
  *
@@ -393,13 +417,7 @@ export const ObjectGraphChart = ({
   onPick: (hu: string) => void;
 }) => {
   const scheme = useScheme();
-  const request = useMemo(() => ({ handling_units: handlingUnits }), [handlingUnits]);
-  const query = useQuery({
-    queryKey: ["locationBasedOcpm", "instances", "objectGraph", ocelId, request],
-    queryFn: ({ signal }) => getObjectGraph(ocelId, request, undefined, undefined, signal),
-    enabled: handlingUnits.length > 0,
-    placeholderData: keepPreviousData,
-  });
+  const query = useObjectGraph(ocelId, handlingUnits);
   const data = query.data;
   // Object types that are not handling-unit types continue the palette after the handling-unit types.
   const allColours = useMemo(() => {
@@ -412,17 +430,25 @@ export const ObjectGraphChart = ({
   const visible = useMemo(() => (data ? visibleGraph(data, settings) : null), [data, settings]);
   const [flow, setFlow] = useState<Awaited<ReturnType<typeof layoutGraph>> | null>(null);
   const [layoutError, setLayoutError] = useState<string | null>(null);
+  // Nodes keep the positions the user dragged them to until the next layout (new selection or visible part).
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>([]);
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
-    layoutGraph(visible, allColours, settings.labels, scheme, onPick).then(
-      (f) => !cancelled && setFlow(f),
+    layoutGraph(visible, allColours, scheme, onPick).then(
+      (f) => {
+        if (cancelled) return;
+        setFlow(f);
+        setNodes(f.nodes);
+      },
       (e: unknown) => !cancelled && setLayoutError(String(e)),
     );
     return () => {
       cancelled = true;
     };
-  }, [visible, allColours, settings.labels, scheme, onPick]);
+  }, [visible, allColours, scheme, onPick, setNodes]);
+  const edges = useMemo(() => (flow ? routeArcs(flow.arcs, nodes, settings.labels, scheme) : []), [flow, nodes, settings.labels, scheme]);
+  const o2oColour = UI[scheme].accent;
 
   return (
     <Stack gap="sm">
@@ -444,18 +470,20 @@ export const ObjectGraphChart = ({
             <svg style={{ position: "absolute", width: 0, height: 0 }} aria-hidden="true">
               <defs>
                 <marker id={`og-arrow-${scheme}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill={flow.o2oColour} />
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill={o2oColour} />
                 </marker>
               </defs>
             </svg>
             <ReactFlowProvider>
               <ReactFlow
-                nodes={flow.nodes}
-                edges={flow.edges}
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onNodeClick={(_, n) => n.data.is_hu && n.data.role !== "focal" && onPick(n.id)}
                 nodeTypes={NODE_TYPES}
                 edgeTypes={EDGE_TYPES}
                 nodesConnectable={false}
-                nodesDraggable={false}
+                nodesDraggable
                 elementsSelectable={false}
                 minZoom={0.05}
                 maxZoom={3}

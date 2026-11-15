@@ -1,7 +1,7 @@
 // HU timeline chart of the instance page: the timeline of the selected handling units (or of the whole loaded
 // lineage), drawn by the backend's `timeline/object_timeline.py` and shown with Plotly.
 // Documented in docs/pages/instances.md, section "HU timeline".
-import { Alert, Checkbox, Group, Loader, SegmentedControl, Stack, Text } from "@mantine/core";
+import { Alert, Button, Checkbox, Group, Loader, Pill, SegmentedControl, Stack, Text } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { getHuTimeline, type TimelineRequestAxis, type TimelineRequestMovementMarkers } from "../api/locationBasedOcpm";
@@ -10,8 +10,6 @@ import { plotConfig, ThemedPlot } from "./plots";
 
 /** Settings of the HU timeline (kept per log). */
 export type TimelineSettings = {
-  /** Which handling units: the selected ones, or every handling unit of the loaded lineage. */
-  source: "selected" | "lineage";
   axis: TimelineRequestAxis;
   showHighLevel: boolean;
   showActivityLabels: boolean;
@@ -23,9 +21,8 @@ export type TimelineSettings = {
   movements: TimelineRequestMovementMarkers;
 };
 
-/** Defaults: selected handling units, event order, everything shown, rows in selection order. */
+/** Defaults: event order, everything shown, rows in selection order. */
 export const DEFAULT_TIMELINE: TimelineSettings = {
-  source: "selected",
   axis: "event order",
   showHighLevel: true,
   showActivityLabels: true,
@@ -45,38 +42,79 @@ const Legend = () => (
   </Text>
 );
 
+/** Handling units shown as pills at most (the rest as "+ n more"). */
+const MAX_PILLS = 30;
+
+/**
+ * The handling units of the timeline: its own list, reset to the page's selection whenever that changes, with buttons
+ * that add the handling units of the lineage chart or of the object graph.
+ *
+ * @param units The timeline's handling units, top to bottom.
+ * @param onChange Called with the new list.
+ * @param selected The page's selection (for "Reset to selection").
+ * @param lineage Handling units of the loaded lineage chart.
+ * @param objectGraph Handling units of the object graph.
+ */
+export const TimelineUnitsBar = ({
+  units,
+  onChange,
+  selected,
+  lineage,
+  objectGraph,
+}: {
+  units: string[];
+  onChange: (units: string[]) => void;
+  selected: string[];
+  lineage: string[];
+  objectGraph: string[];
+}) => {
+  const add = (more: string[]) => onChange([...units, ...more.filter((hu) => !units.includes(hu))]);
+  const newLineage = lineage.filter((hu) => !units.includes(hu)).length;
+  const newGraph = objectGraph.filter((hu) => !units.includes(hu)).length;
+  const same = units.length === selected.length && units.every((hu, i) => hu === selected[i]);
+  return (
+    <Stack gap={4}>
+      <Group gap={6}>
+        <Text size="xs" fw={500}>Handling units ({units.length}):</Text>
+        {units.slice(0, MAX_PILLS).map((hu) => (
+          <Pill key={hu} size="xs" withRemoveButton onRemove={() => onChange(units.filter((x) => x !== hu))}>
+            {hu}
+          </Pill>
+        ))}
+        {units.length > MAX_PILLS && <Text size="xs" c="dimmed">+ {units.length - MAX_PILLS} more</Text>}
+      </Group>
+      <Group gap={6}>
+        <Button size="compact-xs" variant="light" disabled={newLineage === 0} onClick={() => add(lineage)}>
+          Add all HUs of the lineage (+{newLineage})
+        </Button>
+        <Button size="compact-xs" variant="light" disabled={newGraph === 0} onClick={() => add(objectGraph)}>
+          Add all HUs of the object graph (+{newGraph})
+        </Button>
+        <Button size="compact-xs" variant="subtle" disabled={same} onClick={() => onChange(selected)}>
+          Reset to selection
+        </Button>
+      </Group>
+    </Stack>
+  );
+};
+
 /**
  * The settings row of the HU timeline.
  *
  * @param settings Current settings.
  * @param onChange Called with the changed settings.
- * @param lineageCount Handling units of the loaded lineage (0 disables "with lineage").
  * @param hasHighLevel High-level locations are configured (otherwise the high-level band is not offered).
  */
 export const TimelineSettingsRow = ({
   settings,
   onChange,
-  lineageCount,
   hasHighLevel,
 }: {
   settings: TimelineSettings;
   onChange: (s: TimelineSettings) => void;
-  lineageCount: number;
   hasHighLevel: boolean;
 }) => (
   <Group gap="md" align="flex-end">
-    <div>
-      <Text size="xs" fw={500}>Handling units</Text>
-      <SegmentedControl
-        size="xs"
-        value={settings.source}
-        onChange={(v) => onChange({ ...settings, source: v as TimelineSettings["source"] })}
-        data={[
-          { value: "selected", label: "selected" },
-          { value: "lineage", label: `all in the lineage${lineageCount ? ` (${lineageCount})` : ""}`, disabled: lineageCount === 0 },
-        ]}
-      />
-    </div>
     <div>
       <Text size="xs" fw={500}>Axis</Text>
       <SegmentedControl
@@ -96,7 +134,7 @@ export const TimelineSettingsRow = ({
         value={settings.order}
         onChange={(v) => onChange({ ...settings, order: v as TimelineSettings["order"] })}
         data={[
-          { value: "given", label: "as selected" },
+          { value: "given", label: "as listed" },
           { value: "first event", label: "by first event" },
         ]}
       />
@@ -157,6 +195,7 @@ export const HuTimelineChart = ({ ocelId, handlingUnits, settings }: { ocelId: s
     return { data: (data.figure.data ?? []) as object[], layout: { ...layout, autosize: true } as Record<string, unknown> };
   }, [data]);
 
+  if (handlingUnits.length === 0) return <Text size="sm" c="dimmed">No handling units in the timeline; add some with the buttons above.</Text>;
   if (error) return <Alert color="red">{errorText(error)}</Alert>;
   if (!figure || !data) return <Loader size="sm" />;
   return (

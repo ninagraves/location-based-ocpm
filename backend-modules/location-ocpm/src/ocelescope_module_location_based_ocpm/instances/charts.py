@@ -14,7 +14,15 @@ import polars as pl
 
 from ocelescope_module_location_based_ocpm.derivation import columns as c
 from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation
-from ocelescope_module_location_based_ocpm.lineage.graph import _EDGES, _NODES, EVENT, FOCAL, LINEAGE, OBJECT, lineage_graph
+from ocelescope_module_location_based_ocpm.lineage.graph import (
+    _EDGES,
+    _NODES,
+    EVENT,
+    FOCAL,
+    LINEAGE,
+    OBJECT,
+    lineage_graph,
+)
 from ocelescope_module_location_based_ocpm.lineage.lineage import Direction
 from ocelescope_module_location_based_ocpm.lineage.relations import lineage_relations
 from ocelescope_module_location_based_ocpm.timeline.object_timeline import (

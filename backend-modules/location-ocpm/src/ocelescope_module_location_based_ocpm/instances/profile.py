@@ -12,8 +12,10 @@ The profile is built in small steps, each a function of its own (lazy polars in,
 4. `time_per_location_kind`: time spent on vehicles (V), in storage units (W), at other locations and unlocated.
 5. `transformation_profile`: creation event, final consumption, partial consumptions, parents, children,
    siblings and the lifecycle class.
-6. `co_handled`: number of other handling units sharing at least one event.
+6. `connectedness`: non-transformation events shared with other handling units, their share, and the number of
+   handling units they are shared with.
 `hu_profile` joins them (also handling units without events); `query_profile` searches, sorts and pages it.
+`hu_details` gives what an unfolded row of the table shows for one handling unit (names, events, location path).
 """
 
 from collections.abc import Collection
@@ -60,6 +62,8 @@ SORTABLE = (
     "locatedness",
     "n_movements",
     "n_processing",
+    "n_shared_events",
+    "connectedness",
     "n_co_handled",
     *(f"time_{kind}" for kind in KINDS),
 )
@@ -282,24 +286,40 @@ def transformation_profile(roles: pl.DataFrame, traces: pl.LazyFrame) -> pl.Lazy
     )
 
 
-def co_handled(traces: pl.LazyFrame) -> pl.LazyFrame:
-    """Number of other handling units that share at least one event with the handling unit.
+def connectedness(traces: pl.LazyFrame) -> pl.LazyFrame:
+    """How strongly a handling unit is handled together with others, outside transformations.
+
+    Only events that are not transformation events count (shared transformation events are lineage, see
+    `transformation_profile`). For hu with non-transformation events E'(hu):
+    - n_shared_events: events of E'(hu) that involve at least one other handling unit;
+    - connectedness: n_shared_events / |E'(hu)| (null if E'(hu) is empty);
+    - n_co_handled: distinct other handling units in these events.
 
     Args:
         traces: Output of `ordered_traces`.
 
     Returns:
-        pl.LazyFrame: One row per hu of `traces` with the column n_co_handled.
+        pl.LazyFrame: One row per hu of `traces` with the columns n_shared_events, connectedness, n_co_handled.
     """
-    pairs = traces.select(c.EVENT, c.HU).unique()
-    others = (
-        pairs.join(pairs.rename({c.HU: "_other"}), on=c.EVENT, how="inner")
-        .filter(pl.col(c.HU) != pl.col("_other"))
-        .group_by(c.HU)
-        .agg(pl.col("_other").n_unique().alias("n_co_handled"))
+    pairs = traces.filter(~pl.col(c.IS_TRANSFORMATION)).select(c.EVENT, c.HU).unique()
+    others = pairs.join(pairs.rename({c.HU: "_other"}), on=c.EVENT, how="inner").filter(pl.col(c.HU) != pl.col("_other"))
+    shared = others.group_by(c.HU).agg(
+        pl.col(c.EVENT).n_unique().alias("n_shared_events"), pl.col("_other").n_unique().alias("n_co_handled")
     )
-    return pairs.select(c.HU).unique().join(others, on=c.HU, how="left").with_columns(
-        pl.col("n_co_handled").fill_null(0).cast(pl.UInt32)
+    totals = pairs.group_by(c.HU).agg(pl.len().alias("_n"))
+    return (
+        traces.select(c.HU)
+        .unique()
+        .join(totals, on=c.HU, how="left")
+        .join(shared, on=c.HU, how="left")
+        .with_columns(
+            pl.col("n_shared_events").fill_null(0).cast(pl.UInt32),
+            pl.col("n_co_handled").fill_null(0).cast(pl.UInt32),
+        )
+        .with_columns(
+            pl.when(pl.col("_n") > 0).then(pl.col("n_shared_events") / pl.col("_n")).otherwise(None).alias("connectedness")
+        )
+        .drop("_n")
     )
 
 
@@ -326,7 +346,7 @@ def hu_profile(
 
     Returns:
         pl.DataFrame: The columns of `lifecycle_basics`, `location_profile`, `time_per_location_kind`,
-        `transformation_profile` and `co_handled`.
+        `transformation_profile` and `connectedness`.
     """
     traces = ordered_traces(relations, loc, hl, processing).cache()
     profile = (
@@ -334,7 +354,7 @@ def hu_profile(
         .join(location_profile(traces), on=c.HU, how="left")
         .join(time_per_location_kind(traces, context), on=c.HU, how="left")
         .join(transformation_profile(roles, traces), on=c.HU, how="left")
-        .join(co_handled(traces), on=c.HU, how="left")
+        .join(connectedness(traces), on=c.HU, how="left")
         .collect()
     )
     missing = handling_units.select(c.HU, c.OBJECT_TYPE).filter(~pl.col(c.HU).is_in(profile[c.HU].implode()))
@@ -416,3 +436,94 @@ def query_profile(
     by = [sort_by] if sort_by == c.HU else [sort_by, c.HU]
     page = matching.sort(by, descending=[descending] + [False] * (len(by) - 1), nulls_last=True).slice(offset, limit)
     return page, matching.height
+
+
+def location_path(trace: pl.DataFrame) -> list[dict]:
+    """The locations of one handling unit in trace order, each with the time it is reached.
+
+    A new entry starts at every location change (as in `location_profile`: loc != ⊥ and different from the last
+    loc != ⊥ before), so ⊥ in between is skipped and A, ⊥, A is one entry.
+
+    Args:
+        trace: The rows of one hu of `ordered_traces` (columns event, time, loc), in trace order.
+
+    Returns:
+        list[dict]: Entries with location, event (the event that reached it) and time.
+    """
+    located = trace.filter(pl.col(LOC).is_not_null())
+    changes = located.filter(pl.col(LOC) != pl.col(LOC).shift(1).fill_null(""))
+    return changes.select(pl.col(LOC).alias("location"), c.EVENT, c.TIME).to_dicts()
+
+
+def _events(trace: pl.DataFrame, ids: Collection[str]) -> list[dict]:
+    """Event id, activity and time of the given events of a trace, in trace order."""
+    return trace.filter(pl.col(c.EVENT).is_in(list(ids))).select(c.EVENT, c.ACTIVITY, c.TIME).unique(c.EVENT, maintain_order=True).to_dicts()
+
+
+def hu_details(
+    relations: pl.DataFrame | pl.LazyFrame,
+    profile_row: dict,
+    loc: str,
+    hl: str,
+    processing: Collection[str] | None = None,
+) -> dict:
+    """What an unfolded row of the HU profile shows for one handling unit.
+
+    Args:
+        relations: See `ordered_traces` (all handling units; the co-handled ones are looked up there).
+        profile_row: The handling unit's row of `hu_profile`.
+        loc: Column of loc^k.
+        hl: Column of agg(loc^k).
+        processing: Event ids of P (AS4 tie order); None = the transformation events T.
+
+    Returns:
+        dict: first_event and last_event (event, activity, time; None without events), creation and
+        final_consumption (the same, None if missing), partial_consumptions (list), parents, children,
+        siblings (lists of ids), location_path (see `location_path`), processing (activity and count, by
+        count), co_handled (other handling unit, its number of shared non-transformation events and their ids,
+        by count).
+    """
+    hu = profile_row[c.HU]
+    frame = relations.lazy()
+    trace = ordered_traces(frame.filter(pl.col(c.HU) == hu), loc, hl, processing).collect()
+    first = trace.head(1).select(c.EVENT, c.ACTIVITY, c.TIME).to_dicts()
+    last = trace.tail(1).select(c.EVENT, c.ACTIVITY, c.TIME).to_dicts()
+
+    def one(event: str | None) -> dict | None:
+        rows = _events(trace, [event]) if event else []
+        return rows[0] if rows else None
+
+    processing_counts = (
+        trace.filter(pl.col(c.IS_PROCESSING))
+        .group_by(c.ACTIVITY)
+        .len()
+        .sort(["len", c.ACTIVITY], descending=[True, False])
+        .rename({"len": "count"})
+        .to_dicts()
+    )
+    events = trace.filter(~pl.col(c.IS_TRANSFORMATION))[c.EVENT].to_list()
+    co_handled = (
+        frame.filter(pl.col(c.EVENT).is_in(events) & (pl.col(c.HU) != hu))
+        .select(c.HU, c.EVENT, c.TIME)
+        .unique()
+        .sort(c.TIME, c.EVENT)
+        .group_by(c.HU, maintain_order=True)
+        .agg(pl.col(c.EVENT).alias("events"))
+        .with_columns(pl.col("events").list.len().alias("count"))
+        .sort(["count", c.HU], descending=[True, False])
+        .collect()
+        .to_dicts()
+    )
+    return {
+        "first_event": first[0] if first else None,
+        "last_event": last[0] if last else None,
+        "creation": one(profile_row.get("creation_event")),
+        "final_consumption": one(profile_row.get("final_consumption_event")),
+        "partial_consumptions": _events(trace, profile_row.get("partial_consumptions") or []),
+        "parents": profile_row.get("parents") or [],
+        "children": profile_row.get("children") or [],
+        "siblings": profile_row.get("siblings") or [],
+        "location_path": location_path(trace),
+        "processing": processing_counts,
+        "co_handled": co_handled,
+    }

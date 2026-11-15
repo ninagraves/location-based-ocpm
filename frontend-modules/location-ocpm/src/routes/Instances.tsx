@@ -3,10 +3,10 @@
 // Documented in docs/pages/instances.md.
 import { Button, Card, CloseButton, Group, Pill, Stack, Text, Title } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { getHuProfile } from "../api/locationBasedOcpm";
 import { HuProfileTable } from "../components/HuProfileTable";
-import { DEFAULT_TIMELINE, HuTimelineChart, type TimelineSettings, TimelineSettingsRow } from "../components/HuTimelineChart";
+import { DEFAULT_TIMELINE, HuTimelineChart, type TimelineSettings, TimelineSettingsRow, TimelineUnitsBar } from "../components/HuTimelineChart";
 import {
   DEFAULT_LINEAGE,
   LineageChart,
@@ -14,7 +14,7 @@ import {
   LineageSettingsRow,
   useSelectionLineage,
 } from "../components/LineageChart";
-import { DEFAULT_OBJECT_GRAPH, ObjectGraphChart, type ObjectGraphSettings } from "../components/ObjectGraphChart";
+import { DEFAULT_OBJECT_GRAPH, ObjectGraphChart, type ObjectGraphSettings, useObjectGraph } from "../components/ObjectGraphChart";
 import { ModulePage } from "../components/ModulePage";
 import { useScheme } from "../components/plots";
 import { usePageState } from "../lib/pageState";
@@ -85,7 +85,21 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
     const objects = (lineage.data?.nodes ?? []).filter((n) => n.kind === "object").map((n) => n.node);
     return [...selected, ...objects.filter((o) => !selected.includes(o))];
   }, [lineage.data, selected]);
-  const timelineUnits = timelineSettings.source === "lineage" && lineage.data ? lineageUnits : selected;
+  const objectGraph = useObjectGraph(ocelId, selected);
+  const objectGraphUnits = useMemo(() => (objectGraph.data?.nodes ?? []).filter((n) => n.is_hu).map((n) => n.node), [objectGraph.data]);
+
+  // The timeline has its own list of handling units; it is reset to the selection whenever the selection changes
+  // (`basis` is the selection it was last reset to, so a reload keeps the list).
+  const [timelineStoredUnits, setTimelineStoredUnits] = usePageState<{ units: string[]; basis: string[] }>(
+    `instances.timelineUnits.${ocelId}`,
+    { units: [], basis: [] },
+  );
+  const selectionKey = selected.join("\u0000");
+  useEffect(() => {
+    if (timelineStoredUnits.basis.join("\u0000") !== selectionKey) setTimelineStoredUnits({ units: selected, basis: selected });
+  }, [selectionKey, selected, timelineStoredUnits.basis, setTimelineStoredUnits]);
+  const timelineUnits = timelineStoredUnits.units;
+  const setTimelineUnits = useCallback((units: string[]) => setTimelineStoredUnits({ units, basis: selected }), [selected, setTimelineStoredUnits]);
 
   return (
     <Stack gap="md">
@@ -116,12 +130,14 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
             />
           </ChartCard>
           <ChartCard title="HU timeline" onReset={() => setTimeline(DEFAULT_TIMELINE)}>
-            <TimelineSettingsRow
-              settings={timelineSettings}
-              onChange={setTimeline}
-              lineageCount={lineageUnits.length}
-              hasHighLevel={profile?.has_high_level ?? false}
+            <TimelineUnitsBar
+              units={timelineUnits}
+              onChange={setTimelineUnits}
+              selected={selected}
+              lineage={lineageUnits}
+              objectGraph={objectGraphUnits}
             />
+            <TimelineSettingsRow settings={timelineSettings} onChange={setTimeline} hasHighLevel={profile?.has_high_level ?? false} />
             <HuTimelineChart ocelId={ocelId} handlingUnits={timelineUnits} settings={timelineSettings} />
           </ChartCard>
         </>

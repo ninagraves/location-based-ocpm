@@ -21,6 +21,7 @@ from ocelescope_module_location_based_ocpm.instances.object_graph import (
     object_graph,
 )
 from ocelescope_module_location_based_ocpm.instances.profile import (
+    hu_details,
     hu_profile,
     query_profile,
 )
@@ -90,7 +91,25 @@ def test_activities(profile):
     c2 = row(profile, "c2")
     assert (c2["n_movements"], c2["n_processing"]) == (5, 3)
     assert c2["processing_activities"] == ["roll", "label", "cut"]
-    assert row(profile, "c2")["n_co_handled"] == 4  # s1, c1 (e3, e4, e8, ...), c3 (e8, e12), c4 (e15)
+
+
+
+def test_connectedness(profile):
+    """Non-transformation events of c2: e4, e6, e8, e9, e11, e12; shared: all but e6 (with c1 and c3)."""
+    c2 = row(profile, "c2")
+    assert (c2["n_shared_events"], c2["connectedness"], c2["n_co_handled"]) == (5, 5 / 6, 2)
+    assert (row(profile, "s1")["n_shared_events"], row(profile, "s1")["n_co_handled"]) == (0, 0)  # only e1, e2, e3
+
+
+def test_hu_details(full, profile):
+    """Unfolded row of c2: start and end, lineage names, location path, processing, co-handled with shared events."""
+    processing = full.relations.filter("is_processing")["event"].unique().to_list()
+    details = hu_details(full.relations, row(profile, "c2"), full.loc, full.hl, processing)
+    assert (details["first_event"]["activity"], details["last_event"]["event"]) == ("roll", "e15")
+    assert (details["creation"]["event"], details["final_consumption"]["activity"]) == ("e3", "cut")
+    assert (details["parents"], details["children"], details["siblings"]) == (["s1"], ["c4"], ["c1"])
+    assert [(p["location"], p["event"]) for p in details["location_path"]] == [("A1", "e3"), ("A2", "e6"), ("T", "e8"), ("A2", "e9"), ("B1", "e12")]
+    assert [(h["hu"], h["events"]) for h in details["co_handled"]] == [("c1", ["e4", "e8", "e9", "e11"]), ("c3", ["e8", "e12"])]
 
 
 def test_query(profile):
