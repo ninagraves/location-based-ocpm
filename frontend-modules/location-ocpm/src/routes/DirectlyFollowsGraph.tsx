@@ -7,12 +7,14 @@ import { PanelRightOpenIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { getDirectlyFollowsGraph } from "../api/locationBasedOcpm";
 import { DfgGraph } from "../components/DfgGraph";
-import { DEFAULT_STATE, DfgSettings, type DfgState, toRequest } from "../components/DfgSettings";
+import { arcSettings, DEFAULT_STATE, DfgSettings, type DfgState, removeArc, toRequest } from "../components/DfgSettings";
+import { applyArcSettings } from "../lib/dfgView";
+import type { LaidOutArc } from "../lib/dfgLayout";
 import { ModulePage } from "../components/ModulePage";
 import { useScheme } from "../components/plots";
 import { errorText } from "../lib/errors";
 import { usePageState } from "../lib/pageState";
-import { colourMap } from "../lib/palette";
+import { emphasisColourMap } from "../lib/palette";
 
 /** Default, smallest and largest width of the settings sidebar in pixels. */
 const SIDEBAR_WIDTH = { initial: 300, min: 220, max: 640 };
@@ -60,7 +62,7 @@ const ResizeHandle = ({ width, onChange }: { width: number; onChange: (width: nu
 
 /** Sidebar and graph of one log. */
 const DfgContent = ({ ocelId }: { ocelId: string }) => {
-  const [stored, setStored] = usePageState<DfgState>(`dfg.v2.${ocelId}`, DEFAULT_STATE);
+  const [stored, setStored] = usePageState<DfgState>(`dfg.v4.${ocelId}`, DEFAULT_STATE);
   // Settings saved by an older version may lack fields: fill them with the defaults.
   const state = useMemo(() => ({ ...DEFAULT_STATE, ...stored }), [stored]);
   const setState = useCallback(
@@ -69,14 +71,31 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
   );
   const [sidebar, setSidebar] = usePageState<SidebarState>("dfg.sidebar", { width: SIDEBAR_WIDTH.initial, hidden: false });
   const scheme = useScheme();
+  // Right click on an arc removes it (Nina, 2026-11-15).
+  const onRemoveArc = useCallback(
+    (arc: LaidOutArc) =>
+      setState((s) => removeArc(s, { object_type: arc.objectType, source: arc.sourceActivity, target: arc.targetActivity })),
+    [setState],
+  );
   const request = useMemo(() => toRequest(state), [state]);
-  const { data, error, isFetching } = useQuery({
+  const { data: base, error, isFetching } = useQuery({
     queryKey: ["locationBasedOcpm", "dfg", ocelId, request],
     queryFn: ({ signal }) => getDirectlyFollowsGraph(ocelId, request, undefined, undefined, signal),
     placeholderData: keepPreviousData,
   });
-  // Colours follow the order of all object types (most objects first), so a type keeps its colour.
-  const colours = useMemo(() => colourMap(data?.object_types.map((t) => t.object_type) ?? [], scheme), [data, scheme]);
+  // Arc threshold, arc count, removed arcs and Stay connected: in the browser, without a request (Nina, 2026-11-15).
+  const arcs = useMemo(() => arcSettings(state), [state]);
+  const data = useMemo(() => (base ? applyArcSettings(base, arcs) : undefined), [base, arcs]);
+  // Handling-unit types get the signature colours first, the other types paler colours (Nina, 2026-11-15); each
+  // group in the order of all object types (most objects first), so a type keeps its colour.
+  const colours = useMemo(() => {
+    const types = data?.object_types ?? [];
+    return emphasisColourMap(
+      types.filter((t) => t.handling_units).map((t) => t.object_type),
+      types.filter((t) => !t.handling_units).map((t) => t.object_type),
+      scheme,
+    );
+  }, [data, scheme]);
 
   if (error) return <Alert color="red">{errorText(error)}</Alert>;
   if (!data) return <Loader size="sm" />;
@@ -90,6 +109,7 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
           arcLabel={state.arcLabel}
           compact={state.compact}
           height={GRAPH_HEIGHT}
+          onRemoveArc={onRemoveArc}
         />
         {sidebar.hidden && (
           <Tooltip label="Show the settings" withinPortal>
@@ -109,8 +129,7 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
           <ResizeHandle width={sidebar.width} onChange={(width) => setSidebar((s) => ({ ...s, width }))} />
           <Box w={sidebar.width} style={{ flexShrink: 0, position: "sticky", top: 8 }}>
             <DfgSettings
-              objectTypes={data.object_types}
-              activityOptions={data.activity_options}
+              graph={data}
               colours={colours}
               state={state}
               setState={setState}

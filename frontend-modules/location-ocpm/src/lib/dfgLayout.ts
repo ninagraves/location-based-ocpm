@@ -134,8 +134,13 @@ export type LaidOutArc = {
   source: string;
   target: string;
   objectType: string;
+  /** The arc's activities as sent by the backend (null = start / end node), to identify it (e.g. for removing it). */
+  sourceActivity: string | null;
+  targetActivity: string | null;
   count: number;
   objects: number;
+  /** Shown only because of "Stay connected". */
+  connecting: boolean;
   label: string;
   path: string;
   labelPosition: Point | null;
@@ -261,8 +266,11 @@ export const layoutGraph = async (
         source: a.source,
         target: a.target,
         objectType: a.arc.object_type,
+        sourceActivity: a.arc.source ?? null,
+        targetActivity: a.arc.target ?? null,
         count: a.arc.count,
         objects: a.arc.objects,
+        connecting: a.arc.connecting ?? false,
         label: a.label,
         path: section ? sectionPath(section) : "",
         labelPosition:
