@@ -1,10 +1,12 @@
 """Directly-follows graph (docs/pages/directly-follows-graph.md): traces, projection, variants, arcs, nodes."""
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 import polars as pl
 import pytest
 
+from ocelescope_module_location_based_ocpm.dfg.categories import event_categories
 from ocelescope_module_location_based_ocpm.dfg.projection import default_activity_count
 from ocelescope_module_location_based_ocpm.dfg.variants import object_variants, variant_ranking
 from ocelescope_module_location_based_ocpm.dfg.graph import (
@@ -188,10 +190,13 @@ def test_deselected_activity_is_projected_out_first(frames):
 def test_default_activities_are_the_most_frequent_40_percent_between_3_and_10(frames):
     assert [default_activity_count(n) for n in (2, 4, 7, 12, 30)] == [2, 3, 3, 5, 10]
     # coil has 7 activities -> 3: crane move 4, quality check 4, load truck 2 (before unload truck 2 by first occurrence).
+    # slab's default (cast slab, inspect slab, roll) is shared with coil where coils take part: roll (Nina, 2026-11-16).
     graph = directly_follows_graph(frames)
     options = {o.activity: o for o in graph.activity_options}
     coil = {a for a, o in options.items() for t in o.object_types if t.object_type == "coil" and t.included}
-    assert coil == {"crane move", "quality check", "load truck"}
+    assert coil == {"crane move", "quality check", "load truck", "roll"}
+    slab = {a for a, o in options.items() for t in o.object_types if t.object_type == "slab" and t.included}
+    assert slab == {"cast slab", "inspect slab", "roll"}
     # The list is ordered by events with handling units.
     assert [o.activity for o in graph.activity_options][:2] == ["crane move", "quality check"]
     assert options["crane move"].hu_events == 4
@@ -377,3 +382,56 @@ def test_thresholds_with_decimals(frames):
         for x in (5.5, 5.6)
     ]
     assert counts == [1, 3]
+
+
+def test_variant_threshold_needed_per_activity():
+    """Activities on no included trace name the smallest variant threshold that includes them (pallets, all activities)."""
+    frames = _pallet_example()
+    graph = directly_follows_graph(frames, [TypeSetting(object_type="pallet", variant_threshold=50)], activities=every_activity(frames, "pallet"))
+    options = {o.activity: o for o in graph.activity_options}
+    # Variants: 5 x main (0 % before), 3 x with inspect (50 % before), p9 with scrap (80 % before), p10 (90 % before).
+    assert options["pick"].on_included_trace and options["pick"].variant_threshold_needed == 1
+    assert not options["inspect"].on_included_trace and options["inspect"].variant_threshold_needed == 51
+    assert not options["scrap"].on_included_trace and options["scrap"].variant_threshold_needed == 81
+    graph = directly_follows_graph(frames, [TypeSetting(object_type="pallet", variant_threshold=81)], activities=every_activity(frames, "pallet"))
+    assert {o.activity: o for o in graph.activity_options}["scrap"].on_included_trace
+
+
+def _with_categories(frames: LogFrames) -> LogFrames:
+    """The pallet example with event categories: "load" moves to the truck t1 (a vehicle), "ship" to the yard y1."""
+    events = frames.events.with_columns(
+        uloc=pl.when(pl.col("activity") == "load").then(pl.lit("t1")).when(pl.col("activity") == "ship").then(pl.lit("y1"))
+    )
+    return replace(frames, categories=event_categories(events, vehicles=["t1"], storage_units=[]))
+
+
+def test_deselected_event_categories_are_projected_out_first():
+    """An event is removed only if all its categories are deselected: "load" (Movements, Move to vehicle) needs both."""
+    frames = _with_categories(_pallet_example())
+    setting = [TypeSetting(object_type="pallet", variant_threshold=100)]
+    every = every_activity(frames, "pallet")
+    graph = directly_follows_graph(frames, setting, activities=every, excluded_categories=["to_vehicle"])
+    categories = {c.key: c for c in graph.event_categories}
+    assert (categories["movement"].events, categories["to_vehicle"].events, categories["to_storage"].events) == (18, 9, 0)
+    assert not categories["to_vehicle"].selected and categories["movement"].selected
+    assert {"load", "ship"} <= {a.activity for a in graph.activities}
+    graph = directly_follows_graph(frames, setting, activities=every, excluded_categories=["movement"])
+    assert ("pack", "load") in arcs_of(graph, "pallet") and ("load", None) in arcs_of(graph, "pallet")
+    assert "ship" not in {a.activity for a in graph.activities}
+    graph = directly_follows_graph(frames, setting, activities=every, excluded_categories=["movement", "to_vehicle"])
+    assert ("pack", None) in arcs_of(graph, "pallet")
+    assert not {"load", "ship"} & {a.activity for a in graph.activities}
+    assert {o.activity: o for o in graph.activity_options}["load"].variant_threshold_needed is None
+
+
+def test_activity_badges_count_the_events_per_category():
+    """The activity list counts the events per category: per activity (events with a handling unit) and per type."""
+    frames = _with_categories(_pallet_example())
+    graph = directly_follows_graph(frames, [TypeSetting(object_type="pallet")], activities=every_activity(frames, "pallet"))
+    options = {o.activity: o for o in graph.activity_options}
+    assert options["load"].categories == {"movement": 9, "to_vehicle": 9}
+    assert options["ship"].categories == {"movement": 9}
+    assert options["produce"].categories == {"transformation": 10}
+    assert options["pick"].categories == {}
+    per_type = {t.object_type: t.categories for t in options["load"].object_types}
+    assert per_type == {"pallet": {"movement": 9, "to_vehicle": 9}, "truck": {"movement": 9, "to_vehicle": 9}}

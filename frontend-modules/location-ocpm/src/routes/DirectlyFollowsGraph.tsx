@@ -1,13 +1,14 @@
-// The page "Directly-follows graph": the graph on the left, the settings sidebar on the right (width adjustable
-// by dragging its left edge, can be hidden).
+// The page "Directly-follows graph": toolbar and graph on the left (height adjustable by dragging its bottom edge),
+// the settings sidebar on the right (width adjustable by dragging its left edge, can be hidden).
 // Documented in docs/pages/directly-follows-graph.md.
-import { ActionIcon, Alert, Box, Group, Loader, Tooltip } from "@mantine/core";
+import { ActionIcon, Alert, Box, Group, Loader, Stack, Tooltip } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { PanelRightOpenIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { getDirectlyFollowsGraph } from "../api/locationBasedOcpm";
 import { DfgGraph } from "../components/DfgGraph";
 import { arcSettings, DEFAULT_STATE, DfgSettings, type DfgState, removeArc, toRequest } from "../components/DfgSettings";
+import { DfgToolbar } from "../components/DfgToolbar";
 import { applyArcSettings } from "../lib/dfgView";
 import type { LaidOutArc } from "../lib/dfgLayout";
 import { ModulePage } from "../components/ModulePage";
@@ -18,8 +19,8 @@ import { emphasisColourMap } from "../lib/palette";
 
 /** Default, smallest and largest width of the settings sidebar in pixels. */
 const SIDEBAR_WIDTH = { initial: 300, min: 220, max: 640 };
-/** Height of the drawing area in pixels. */
-const GRAPH_HEIGHT = 760;
+/** Default, smallest and largest height of the drawing area in pixels (adjustable by dragging its bottom edge). */
+const GRAPH_HEIGHT = { initial: 760, min: 300, max: 4000 };
 
 /** Width and visibility of the sidebar (one for all logs). */
 type SidebarState = { width: number; hidden: boolean };
@@ -60,6 +61,41 @@ const ResizeHandle = ({ width, onChange }: { width: number; onChange: (width: nu
   );
 };
 
+/**
+ * Grab area below the graph (a hairline shows on hover): dragging it down makes the drawing area taller.
+ *
+ * @param height The current height.
+ * @param onChange Called with the new height while dragging (clamped to `GRAPH_HEIGHT`).
+ */
+const HeightHandle = ({ height, onChange }: { height: number; onChange: (height: number) => void }) => {
+  const start = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const y0 = e.clientY;
+    const move = (m: PointerEvent) => onChange(Math.min(GRAPH_HEIGHT.max, Math.max(GRAPH_HEIGHT.min, height + m.clientY - y0)));
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  const [hover, setHover] = useState(false);
+  return (
+    <Box
+      onPointerDown={start}
+      onPointerEnter={() => setHover(true)}
+      onPointerLeave={() => setHover(false)}
+      onDoubleClick={() => onChange(GRAPH_HEIGHT.initial)}
+      role="separator"
+      aria-label="Drag to change the height of the graph"
+      title="Drag to change the height of the graph (double click: default height)"
+      style={{ height: 10, cursor: "row-resize", display: "flex", alignItems: "center", justifyContent: "center" }}
+    >
+      <Box style={{ width: 48, height: 3, borderRadius: 2, background: hover ? "var(--mantine-color-gray-6)" : "var(--mantine-color-gray-4)" }} />
+    </Box>
+  );
+};
+
 /** Sidebar and graph of one log. */
 const DfgContent = ({ ocelId }: { ocelId: string }) => {
   const [stored, setStored] = usePageState<DfgState>(`dfg.v4.${ocelId}`, DEFAULT_STATE);
@@ -70,6 +106,7 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
     [setStored],
   );
   const [sidebar, setSidebar] = usePageState<SidebarState>("dfg.sidebar", { width: SIDEBAR_WIDTH.initial, hidden: false });
+  const [height, setHeight] = usePageState<number>("dfg.height", GRAPH_HEIGHT.initial);
   const scheme = useScheme();
   // Right click on an arc removes it (Nina, 2026-11-15).
   const onRemoveArc = useCallback(
@@ -101,29 +138,35 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
   if (!data) return <Loader size="sm" />;
   return (
     <Group align="flex-start" wrap="nowrap" gap={6}>
-      <Box style={{ flex: 1, minWidth: 0, position: "relative", opacity: isFetching ? 0.6 : 1 }}>
+      <Stack gap={6} style={{ flex: 1, minWidth: 0, position: "relative" }}>
+        <Box pr={sidebar.hidden ? 44 : 0}>
+          <DfgToolbar categories={data.event_categories ?? []} state={state} setState={setState} />
+        </Box>
+        <Box style={{ opacity: isFetching ? 0.6 : 1 }}>
         <DfgGraph
           graph={data}
           colours={colours}
           direction={state.direction}
           arcLabel={state.arcLabel}
           compact={state.compact}
-          height={GRAPH_HEIGHT}
+          height={height}
           onRemoveArc={onRemoveArc}
         />
+        <HeightHandle height={height} onChange={setHeight} />
+        </Box>
         {sidebar.hidden && (
           <Tooltip label="Show the settings" withinPortal>
             <ActionIcon
               variant="default"
               aria-label="Show the settings"
               onClick={() => setSidebar((s) => ({ ...s, hidden: false }))}
-              style={{ position: "absolute", top: 8, right: 8, zIndex: 5 }}
+              style={{ position: "absolute", top: 0, right: 0, zIndex: 5 }}
             >
               <PanelRightOpenIcon size={16} />
             </ActionIcon>
           </Tooltip>
         )}
-      </Box>
+      </Stack>
       {!sidebar.hidden && (
         <>
           <ResizeHandle width={sidebar.width} onChange={(width) => setSidebar((s) => ({ ...s, width }))} />

@@ -5,12 +5,15 @@ Routes with `{ocel_id}` read the log as Ocelescope currently shows it, i.e. with
 filters applied.
 """
 
+import threading
+from collections.abc import Callable
 from typing import Annotated
 
 import polars as pl
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from ocelescope import OCEL
 from ocelescope_backend.app.dependencies import ApiOcel, ApiSession
+from ocelescope_backend.app.internal.session import Session
 
 from ocelescope_module_location_based_ocpm.api_models import (
     ApplyResult,
@@ -44,6 +47,26 @@ router = APIRouter()
 PREVIEW_ROWS = 5
 #: Maximum number of distinct values the attribute-value picker offers.
 MAX_ATTRIBUTE_VALUES = 500
+
+
+#: Called in a background thread whenever a new derivation is cached, e.g. to precompute the directly-follows graph
+#: before the user opens its page (`dfg_routes`; Nina, 2026-11-16). Arguments: log id, a function that opens the log
+#: (the request's log is closed when the request ends, so a hook opens and closes its own), the cached derivation.
+ON_DERIVED: list[Callable[[str, Callable[[], OCEL], CachedDerivation], None]] = []
+
+
+def _cache_derivation(state: ModuleState, session: Session, ocel_id: str, cached: CachedDerivation) -> None:
+    """Store a derivation in the session's cache and start the `ON_DERIVED` hooks in the background.
+
+    Args:
+        state: The module state.
+        session: The backend session (to open the log again in the background).
+        ocel_id: Id of the log.
+        cached: The derivation and its cache key.
+    """
+    state.cache[ocel_id] = cached
+    for hook in ON_DERIVED:
+        threading.Thread(target=hook, args=(ocel_id, lambda: session.get_ocel(ocel_id), cached), daemon=True).start()
 
 
 def get_state(session: ApiSession) -> ModuleState:
@@ -167,7 +190,7 @@ def current_derivation(ocel_id: str, ocel: ApiOcel, session: ApiSession, state: 
             detail="The applied configuration does not work on the current log: "
             + " ".join(e.message for e in errors),
         )
-    state.cache[ocel_id] = CachedDerivation(key=key, derivation=result)
+    _cache_derivation(state, session, ocel_id, CachedDerivation(key=key, derivation=result))
     return result
 
 
@@ -277,9 +300,8 @@ def apply_config(
     if result.errors:
         return ApplyResult(applied=False, errors=[Message.of(e) for e in result.errors], notices=notices)
     state.configs[ocel_id] = body
-    state.cache[ocel_id] = CachedDerivation(
-        key=fingerprint(body, log_version(session, ocel_id), state.tables), derivation=result
-    )
+    key = fingerprint(body, log_version(session, ocel_id), state.tables)
+    _cache_derivation(state, session, ocel_id, CachedDerivation(key=key, derivation=result))
     return ApplyResult(applied=True, notices=notices)
 
 
