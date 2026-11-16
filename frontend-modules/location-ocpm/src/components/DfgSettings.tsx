@@ -19,10 +19,10 @@ import {
   TextInput,
   Tooltip,
 } from "@mantine/core";
-import { ChevronDownIcon, ChevronRightIcon, InfoIcon, PanelRightCloseIcon, SearchIcon, XIcon } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { ChevronDownIcon, ChevronRightIcon, InfoIcon, SearchIcon, XIcon } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { DfgActivityOption, DfgActivityTypeOption, DfgObjectType, DfgRequest, DirectlyFollowsGraph } from "../api/locationBasedOcpm";
-import type { ArcSettings } from "../lib/dfgArcs";
+import { type ArcSettings, type BaseArc, neededArcThresholds } from "../lib/dfgArcs";
 import type { ArcLabel, Direction } from "../lib/dfgLayout";
 import { num } from "../lib/format";
 import { UI } from "../lib/palette";
@@ -34,12 +34,14 @@ export type ArcKey = { object_type: string; source: string | null; target: strin
 /** The page's settings. `objectTypes` null = the object types with handling units. */
 export type DfgState = {
   objectTypes: string[] | null;
-  /** General variant threshold (percent) for every type without an own one; null = the default (top 3 of every type). */
+  /** General variant threshold (percent) for every type without an own one; null = the default (80 %). */
   variantThreshold: number | null;
-  /** General arc threshold (percent) for every type without an own one. */
+  /** General Arcs (projection) (percent) for every type without an own one. */
   arcThreshold: number;
-  /** General arc count per type for every type without an own one; null = all arcs. */
+  /** General Arcs (display) for every type without an own one; null = all arcs. */
   arcCount: number | null;
+  /** How the general Arcs (display) counts: one limit for all these types together ("general") or per type. */
+  arcCountMode: "general" | "perType";
   /** Own values per object type (kept while the type is unselected). */
   own: Record<string, { variant?: number; arc?: number; count?: number }>;
   /** Selected activities per object type; a type that is missing has the default selection. */
@@ -56,19 +58,21 @@ export type DfgState = {
 };
 
 /**
- * Defaults (Nina, 2026-11-15): handling-unit types; per type its most frequent 40 % of activities (3 to 10);
- * variants: one threshold that keeps at least the top 3 of every type; arcs 100 %, all arcs; Stay connected on.
+ * Defaults (Nina, 2026-11-15/16): handling-unit types; per type its most frequent 40 % of activities (3 to 10), shared
+ * between the handling-unit types; variants 80 % (backend default); Arcs (projection) 50 %; Arcs (display) all, general;
+ * Stay connected on; Move to vehicle and Move to storage deselected.
  */
 export const DEFAULT_STATE: DfgState = {
   objectTypes: null,
   variantThreshold: null,
-  arcThreshold: 100,
+  arcThreshold: 50,
   arcCount: null,
+  arcCountMode: "general",
   own: {},
   activities: {},
   stayConnected: true,
   removed: [],
-  excludedCategories: [],
+  excludedCategories: ["to_vehicle", "to_storage"],
   arcLabel: "count",
   direction: "RIGHT",
   compact: false,
@@ -89,10 +93,14 @@ export const toRequest = (state: DfgState): DfgRequest => ({
   excluded_categories: state.excludedCategories,
 });
 
-/** The arc settings of a state, for `filterArcs` (own values of a type first, then the general ones). */
+/**
+ * The arc settings of a state, for `filterArcs` (own values of a type first, then the general ones). In "general"
+ * mode, the general Arcs (display) is one limit for all types without an own value together (`total`).
+ */
 export const arcSettings = (state: DfgState): ArcSettings => ({
   threshold: (t) => state.own[t]?.arc ?? state.arcThreshold,
-  count: (t) => state.own[t]?.count ?? state.arcCount,
+  count: (t) => state.own[t]?.count ?? (state.arcCountMode === "perType" ? state.arcCount : null),
+  total: state.arcCountMode === "general" ? state.arcCount : null,
   removed: state.removed,
   stayConnected: state.stayConnected,
 });
@@ -110,10 +118,10 @@ export const INFO = {
   general:
     "General values: apply to every object type that has no own value (set in the type's unfold). Types with own values are marked in the list.",
   variants:
-    "Variant threshold: keeps the most frequent variants (activity sequences of the objects, after removing deselected activities) of a type until they cover at least this share of its objects; equally frequent variants by their first occurrence in the log. Only these objects' traces are used for everything else. 100 % keeps all. Default: the smallest whole percentage that keeps at least the 3 most frequent variants of every selected type. Click the number to type a value (decimals allowed).",
-  arcs: "Arcs (projection), the arc threshold: ranks all arcs of a type (start and end arcs included) by objects, then traversals, and keeps this share of them (rounded up), together with every arc as frequent as the last kept one. 100 % keeps all. Click the number to type a value (decimals allowed).",
+    "Variant threshold: keeps the most frequent variants (activity sequences of the objects, after removing deselected activities) of a type until they cover at least this share of its objects; equally frequent variants by their first occurrence in the log. Only these objects' traces are used for everything else. 100 % keeps all. Default: 80 %. Click the number to type a value (decimals allowed).",
+  arcs: "Arcs (projection), the arc threshold: ranks all arcs of a type (start and end arcs included) by objects, then traversals, and keeps this share of them (rounded up), together with every arc as frequent as the last kept one. 100 % keeps all. Default: 50 %. Click the number to type a value (decimals allowed).",
   arcCount:
-    "Arcs (display), the arc count: of the arcs left by Arcs (projection), shows the first N of every object type, ranked by objects, traversals, first occurrence, then name (exactly N, ties broken by this order). The number shows how many arcs are shown of how many.",
+    "Arcs (display), the arc count: of the arcs left by Arcs (projection), shows the first N, ranked by objects, traversals, first occurrence, then name (exactly N, ties broken by this order). General (default): N arcs of all object types together (types with an own value keep theirs); per type: N arcs of every type. − and + change it by one. The number shows how many arcs are shown of how many.",
   stay: "Stay connected: every shown arc lies on a path from the start to the end of its object type. Arcs that Arcs (projection) or Arcs (display) removed are added back (dashed) where needed. It never adds arcs of removed variants, deselected activities or arcs removed by hand.",
   removed:
     "Arcs removed by hand (right click on an arc in the graph). While there are any, the sliders no longer describe the graph on their own (marked as manual). Click × to restore an arc.",
@@ -122,11 +130,12 @@ export const INFO = {
   categories:
     "Event categories: an event is removed from the traces (before anything else, like deselecting an activity) only when all categories it belongs to are deselected. Move to vehicle / storage: movements whose target location is a vehicle / storage unit; such an event is also a movement, so it stays until both Movements and its Move to chip are off. Events in no category are not affected by the chips (the activity selection still applies).",
   activities:
-    "Activities by number of events that involve a handling unit (in brackets). The events of an unchecked activity are removed from the traces before anything else (as in Ocelescope): a trace a, b, c without b becomes a, c. Unfold an activity for its events per object type and to (de)select it for single selected types. Default per type: its most frequent 40 % of activities, at least 3 and at most 10. Upper part: activities on the included traces (the variants kept by the variant threshold). Lower part: the others, each with the smallest variant threshold that would include it (per type in the unfold).",
+    "Activities by number of events that involve a handling unit (in brackets). The events of an unchecked activity are removed from the traces before anything else (as in Ocelescope): a trace a, b, c without b becomes a, c. Unfold an activity for its events per object type and to (de)select it for single selected types. Default per type: its most frequent 40 % of activities (at least 3, at most 10), plus every activity preselected for another selected handling-unit type. Upper part: activities on the included traces (the variants kept by the variant threshold); one that is not in the graph shows the smallest Arcs (projection) that would show it. Lower part: the others, each with the smallest variant threshold that would include it. Unfold for the values per type. Search for movements, vehicles, storage, processing or transformation to find the activities with these events too.",
   outside:
-    "Activities on no included trace: the number is the smallest variant threshold (of any selected type) at which they would be; unfold for each selected type. Without a number, no variant threshold helps: the activity is deselected, its events are removed by an event category, or only unselected types have it.",
+    "Activities on no included trace: the number is the smallest variant threshold (of any selected type) at which they would be; unfold for each selected type. Without a number, no variant threshold helps: the activity is deselected (unchecked), its events are removed by an event category, or only unselected types have it.",
   arcLabel: "What the number on an arc counts: traversals (an object repeating the arc counts each time) or distinct objects.",
-  direction: "Direction of the layout: from left to right or from top to bottom.",
+  direction: "Direction of the layout: from left to right (→) or from top to bottom (↓).",
+  settings: "Show or hide the discovery settings.",
   compact: "Less white space between nodes and arcs, e.g. to export the whole graph as a figure.",
 };
 
@@ -389,19 +398,17 @@ const TypeRow = ({
             autoText="default"
             autoValue={type.selected ? type.variant_threshold : variantDefault}
             onCommit={(v) => setOwn({ variant: v })}
-            note={type.selected ? `${num(type.kept_variants)} of ${num(type.variants)} variants · ${num(type.kept_objects)} objects` : undefined}
           />
           <PercentSlider
             label="Arcs (projection)"
             info={INFO.arcs}
             value={own.arc ?? state.arcThreshold}
             onCommit={(v) => setOwn({ arc: v })}
-            note={type.selected ? `${num(type.threshold_arcs)} of ${num(type.arcs)} arcs` : undefined}
           />
           <CountSlider
             label="Arcs (display)"
             info={INFO.arcCount}
-            value={own.count ?? state.arcCount}
+            value={own.count ?? (state.arcCountMode === "perType" ? state.arcCount : null)}
             max={type.selected ? (type.threshold_arcs ?? 0) : arcCountMax}
             shown={type.shown_arcs ?? 0}
             total={type.threshold_arcs ?? 0}
@@ -470,13 +477,50 @@ const CategoryBadges = ({ categories, events }: { categories?: Record<string, nu
 const neededText = (needed: number | null | undefined) => (needed == null ? null : `≥ ${num(needed)} %`);
 
 /**
- * Why an activity of the lower part is not on an included trace of a type when no variant threshold helps.
+ * Why an activity of the lower part is not on an included trace of a type when no variant threshold helps; null if it
+ * is deselected for the type (the unchecked box says so; Nina, 2026-11-16).
  *
  * @param t The activity's entry for the type.
- * @param categoriesExcluded True if an event category is deselected.
  */
-const missingReason = (t: DfgActivityTypeOption, categoriesExcluded: boolean) =>
-  !t.selected_type ? "type not selected" : !t.included ? "deselected" : categoriesExcluded ? "removed by an event category" : "not on a trace";
+const missingReason = (t: DfgActivityTypeOption) =>
+  !t.selected_type ? "type not selected" : !t.included ? null : "removed by an event category";
+
+/** For an activity of the upper part that is not in the graph: per type the Arcs (projection) needed, or "display" if
+ * Arcs (projection) already keeps one of its arcs (it is hidden by Arcs (display) or by arcs removed by hand). */
+export type ProjectionNeed = number | "display";
+
+/** Text of a `ProjectionNeed`. */
+const projectionText = (need: ProjectionNeed | undefined) => (need === undefined ? null : need === "display" ? "display" : `≥ ${num(need)} %`);
+
+/** Hover text of the upper part's numbers. */
+const PROJECTION_HINT =
+  "Not in the graph: smallest Arcs (projection) (of any selected type) at which an arc of the activity is kept; \"display\": already kept, but hidden by Arcs (display) or by arcs removed by hand.";
+
+/** Words that find the activities with events of a category in the activity search (Nina, 2026-11-16). */
+const CATEGORY_WORDS: Record<string, string[]> = {
+  movement: ["movements", "movement", "move"],
+  to_vehicle: ["vehicles", "vehicle"],
+  to_storage: ["storage"],
+  processing: ["processing", "process"],
+  transformation: ["transformations", "transformation", "transforming", "transform"],
+};
+
+/**
+ * True if an activity matches the search: its name contains the query, or the query (at least 3 letters) starts one of
+ * the words of a category the activity has events of (or one of these words starts the query). E.g. "vehic" finds
+ * "load truck" when loads go to a vehicle.
+ *
+ * @param option The activity.
+ * @param query The search text.
+ */
+export const activityMatches = (option: DfgActivityOption, query: string) => {
+  const q = query.trim().toLowerCase();
+  if (option.activity.toLowerCase().includes(q)) return true;
+  if (q.length < 3) return false;
+  return Object.entries(CATEGORY_WORDS).some(
+    ([k, words]) => (option.categories?.[k] ?? 0) > 0 && words.some((w) => w.startsWith(q) || q.startsWith(w)),
+  );
+};
 
 /**
  * One activity in the list: a checkbox for all selected types (indeterminate if selected for some of them), its
@@ -488,24 +532,33 @@ const ActivityRow = ({
   selectedTypes,
   setIncluded,
   outside,
-  categoriesExcluded,
+  projection,
 }: {
   option: DfgActivityOption;
   colours: Map<string, string>;
   selectedTypes: Set<string>;
   setIncluded: (activity: string, types: string[], included: boolean) => void;
-  /** Lower part of the list: show the variant threshold needed (or why it is missing). */
+  /** Lower part of the list: show the variant threshold needed (or why none helps). */
   outside?: boolean;
-  categoriesExcluded?: boolean;
+  /** Upper part, activity not in the graph: Arcs (projection) needed per type. */
+  projection?: Map<string, ProjectionNeed>;
 }) => {
   const [open, setOpen] = useState(false);
   const selectable = option.object_types.filter((t) => selectedTypes.has(t.object_type));
   const included = selectable.filter((t) => t.included).length;
   const status = (t: DfgActivityTypeOption) =>
-    t.on_included_trace ? "in the graph" : (neededText(t.variant_threshold_needed) ?? missingReason(t, !!categoriesExcluded));
-  const summary =
-    neededText(option.variant_threshold_needed) ??
-    (selectable.length === 0 ? "other types only" : included === 0 ? "deselected" : categoriesExcluded ? "event category" : "not on a trace");
+    outside
+      ? t.on_included_trace
+        ? "in the graph"
+        : (neededText(t.variant_threshold_needed) ?? missingReason(t))
+      : projectionText(projection?.get(t.object_type));
+  const numbers = [...(projection?.values() ?? [])].filter((v): v is number => v !== "display");
+  const summary = outside
+    ? (neededText(option.variant_threshold_needed) ??
+      (selectable.length === 0 ? "other types only" : included === 0 ? null : "event category"))
+    : projection
+      ? projectionText(numbers.length > 0 ? Math.min(...numbers) : "display")
+      : null;
   return (
     <Stack gap={1}>
       <Group gap={6} wrap="nowrap" justify="space-between">
@@ -523,8 +576,13 @@ const ActivityRow = ({
             </Group>
           }
         />
-        {outside && (
-          <Tooltip label="Smallest variant threshold that puts the activity into the graph (of any selected type), or why none does" withinPortal multiline w={240}>
+        {summary && (
+          <Tooltip
+            label={outside ? "Smallest variant threshold that puts the activity on an included trace (of any selected type), or why none does" : PROJECTION_HINT}
+            withinPortal
+            multiline
+            w={240}
+          >
             <Text size="xs" c="dimmed" ml="auto" style={{ whiteSpace: "nowrap" }}>{summary}</Text>
           </Tooltip>
         )}
@@ -547,7 +605,7 @@ const ActivityRow = ({
                   <Text size="xs">{t.object_type}</Text>
                   <Text size="xs" c="dimmed">({num(t.events)})</Text>
                   <CategoryBadges categories={t.categories} events={t.events} />
-                  {outside && t.selected_type && <Text size="xs" c="dimmed">· {status(t)}</Text>}
+                  {t.selected_type && status(t) && <Text size="xs" c="dimmed">· {status(t)}</Text>}
                 </Group>
               }
             />
@@ -562,27 +620,28 @@ const ActivityRow = ({
 const arcText = (a: ArcKey) => `${a.object_type}: ${a.source ?? "▶"} → ${a.target ?? "■"}`;
 
 /**
- * The sidebar: reset, general values (variants, arcs, arc count, stay connected), arcs removed by hand, object types
- * (searchable, scrollable, each with an unfold for own values), activities (searchable, scrollable, each with an
- * unfold per object type), and the display options.
+ * The sidebar "Discovery Settings": general values (variants, Arcs (projection), stay connected), arcs removed by hand,
+ * object types (searchable, scrollable, each with an unfold for own values), activities (searchable incl. category
+ * words, "Select all" for the results, scrollable, each with an unfold per object type). Arcs (display) and the
+ * layout settings are in the toolbar above the graph (DfgToolbar.tsx). Fills the height it is given.
  *
- * @param graph The last graph (object types, activity options, defaults, removed arcs).
+ * @param graph The drawn graph (object types, activity options, shown activities, defaults, removed arcs).
+ * @param baseArcs All arcs of the included traces (for the Arcs (projection) needed by activities not in the graph).
  * @param colours Colour per object type.
  * @param state The settings; `setState` changes them (every change keeps the other settings).
- * @param onHide Hides the sidebar (the page shows a button to bring it back).
  */
 export const DfgSettings = ({
   graph,
+  baseArcs,
   colours,
   state,
   setState,
-  onHide,
 }: {
   graph: DirectlyFollowsGraph;
+  baseArcs: BaseArc[];
   colours: Map<string, string>;
   state: DfgState;
   setState: (update: (s: DfgState) => DfgState) => void;
-  onHide: () => void;
 }) => {
   const [typeQuery, setTypeQuery] = useState("");
   const [activityQuery, setActivityQuery] = useState("");
@@ -595,7 +654,6 @@ export const DfgSettings = ({
   const listedTypes = [...objectTypes.filter((t) => t.handling_units), ...objectTypes.filter((t) => !t.handling_units)];
   const matches = (text: string, query: string) => text.toLowerCase().includes(query.trim().toLowerCase());
   const manual = state.removed.length > 0;
-  const sum = (f: (t: DfgObjectType) => number | undefined) => selected.reduce((n, t) => n + (f(t) ?? 0), 0);
 
   // The activities currently selected for a type (as the backend applied them, i.e. the default if not set).
   const includedOf = (type: string) =>
@@ -609,25 +667,44 @@ export const DfgSettings = ({
       }
       return { ...s, activities };
     });
+  // Select all search results for every selected type with events of them (Nina, 2026-11-16).
+  const selectAll = (options: DfgActivityOption[]) =>
+    setState((s) => {
+      const activities = { ...s.activities };
+      for (const o of options)
+        for (const t of o.object_types.filter((t) => selectedSet.has(t.object_type))) {
+          const current = activities[t.object_type] ?? includedOf(t.object_type);
+          activities[t.object_type] = [...new Set([...current, o.activity])];
+        }
+      return { ...s, activities };
+    });
   // Upper part: on an included trace (Nina, 2026-11-15); lower part: the others, least variant threshold needed first.
-  const listed = activityOptions.filter((a) => matches(a.activity, activityQuery));
+  const listed = activityOptions.filter((a) => activityMatches(a, activityQuery));
   const inGraph = listed.filter((a) => a.on_included_trace);
+  // Upper part, not in the graph: the Arcs (projection) needed per type (Nina, 2026-11-16).
+  const needed = useMemo(() => neededArcThresholds(baseArcs), [baseArcs]);
+  const shownActivities = new Set(graph.activities.map((a) => a.activity));
+  const projectionNeeds = (option: DfgActivityOption) => {
+    if (shownActivities.has(option.activity)) return undefined;
+    const needs = new Map<string, ProjectionNeed>();
+    for (const t of option.object_types) {
+      const value = t.on_included_trace ? needed.get(t.object_type)?.get(option.activity) : undefined;
+      if (value === undefined) continue;
+      const current = state.own[t.object_type]?.arc ?? state.arcThreshold;
+      needs.set(t.object_type, value <= current ? "display" : value);
+    }
+    return needs.size > 0 ? needs : undefined;
+  };
   const outsideGraph = listed
     .filter((a) => !a.on_included_trace)
     .sort((x, y) => (x.variant_threshold_needed ?? 1000) - (y.variant_threshold_needed ?? 1000));
   const removedInfo = new Map((graph.removed_arcs ?? []).map((a) => [arcText(a), a]));
 
   return (
-    <Card withBorder padding="xs">
+    <Card withBorder padding="xs" h="100%" style={{ display: "flex", flexDirection: "column" }}>
+      <Text size="sm" fw={700} mb={6}>Discovery Settings</Text>
+      <Box style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden" }} pr={4}>
       <Stack gap={6}>
-        <Group justify="space-between" gap={4} wrap="nowrap">
-          <Text size="sm" fw={700}>Settings</Text>
-          <Tooltip label="Hide the settings" withinPortal>
-            <ActionIcon size="sm" variant="subtle" color="gray" onClick={onHide} aria-label="Hide the settings">
-              <PanelRightCloseIcon size={14} />
-            </ActionIcon>
-          </Tooltip>
-        </Group>
 
         <Divider label={<Group gap={6}>General<Manual on={manual} /></Group>} labelPosition="left" />
         <PercentSlider
@@ -638,23 +715,12 @@ export const DfgSettings = ({
           autoValue={graph.variant_default}
           onCommit={(v) => setState((s) => ({ ...s, variantThreshold: v }))}
           onAuto={() => setState((s) => ({ ...s, variantThreshold: null }))}
-          note={`${num(sum((t) => t.kept_variants))} of ${num(sum((t) => t.variants))} variants`}
         />
         <PercentSlider
           label="Arcs (projection)"
           info={`${INFO.general} ${INFO.arcs}`}
           value={state.arcThreshold}
           onCommit={(v) => setState((s) => ({ ...s, arcThreshold: v }))}
-          note={`${num(sum((t) => t.threshold_arcs))} of ${num(sum((t) => t.arcs))} arcs`}
-        />
-        <CountSlider
-          label="Arcs (display)"
-          info={`${INFO.general} ${INFO.arcCount}`}
-          value={state.arcCount}
-          max={graph.arc_count_max ?? 0}
-          shown={sum((t) => t.shown_arcs)}
-          total={sum((t) => t.threshold_arcs)}
-          onCommit={(v) => setState((s) => ({ ...s, arcCount: v }))}
         />
         <Group justify="space-between" gap={4} wrap="nowrap">
           <Heading info={INFO.stay}>Stay connected</Heading>
@@ -726,11 +792,29 @@ export const DfgSettings = ({
             </Button>
           )}
         </Group>
-        <Search value={activityQuery} onChange={setActivityQuery} placeholder="Search activities" />
+        <Group gap={4} wrap="nowrap">
+          <Box style={{ flex: 1 }}>
+            <Search value={activityQuery} onChange={setActivityQuery} placeholder="Search activities or movements, vehicles, …" />
+          </Box>
+          {activityQuery.trim() !== "" && listed.length > 0 && (
+            <Tooltip label="Select every activity found, for every selected object type with events of it" withinPortal multiline w={220}>
+              <Button size="compact-xs" variant="light" onClick={() => selectAll(listed)}>
+                Select all ({listed.length})
+              </Button>
+            </Tooltip>
+          )}
+        </Group>
         <ScrollArea.Autosize mah={320} type="auto" offsetScrollbars>
           <Stack gap={2}>
             {inGraph.map((a) => (
-              <ActivityRow key={a.activity} option={a} colours={colours} selectedTypes={selectedSet} setIncluded={setIncluded} />
+              <ActivityRow
+                key={a.activity}
+                option={a}
+                colours={colours}
+                selectedTypes={selectedSet}
+                setIncluded={setIncluded}
+                projection={projectionNeeds(a)}
+              />
             ))}
             {outsideGraph.length > 0 && (
               <Divider
@@ -748,13 +832,12 @@ export const DfgSettings = ({
                 selectedTypes={selectedSet}
                 setIncluded={setIncluded}
                 outside
-                categoriesExcluded={state.excludedCategories.length > 0}
               />
             ))}
           </Stack>
         </ScrollArea.Autosize>
-
       </Stack>
+      </Box>
     </Card>
   );
 };

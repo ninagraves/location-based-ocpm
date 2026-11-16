@@ -120,22 +120,34 @@ def arc_share_filter(arcs: pl.DataFrame, thresholds: Mapping[str, float]) -> pl.
     return arcs.filter(keep)
 
 
-def arc_count_filter(arcs: pl.DataFrame, counts: Mapping[str, int | None]) -> pl.DataFrame:
-    """Keep the first `counts[ot]` arcs of every object type in the arc ranking (`arc_order`); ties are broken by it.
+def arc_count_filter(
+    arcs: pl.DataFrame, counts: Mapping[str, int | None], total: int | None = None
+) -> pl.DataFrame:
+    """Arcs (display): keep the first `counts[ot]` arcs of every object type in the arc ranking (`arc_order`); ties
+    are broken by it. With `total` ("general" mode, Nina 2026-11-16), the types without a count share one limit: the
+    first `total` of their arcs together, ranked by objects, traversals (both descending), position in the ranking of
+    their type, then object type.
+    Example: coil arcs with 4, 3, 2 objects and slab arcs with 1, 1 object, total 3: the three coil arcs.
 
     Args:
         arcs: Arcs (after `arc_share_filter`).
-        counts: Arc count per object type; None or a missing type = all arcs.
+        counts: Arc count per object type; None or a missing type = no limit of its own.
+        total: Limit shared by the types without a count; None = all their arcs.
 
     Returns:
         pl.DataFrame: The kept rows of `arcs`, sorted by `arc_order`.
     """
     limits = {t: n for t, n in counts.items() if n is not None}
-    if not limits:
-        return arc_order(arcs)
+    ordered = arc_order(arcs).with_columns(pl.int_range(1, pl.len() + 1).over(c.OBJECT_TYPE).alias("_position"))
     limit = pl.col(c.OBJECT_TYPE).replace_strict(limits, default=None, return_dtype=pl.Int64)
-    position = pl.int_range(1, pl.len() + 1).over(c.OBJECT_TYPE)
-    return arc_order(arcs).filter(limit.is_null() | (position <= limit))
+    kept = ordered.filter(limit.is_null() | (pl.col("_position") <= limit))
+    if total is not None:
+        pooled = kept.filter(limit.is_null()).sort(
+            [d.OBJECTS, d.COUNT, "_position", c.OBJECT_TYPE], descending=[True, True, False, False]
+        )
+        dropped = pooled.slice(max(total, 0)).select(c.OBJECT_TYPE, "_position")
+        kept = kept.join(dropped, on=[c.OBJECT_TYPE, "_position"], how="anti", maintain_order="left")
+    return kept.drop("_position")
 
 
 def remove_arcs(arcs: pl.DataFrame, removed: Collection[tuple[str, str | None, str | None]]) -> pl.DataFrame:

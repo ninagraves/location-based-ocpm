@@ -26,7 +26,7 @@ from .arcs import (
     objects_per_type,
     remove_arcs,
 )
-from .categories import CATEGORIES, category_counts, counts_by_group, event_categories, grouped_category_counts, remove_categories
+from .categories import CATEGORIES, DEFAULT_EXCLUDED, category_counts, counts_by_group, event_categories, grouped_category_counts, remove_categories
 from .connectivity import CONNECTING, stay_connected
 from .nodes import activity_frequencies, involved_object_types, shown_activities
 from .projection import default_activities, handling_unit_event_counts, project_traces, type_activity_counts
@@ -34,14 +34,16 @@ from .traces import considered_objects, object_traces
 from .variants import (
     RANK,
     activity_variant_thresholds,
-    default_variant_threshold,
     object_variants,
     variant_filter,
     variant_ranking,
 )
 
-#: Default arc threshold in percent: all arcs (Nina, 2026-11-15; before: 10 %).
-DEFAULT_ARC_THRESHOLD = 100.0
+#: Default arc threshold ("Arcs (projection)") in percent (Nina, 2026-11-16; before: 100 %, 10 %).
+DEFAULT_ARC_THRESHOLD = 50.0
+#: Default variant threshold in percent, for all selected types (Nina, 2026-11-16; before: the smallest whole
+#: percentage keeping the top 3 variants of every type, `variants.default_variant_threshold`).
+DEFAULT_VARIANT_THRESHOLD = 80.0
 #: Default of "Stay connected" (Nina, 2026-11-15).
 DEFAULT_STAY_CONNECTED = True
 
@@ -52,7 +54,7 @@ class TypeSetting(BaseModel):
     Attributes:
         object_type: The object type.
         variant_threshold: Variant threshold in percent (`variants.py`); 100 = all variants; None = the default
-            (`variants.default_variant_threshold`, the same for all selected types).
+            (`DEFAULT_VARIANT_THRESHOLD`).
         arc_threshold: Arc threshold in percent (`arcs.arc_share_filter`); 100 = all arcs.
         arc_count: Arc count (`arcs.arc_count_filter`); None = all arcs.
     """
@@ -104,7 +106,7 @@ class DfgRequest(BaseModel):
     Attributes:
         object_types: The selected object types; None = the default, every object type with handling units.
         variant_threshold: General variant threshold in percent, for every type without an own one; None = the
-            default (`variants.default_variant_threshold`).
+            default (`DEFAULT_VARIANT_THRESHOLD`).
         arc_threshold: General arc threshold in percent, for every type without an own one.
         arc_count: General arc count per type, for every type without an own one; None = all arcs.
         type_thresholds: Own settings of single object types (kept also while the type is not selected).
@@ -113,8 +115,9 @@ class DfgRequest(BaseModel):
             (`projection.default_activities`).
         stay_connected: Connectivity repair on (`connectivity.stay_connected`).
         removed_arcs: Arcs removed by hand (right click).
-        excluded_categories: Deselected event categories (`categories.CATEGORIES` keys); their events are removed
-            from the traces first.
+        excluded_categories: Deselected event categories (`categories.CATEGORIES` keys); an event is removed from
+            the traces first if all its categories are deselected. Default: Move to vehicle and Move to storage
+            (`categories.DEFAULT_EXCLUDED`).
     """
 
     object_types: list[str] | None = None
@@ -125,7 +128,7 @@ class DfgRequest(BaseModel):
     activities: dict[str, list[str]] = Field(default_factory=dict)
     stay_connected: bool = DEFAULT_STAY_CONNECTED
     removed_arcs: list[ArcKey] = Field(default_factory=list)
-    excluded_categories: list[str] = Field(default_factory=list)
+    excluded_categories: list[str] = Field(default_factory=lambda: list(DEFAULT_EXCLUDED))
 
 
 class DfgObjectType(BaseModel):
@@ -298,7 +301,7 @@ class DirectlyFollowsGraph(BaseModel):
     activities: list[DfgActivity]
     arcs: list[DfgArc]
     activity_options: list[DfgActivityOption]
-    variant_default: float = 100.0
+    variant_default: float = DEFAULT_VARIANT_THRESHOLD
     arc_count_max: int = 0
     removed_arcs: list[DfgArc] = Field(default_factory=list)
     event_categories: list[DfgEventCategory] = Field(default_factory=list)
@@ -444,6 +447,7 @@ def directly_follows_graph(
     stay: bool = DEFAULT_STAY_CONNECTED,
     removed: Collection[tuple[str, str | None, str | None]] = (),
     excluded_categories: Collection[str] = (),
+    arc_total: int | None = None,
 ) -> DirectlyFollowsGraph:
     """The directly-follows graph of the selected object types.
 
@@ -462,6 +466,8 @@ def directly_follows_graph(
         removed: Arcs removed by hand, as (object type, source, target).
         excluded_categories: Deselected event categories (`categories.remove_categories`; applied first, with the
             activity selection).
+        arc_total: Arcs (display) in "general" mode: one limit shared by the types without an own arc count
+            (`arcs.arc_count_filter`); None = per type.
 
     Returns:
         DirectlyFollowsGraph: Object types, activity nodes and shown arcs.
@@ -485,7 +491,7 @@ def directly_follows_graph(
     traces = project_traces(traces, included)
 
     variants = object_variants(traces)
-    variant_default = default_variant_threshold(variant_ranking(variants), list(settings))
+    variant_default = DEFAULT_VARIANT_THRESHOLD
     variant_thresholds = {
         t: variant_default if s.variant_threshold is None else s.variant_threshold for t, s in settings.items()
     }
@@ -495,7 +501,7 @@ def directly_follows_graph(
         pl.int_range(1, pl.len() + 1).over(c.OBJECT_TYPE).alias(RANK)
     )
     threshold_arcs = arc_share_filter(all_arcs, {t: s.arc_threshold for t, s in settings.items()})
-    counted_arcs = arc_count_filter(threshold_arcs, {t: s.arc_count for t, s in settings.items()})
+    counted_arcs = arc_count_filter(threshold_arcs, {t: s.arc_count for t, s in settings.items()}, arc_total)
     removed = list(removed)
     kept_arcs = remove_arcs(counted_arcs, removed)
     if stay:
