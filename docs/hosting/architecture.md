@@ -24,7 +24,7 @@
   - `src/api/`: typed API client generated from the backend's OpenAPI schema by Orval (`pnpm run build:modules`); not committed.
 
 ## Data
-- Ocelescope (≥ 0.10.2) keeps each OCEL as a DuckDB connection with flat tables (events, objects, e2o, o2o, …).
+- Ocelescope (≥ 0.13.0) keeps each OCEL as a DuckDB connection with flat tables (events, objects, e2o, o2o, …).
 - Each table is readable as a DuckDB relation (`.table`), a lazy polars frame (`.pl`) or pandas (`.df`). This module uses `.pl` only.
 - Context tables (e.g. user-provided locations) can come from Ocelescope's table resource or from CSV.
 

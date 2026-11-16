@@ -1,9 +1,9 @@
 // The page "Directly-follows graph": toolbar and graph on the left (height adjustable by dragging its bottom edge),
-// the settings sidebar on the right (width adjustable by dragging its left edge, can be hidden).
+// the sidebar "Discovery Settings" on the right, from the top of the toolbar to the bottom of the graph (width
+// adjustable by dragging its left edge; shown or hidden by the settings button of the toolbar).
 // Documented in docs/pages/directly-follows-graph.md.
-import { ActionIcon, Alert, Box, Group, Loader, Stack, Tooltip } from "@mantine/core";
+import { Alert, Box, Group, Loader, Stack } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { PanelRightOpenIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { getDirectlyFollowsGraph } from "../api/locationBasedOcpm";
 import { DfgGraph } from "../components/DfgGraph";
@@ -98,7 +98,7 @@ const HeightHandle = ({ height, onChange }: { height: number; onChange: (height:
 
 /** Sidebar and graph of one log. */
 const DfgContent = ({ ocelId }: { ocelId: string }) => {
-  const [stored, setStored] = usePageState<DfgState>(`dfg.v4.${ocelId}`, DEFAULT_STATE);
+  const [stored, setStored] = usePageState<DfgState>(`dfg.v5.${ocelId}`, DEFAULT_STATE);
   // Settings saved by an older version may lack fields: fill them with the defaults.
   const state = useMemo(() => ({ ...DEFAULT_STATE, ...stored }), [stored]);
   const setState = useCallback(
@@ -137,47 +137,36 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
   if (error) return <Alert color="red">{errorText(error)}</Alert>;
   if (!data) return <Loader size="sm" />;
   return (
-    <Group align="flex-start" wrap="nowrap" gap={6}>
-      <Stack gap={6} style={{ flex: 1, minWidth: 0, position: "relative" }}>
-        <Box pr={sidebar.hidden ? 44 : 0}>
-          <DfgToolbar categories={data.event_categories ?? []} state={state} setState={setState} />
-        </Box>
-        <Box style={{ opacity: isFetching ? 0.6 : 1 }}>
-        <DfgGraph
+    <Group align="stretch" wrap="nowrap" gap={6}>
+      <Stack gap={6} style={{ flex: 1, minWidth: 0 }}>
+        <DfgToolbar
           graph={data}
-          colours={colours}
-          direction={state.direction}
-          arcLabel={state.arcLabel}
-          compact={state.compact}
-          height={height}
-          onRemoveArc={onRemoveArc}
+          state={state}
+          setState={setState}
+          sidebarHidden={sidebar.hidden}
+          onToggleSidebar={() => setSidebar((s) => ({ ...s, hidden: !s.hidden }))}
         />
-        <HeightHandle height={height} onChange={setHeight} />
+        <Box style={{ opacity: isFetching ? 0.6 : 1 }}>
+          <DfgGraph
+            graph={data}
+            colours={colours}
+            direction={state.direction}
+            arcLabel={state.arcLabel}
+            compact={state.compact}
+            height={height}
+            onRemoveArc={onRemoveArc}
+          />
+          <HeightHandle height={height} onChange={setHeight} />
         </Box>
-        {sidebar.hidden && (
-          <Tooltip label="Show the settings" withinPortal>
-            <ActionIcon
-              variant="default"
-              aria-label="Show the settings"
-              onClick={() => setSidebar((s) => ({ ...s, hidden: false }))}
-              style={{ position: "absolute", top: 0, right: 0, zIndex: 5 }}
-            >
-              <PanelRightOpenIcon size={16} />
-            </ActionIcon>
-          </Tooltip>
-        )}
       </Stack>
       {!sidebar.hidden && (
         <>
           <ResizeHandle width={sidebar.width} onChange={(width) => setSidebar((s) => ({ ...s, width }))} />
-          <Box w={sidebar.width} style={{ flexShrink: 0, position: "sticky", top: 8 }}>
-            <DfgSettings
-              graph={data}
-              colours={colours}
-              state={state}
-              setState={setState}
-              onHide={() => setSidebar((s) => ({ ...s, hidden: true }))}
-            />
+          {/* Ends with the bottom of the graph (above the height grab bar, 10 px). */}
+          <Box w={sidebar.width} mb={10} style={{ flexShrink: 0, minHeight: 0, position: "relative" }}>
+            <Box style={{ position: "absolute", inset: 0 }}>
+              <DfgSettings graph={data} baseArcs={base?.arcs ?? []} colours={colours} state={state} setState={setState} />
+            </Box>
           </Box>
         </>
       )}

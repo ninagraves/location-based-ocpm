@@ -6,7 +6,7 @@ description = "Location-based object-centric process mining for production and l
 authors = [{ name = "Nina Graves" }]
 requires-python = ">=3.11"
 dependencies = [
-  "ocelescope-backend>=0.10.2",
+  "ocelescope-backend>=0.13.0",
 ]
 
 [project.entry-points."ocelescope_backend.modules"]

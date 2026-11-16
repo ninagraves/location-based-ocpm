@@ -24,8 +24,10 @@ export type ArcId = { object_type: string; source: string | null; target: string
 export type ArcSettings = {
   /** Arc threshold in percent (0 to 100) of an object type. */
   threshold: (objectType: string) => number;
-  /** Arc count of an object type; null = all. */
+  /** Arcs (display) of an object type on its own; null = no limit of its own (the type then belongs to `total`). */
   count: (objectType: string) => number | null;
+  /** Arcs (display) in "general" mode: one limit for the arcs of all types without an own count together; null = none. */
+  total?: number | null;
   /** Arcs removed by hand. */
   removed: ArcId[];
   /** Every shown arc lies on a start-to-end path. */
@@ -73,20 +75,65 @@ export const arcShareFilter = <T extends BaseArc>(arcs: T[], threshold: (objectT
 };
 
 /**
- * Arc count (`arcs.arc_count_filter`, like the slider of Ocelescope's DFG viewer): per type the first N arcs by `rank`
- * (exactly N; ties are broken by the ranking).
+ * Arcs (display) (`arcs.arc_count_filter`, like the slider of Ocelescope's DFG viewer): per type the first N arcs by
+ * `rank` (exactly N; ties are broken by the ranking). With `total` ("general" mode, Nina 2026-11-16), the types without
+ * an own count share one limit: the first `total` of their arcs together, by objects, traversals (both descending),
+ * position in the ranking of their type, then object type.
+ * Example: coil arcs with 4, 3, 2 objects and slab arcs with 1, 1 object, total 3: the three coil arcs.
  *
  * @param arcs Arcs (after the arc threshold).
- * @param count Arc count per object type; null = all.
+ * @param count Arc count per object type; null = no limit of its own.
+ * @param total Limit shared by the types without a count; null or undefined = all their arcs.
  * @returns The kept arcs, in the order of `arcs`.
  */
-export const arcCountFilter = <T extends BaseArc>(arcs: T[], count: (objectType: string) => number | null): T[] => {
+export const arcCountFilter = <T extends BaseArc>(
+  arcs: T[],
+  count: (objectType: string) => number | null,
+  total?: number | null,
+): T[] => {
   const kept = new Set<T>();
+  const pooled: { arc: T; position: number }[] = [];
   for (const [type, group] of byType(arcs)) {
     const n = count(type);
-    for (const a of n == null ? group : group.slice(0, Math.max(0, n))) kept.add(a);
+    if (n != null) for (const a of group.slice(0, Math.max(0, n))) kept.add(a);
+    else group.forEach((a, i) => pooled.push({ arc: a, position: i + 1 }));
   }
+  pooled.sort(
+    (x, y) =>
+      y.arc.objects - x.arc.objects ||
+      y.arc.count - x.arc.count ||
+      x.position - y.position ||
+      (x.arc.object_type < y.arc.object_type ? -1 : x.arc.object_type > y.arc.object_type ? 1 : 0),
+  );
+  for (const p of total == null ? pooled : pooled.slice(0, Math.max(0, total))) kept.add(p.arc);
   return arcs.filter((a) => kept.has(a));
+};
+
+/**
+ * The smallest whole Arcs (projection) value at which the arc threshold keeps at least one arc of a type that touches an
+ * activity (Nina, 2026-11-16: shown for the activities on the included traces that are not in the graph): for the
+ * best-ranked such arc with tie rank r ("min") among n arcs, floor(100 (r - 1) / n) + 1, at most 100.
+ * Example: 8 arcs, the activity's best arc has tie rank 7: floor(75) + 1 = 76 %.
+ *
+ * @param arcs All arcs of the included traces.
+ * @returns Object type -> activity -> needed percentage.
+ */
+export const neededArcThresholds = (arcs: BaseArc[]): Map<string, Map<string, number>> => {
+  const result = new Map<string, Map<string, number>>();
+  for (const [type, group] of byType(arcs)) {
+    const sorted = [...group].sort((x, y) => y.objects - x.objects || y.count - x.count);
+    const needed = new Map<string, number>();
+    let minRank = 1;
+    sorted.forEach((a, i) => {
+      if (i > 0 && (a.objects !== sorted[i - 1].objects || a.count !== sorted[i - 1].count)) minRank = i + 1;
+      const value = Math.min(100, Math.floor(Math.round(((minRank - 1) * 100 * 1e6) / sorted.length) / 1e6) + 1);
+      for (const activity of [a.source, a.target]) {
+        if (activity != null && !needed.has(activity)) needed.set(activity, value);
+      }
+    });
+    result.set(type, needed);
+  }
+  return result;
 };
 
 /** Removes the arcs removed by hand (`arcs.remove_arcs`). */
@@ -170,7 +217,7 @@ export const stayConnected = <T extends BaseArc>(base: T[], kept: T[]): (T & { c
  */
 export const filterArcs = <T extends BaseArc>(arcs: T[], settings: ArcSettings) => {
   const threshold = arcShareFilter(arcs, settings.threshold);
-  const kept = removeArcs(arcCountFilter(threshold, settings.count), settings.removed);
+  const kept = removeArcs(arcCountFilter(threshold, settings.count, settings.total), settings.removed);
   const shown = settings.stayConnected
     ? stayConnected(removeArcs(arcs, settings.removed), kept)
     : kept.map((a) => ({ ...a, connecting: false }));

@@ -57,12 +57,12 @@ def test_default_selects_the_handling_unit_types(frames):
 def test_default_thresholds(frames):
     graph = directly_follows_graph(frames)
     coil = next(t for t in graph.object_types if t.object_type == "coil")
-    # Default variant threshold: the 5 coils have a variant each, the first two cover 40 %, so 41 % keeps the top 3;
-    # the slab (1 variant) needs 1 %: 41 % for both. Arcs: 100 %, no arc count.
-    assert graph.variant_default == 41.0
-    assert (coil.variant_threshold, coil.arc_threshold, coil.arc_count, coil.kept_variants, coil.kept_objects) == (41.0, 100, None, 3, 3)
+    # Defaults (Nina, 2026-11-16): variants 80 % for all types: the 5 coils have a variant each, the first four cover
+    # 60 % < 80 %, the fifth starts at 80 %: 4 variants. Arcs (projection) 50 %, no arc count.
+    assert graph.variant_default == 80.0
+    assert (coil.variant_threshold, coil.arc_threshold, coil.arc_count, coil.kept_variants, coil.kept_objects) == (80.0, 50, None, 4, 4)
     slab = next(t for t in graph.object_types if t.object_type == "slab")
-    assert (slab.variant_threshold, slab.kept_variants) == (41.0, 1)
+    assert (slab.variant_threshold, slab.kept_variants) == (80.0, 1)
 
 
 def test_equally_frequent_paths_are_ranked_by_first_occurrence(frames):
@@ -258,7 +258,7 @@ def test_request_resolves_general_and_own_thresholds(frames):
     )
     settings = resolve_selection(request, frames.objects, frames.handling_units.to_list())
     assert [(s.object_type, s.variant_threshold, s.arc_threshold, s.arc_count) for s in settings] == [
-        ("coil", 50, 100, 4),
+        ("coil", 50, 50, 4),
         ("slab", 50, 30, 2),
     ]
 
@@ -335,7 +335,7 @@ def test_worked_example_of_the_module_note():
     graph = directly_follows_graph(frames, pallet(), activities=every)
     t = next(t for t in graph.object_types if t.object_type == "pallet")
     assert (t.kept_variants, t.kept_objects, t.arcs) == (2, 8, 8)
-    assert graph.variant_default == 81.0
+    assert graph.variant_default == 80.0
     # Arcs 70 %: ceil(5.6) = 6 arcs; PI -> IN and IN -> PA are dropped, so IN disappears.
     graph = directly_follows_graph(frames, pallet(arc_threshold=70), activities=every)
     assert ("pick", "pack") in arcs_of(graph, "pallet") and "inspect" not in {a.activity for a in graph.activities}
@@ -364,11 +364,12 @@ def test_worked_example_of_the_module_note():
     # truck selected as well: LO and SH count p10's events with t1 too.
     truck = directly_follows_graph(frames, [*pallet(), TypeSetting(object_type="truck", variant_threshold=100)], activities=every)
     assert {a.activity: a.events for a in truck.activities}["load"] == 9
-    # Defaults: activities PR, PA, PI (40 % of 7 -> 3); variants 91 % (3 variants after the projection); arcs 100 %.
+    # Defaults: activities PR, PA, PI (40 % of 7 -> 3); variants 80 %: of the 3 variants (8, 1, 1 pallets) only the
+    # first (8 pallets before the second = 80 %); Arcs (projection) 50 %: ceil(2) = 2 of 4 arcs, all tied: 4 arcs.
     default = directly_follows_graph(frames)
     t = next(t for t in default.object_types if t.object_type == "pallet")
-    assert default.variant_default == 91.0
-    assert (t.variants, t.kept_variants, t.kept_objects, t.shown_arcs) == (3, 3, 10, 6)
+    assert default.variant_default == 80.0
+    assert (t.variants, t.kept_variants, t.kept_objects, t.threshold_arcs, t.shown_arcs) == (3, 1, 8, 4, 4)
 
 
 def test_thresholds_with_decimals(frames):
@@ -396,6 +397,34 @@ def test_variant_threshold_needed_per_activity():
     graph = directly_follows_graph(frames, [TypeSetting(object_type="pallet", variant_threshold=81)], activities=every_activity(frames, "pallet"))
     assert {o.activity: o for o in graph.activity_options}["scrap"].on_included_trace
 
+
+def test_deselected_activities_name_the_variant_threshold_they_would_need():
+    """A deselected activity names the variant threshold it would need if it alone were selected as well."""
+    frames = _pallet_example()
+    no_inspect_scrap = {"pallet": [a for a in every_activity(frames, "pallet")["pallet"] if a not in ("inspect", "scrap")]}
+    graph = directly_follows_graph(frames, [TypeSetting(object_type="pallet", variant_threshold=50)], activities=no_inspect_scrap)
+    options = {o.activity: o for o in graph.activity_options}
+    # With inspect selected: 5 x main, 3 x with inspect (50 % before); with scrap: p9 has a variant of its own (80 %).
+    assert options["inspect"].variant_threshold_needed == 51
+    assert options["scrap"].variant_threshold_needed == 81
+
+
+@pytest.mark.parametrize("object_type", ["coil"])
+def test_deselected_variant_thresholds_match_selecting_the_activity(frames, object_type):
+    """Brute force: select each deselected activity in turn and compare with the value of the default graph."""
+    setting = [TypeSetting(object_type=object_type)]
+    graph = directly_follows_graph(frames, setting)
+    compared = 0
+    for option in graph.activity_options:
+        own = next((t for t in option.object_types if t.object_type == object_type), None)
+        if own is None or own.included:
+            continue
+        compared += 1
+        selected = [a.activity for a in graph.activity_options if any(t.object_type == object_type and t.included for t in a.object_types)]
+        alone = directly_follows_graph(frames, setting, activities={object_type: [*selected, option.activity]})
+        expected = next(t for t in {o.activity: o for o in alone.activity_options}[option.activity].object_types if t.object_type == object_type)
+        assert own.variant_threshold_needed == expected.variant_threshold_needed, option.activity
+    assert compared > 0
 
 def _with_categories(frames: LogFrames) -> LogFrames:
     """The pallet example with event categories: "load" moves to the truck t1 (a vehicle), "ship" to the yard y1."""
