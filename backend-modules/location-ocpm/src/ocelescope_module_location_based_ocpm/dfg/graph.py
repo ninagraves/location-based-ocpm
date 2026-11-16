@@ -475,7 +475,10 @@ def directly_follows_graph(
     type_activities = frames.type_activities
     if type_activities is None:
         type_activities = type_activity_counts(frames.e2o, frames.events, frames.objects, hu)
-    included = default_activities(type_activities, [t for t in settings if t not in (activities or {})])
+    # Activities preselected for one selected handling-unit type are preselected for every type (Nina, 2026-11-16).
+    hu_types = set(frames.objects.filter(pl.col(d.OBJECT).is_in(hu))[c.OBJECT_TYPE].unique().to_list())
+    shared = [t for t in settings if t in hu_types]
+    included = default_activities(type_activities, [t for t in settings if t not in (activities or {})], shared)
     included.update({t: list(a) for t, a in (activities or {}).items() if t in settings})
     if frames.categories is not None:
         traces = remove_categories(traces, frames.categories, excluded_categories)

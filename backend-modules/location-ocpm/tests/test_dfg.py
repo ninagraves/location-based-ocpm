@@ -190,10 +190,13 @@ def test_deselected_activity_is_projected_out_first(frames):
 def test_default_activities_are_the_most_frequent_40_percent_between_3_and_10(frames):
     assert [default_activity_count(n) for n in (2, 4, 7, 12, 30)] == [2, 3, 3, 5, 10]
     # coil has 7 activities -> 3: crane move 4, quality check 4, load truck 2 (before unload truck 2 by first occurrence).
+    # slab's default (cast slab, inspect slab, roll) is shared with coil where coils take part: roll (Nina, 2026-11-16).
     graph = directly_follows_graph(frames)
     options = {o.activity: o for o in graph.activity_options}
     coil = {a for a, o in options.items() for t in o.object_types if t.object_type == "coil" and t.included}
-    assert coil == {"crane move", "quality check", "load truck"}
+    assert coil == {"crane move", "quality check", "load truck", "roll"}
+    slab = {a for a, o in options.items() for t in o.object_types if t.object_type == "slab" and t.included}
+    assert slab == {"cast slab", "inspect slab", "roll"}
     # The list is ordered by events with handling units.
     assert [o.activity for o in graph.activity_options][:2] == ["crane move", "quality check"]
     assert options["crane move"].hu_events == 4

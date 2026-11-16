@@ -111,10 +111,10 @@ export const INFO = {
     "General values: apply to every object type that has no own value (set in the type's unfold). Types with own values are marked in the list.",
   variants:
     "Variant threshold: keeps the most frequent variants (activity sequences of the objects, after removing deselected activities) of a type until they cover at least this share of its objects; equally frequent variants by their first occurrence in the log. Only these objects' traces are used for everything else. 100 % keeps all. Default: the smallest whole percentage that keeps at least the 3 most frequent variants of every selected type. Click the number to type a value (decimals allowed).",
-  arcs: "Arc threshold: ranks all arcs of a type (start and end arcs included) by objects, then traversals, and keeps this share of them (rounded up), together with every arc as frequent as the last kept one. 100 % keeps all. Click the number to type a value (decimals allowed).",
+  arcs: "Arcs (projection), the arc threshold: ranks all arcs of a type (start and end arcs included) by objects, then traversals, and keeps this share of them (rounded up), together with every arc as frequent as the last kept one. 100 % keeps all. Click the number to type a value (decimals allowed).",
   arcCount:
-    "Arc count: of the arcs left by the arc threshold, shows the first N of every object type, ranked by objects, traversals, first occurrence, then name (exactly N, ties broken by this order). The number shows how many arcs are shown of how many.",
-  stay: "Stay connected: every shown arc lies on a path from the start to the end of its object type. Arcs that the arc threshold or the arc count removed are added back (dashed) where needed. It never adds arcs of removed variants, deselected activities or arcs removed by hand.",
+    "Arcs (display), the arc count: of the arcs left by Arcs (projection), shows the first N of every object type, ranked by objects, traversals, first occurrence, then name (exactly N, ties broken by this order). The number shows how many arcs are shown of how many.",
+  stay: "Stay connected: every shown arc lies on a path from the start to the end of its object type. Arcs that Arcs (projection) or Arcs (display) removed are added back (dashed) where needed. It never adds arcs of removed variants, deselected activities or arcs removed by hand.",
   removed:
     "Arcs removed by hand (right click on an arc in the graph). While there are any, the sliders no longer describe the graph on their own (marked as manual). Click × to restore an arc.",
   objectTypes:
@@ -392,14 +392,14 @@ const TypeRow = ({
             note={type.selected ? `${num(type.kept_variants)} of ${num(type.variants)} variants · ${num(type.kept_objects)} objects` : undefined}
           />
           <PercentSlider
-            label="Arcs"
+            label="Arcs (projection)"
             info={INFO.arcs}
             value={own.arc ?? state.arcThreshold}
             onCommit={(v) => setOwn({ arc: v })}
             note={type.selected ? `${num(type.threshold_arcs)} of ${num(type.arcs)} arcs` : undefined}
           />
           <CountSlider
-            label="Arc count"
+            label="Arcs (display)"
             info={INFO.arcCount}
             value={own.count ?? state.arcCount}
             max={type.selected ? (type.threshold_arcs ?? 0) : arcCountMax}
@@ -641,14 +641,14 @@ export const DfgSettings = ({
           note={`${num(sum((t) => t.kept_variants))} of ${num(sum((t) => t.variants))} variants`}
         />
         <PercentSlider
-          label="Arcs"
+          label="Arcs (projection)"
           info={`${INFO.general} ${INFO.arcs}`}
           value={state.arcThreshold}
           onCommit={(v) => setState((s) => ({ ...s, arcThreshold: v }))}
           note={`${num(sum((t) => t.threshold_arcs))} of ${num(sum((t) => t.arcs))} arcs`}
         />
         <CountSlider
-          label="Arc count"
+          label="Arcs (display)"
           info={`${INFO.general} ${INFO.arcCount}`}
           value={state.arcCount}
           max={graph.arc_count_max ?? 0}

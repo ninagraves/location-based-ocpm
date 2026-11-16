@@ -98,22 +98,32 @@ def default_activity_count(n_activities: int) -> int:
     return min(n_activities, max(MIN_ACTIVITIES, min(MAX_ACTIVITIES, n)))
 
 
-def default_activities(counts: pl.DataFrame, object_types: Collection[str]) -> dict[str, list[str]]:
-    """The preselected activities of each object type: its most frequent ones (`default_activity_count`).
+def default_activities(
+    counts: pl.DataFrame, object_types: Collection[str], shared_from: Collection[str] = ()
+) -> dict[str, list[str]]:
+    """The preselected activities of each object type: its most frequent ones (`default_activity_count`), plus every
+    activity preselected for a type of `shared_from` that the type has events of (Nina, 2026-11-16: an activity
+    preselected for one handling-unit type is preselected for all; this may exceed `MAX_ACTIVITIES`).
+    Example: coil's own default PR, PI, PA, slab's LO, SH, PA: with both in `shared_from`, coil also gets LO and SH if
+    coils take part in them.
 
     Args:
         counts: `type_activity_counts` (sorted: most events first, ties by first occurrence, then name).
         object_types: The object types to preselect for.
+        shared_from: The types whose own defaults are shared with all (e.g. the selected handling-unit types).
 
     Returns:
-        dict[str, list[str]]: Object type -> preselected activities, most frequent first.
+        dict[str, list[str]]: Object type -> preselected activities, in the type's frequency order.
     """
-    result: dict[str, list[str]] = {t: [] for t in object_types}
+    wanted = set(object_types) | set(shared_from)
+    ranked: dict[str, list[str]] = {t: [] for t in wanted}
     for object_type, activity in (
-        counts.filter(pl.col(c.OBJECT_TYPE).is_in(list(object_types))).select(c.OBJECT_TYPE, c.ACTIVITY).iter_rows()
+        counts.filter(pl.col(c.OBJECT_TYPE).is_in(list(wanted))).select(c.OBJECT_TYPE, c.ACTIVITY).iter_rows()
     ):
-        result[object_type].append(activity)
-    return {t: a[: default_activity_count(len(a))] for t, a in result.items()}
+        ranked[object_type].append(activity)
+    own = {t: a[: default_activity_count(len(a))] for t, a in ranked.items()}
+    shared = {a for t in shared_from for a in own[t]}
+    return {t: [a for a in ranked[t] if a in set(own[t]) or a in shared] for t in object_types}
 
 
 def project_traces(traces: pl.DataFrame, included: Mapping[str, Collection[str]]) -> pl.DataFrame:
