@@ -177,3 +177,78 @@ def variant_filter(traces: pl.DataFrame, thresholds: Mapping[str, float]) -> pl.
     kept = kept_variants(variant_ranking(variants), thresholds).select(c.OBJECT_TYPE, d.VARIANT)
     objects = variants.join(kept, on=[c.OBJECT_TYPE, d.VARIANT], how="semi").select(d.OBJECT)
     return traces.join(objects, on=d.OBJECT, how="semi", maintain_order="left")
+
+
+#: Column: the deselected activity that is added to the projection (`added_activity_thresholds`).
+CANDIDATE = "candidate"
+#: Separates object type and candidate in the pseudo object types of `added_activity_thresholds`.
+PSEUDO_SEPARATOR = "\x1f"
+
+
+def added_activity_thresholds(
+    traces: pl.DataFrame, variants: pl.DataFrame, included: Mapping[str, Collection[str]]
+) -> pl.DataFrame:
+    """Per object type and deselected activity: the variant threshold it would need if it were selected (alone).
+
+    For a deselected activity $a$ of a selected type $ot$, the traces are projected on the selected activities plus
+    $a$; objects without $a$ keep their variant. The needed threshold is then `activity_variant_thresholds` of $a$
+    on these variants (Nina, 2026-11-16, for the lower part of the activity list).
+    Example: coils project on (roll, crane move); "label" occurs in 2 of 5 coils, which then get the variant
+    (roll, label, crane move) of 2 objects, ranked first -> 1 %.
+
+    Implemented with one row per (object, deselected activity of the object): every candidate becomes a pseudo
+    object type "type␟activity", so the ranking runs once for all candidates.
+
+    Args:
+        traces: Object traces of the selected types before the projection (after removing event categories).
+        variants: The variants of the projected traces (`object_variants`).
+        included: Selected type -> its selected activities.
+
+    Returns:
+        pl.DataFrame: Columns object_type, activity, needed (percent, 1 to 100); only deselected activities of
+        selected types that occur in their traces.
+    """
+    schema = {c.OBJECT_TYPE: pl.String, c.ACTIVITY: pl.String, "needed": pl.Float64}
+    pairs = pl.DataFrame(
+        [(t, a) for t, activities in included.items() for a in activities],
+        schema={c.OBJECT_TYPE: pl.String, c.ACTIVITY: pl.String},
+        orient="row",
+    )
+    own = traces.filter(pl.col(c.OBJECT_TYPE).is_in(list(included)))
+    # (object, candidate): the deselected activities each object has.
+    candidates = (
+        own.join(pairs, on=[c.OBJECT_TYPE, c.ACTIVITY], how="anti")
+        .select(d.OBJECT, c.OBJECT_TYPE, pl.col(c.ACTIVITY).alias(CANDIDATE))
+        .unique()
+    )
+    if candidates.is_empty():
+        return pl.DataFrame(schema=schema)
+    selected_rows = own.join(pairs, on=[c.OBJECT_TYPE, c.ACTIVITY], how="semi")
+    # Changed objects: their selected events plus the candidate's events.
+    changed_rows = pl.concat(
+        [
+            candidates.join(selected_rows, on=[d.OBJECT, c.OBJECT_TYPE]),
+            candidates.join(own, left_on=[d.OBJECT, c.OBJECT_TYPE, CANDIDATE], right_on=[d.OBJECT, c.OBJECT_TYPE, c.ACTIVITY])
+            .with_columns(pl.col(CANDIDATE).alias(c.ACTIVITY)),
+        ],
+        how="diagonal",
+    )
+    pseudo = pl.concat_str(c.OBJECT_TYPE, pl.lit(PSEUDO_SEPARATOR), CANDIDATE)
+    changed = object_variants(changed_rows.with_columns(pseudo.alias(c.OBJECT_TYPE)).sort(d.OBJECT, d.POSITION))
+    # Unchanged objects keep their variant, once per candidate of their type.
+    per_type = candidates.select(c.OBJECT_TYPE, CANDIDATE).unique()
+    unchanged = (
+        variants.join(per_type, on=c.OBJECT_TYPE)
+        .join(candidates, on=[d.OBJECT, c.OBJECT_TYPE, CANDIDATE], how="anti")
+        .with_columns(pseudo.alias(c.OBJECT_TYPE))
+        .drop(CANDIDATE)
+    )
+    ranking = variant_ranking(pl.concat([changed, unchanged.select(changed.columns)]))
+    split = pl.col(c.OBJECT_TYPE).str.split_exact(PSEUDO_SEPARATOR, 1)
+    return (
+        activity_variant_thresholds(ranking)
+        .with_columns(split.struct.field("field_0").alias("_type"), split.struct.field("field_1").alias(CANDIDATE))
+        .filter(pl.col(c.ACTIVITY) == pl.col(CANDIDATE))
+        .select(pl.col("_type").alias(c.OBJECT_TYPE), c.ACTIVITY, pl.col("needed").cast(pl.Float64))
+        .sort(c.OBJECT_TYPE, c.ACTIVITY)
+    )

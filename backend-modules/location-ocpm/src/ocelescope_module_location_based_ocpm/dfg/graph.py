@@ -34,6 +34,7 @@ from .traces import considered_objects, object_traces
 from .variants import (
     RANK,
     activity_variant_thresholds,
+    added_activity_thresholds,
     object_variants,
     variant_filter,
     variant_ranking,
@@ -228,8 +229,9 @@ class DfgActivityTypeOption(BaseModel):
         included: True if the activity is selected for this (selected) type; False for unselected types.
         on_included_trace: True if it is on an included trace of the type (projected, variant-filtered).
         variant_threshold_needed: Smallest whole variant threshold of the type that puts it on an included trace
-            (`variants.activity_variant_thresholds`); None if no trace of the type contains it after the projection
-            (deselected, its events removed by an event category, or not selected type).
+            (`variants.activity_variant_thresholds`); for a deselected activity: the one it would need if it were
+            selected (`variants.added_activity_thresholds`). None if the type is not selected or no trace of the
+            type contains it (e.g. its events removed by an event category).
         categories: Of `events`, how many are in each event category (`categories.CATEGORIES` key -> events; only
             non-zero ones).
     """
@@ -488,6 +490,7 @@ def directly_follows_graph(
     included.update({t: list(a) for t, a in (activities or {}).items() if t in settings})
     if frames.categories is not None:
         traces = remove_categories(traces, frames.categories, excluded_categories)
+    unprojected = traces
     traces = project_traces(traces, included)
 
     variants = object_variants(traces)
@@ -516,6 +519,8 @@ def directly_follows_graph(
     log_events = dict(zip(log_counts[c.ACTIVITY], log_counts[d.EVENTS], strict=True))
     on_trace = {(t, a) for t, a in kept_traces.select(c.OBJECT_TYPE, c.ACTIVITY).unique().iter_rows()}
     needed = {(t, a): v for t, a, v in activity_variant_thresholds(variant_ranking(variants)).iter_rows()}
+    # Deselected activities: the variant threshold they would need if selected (Nina, 2026-11-16).
+    needed.update({(t, a): v for t, a, v in added_activity_thresholds(unprojected, variants, included).iter_rows()})
     activity_options = _activity_options(frames, type_activities, log_events, included, on_trace, needed)
     counts = category_counts(frames.categories) if frames.categories is not None else {}
     categories = [

@@ -398,6 +398,34 @@ def test_variant_threshold_needed_per_activity():
     assert {o.activity: o for o in graph.activity_options}["scrap"].on_included_trace
 
 
+def test_deselected_activities_name_the_variant_threshold_they_would_need():
+    """A deselected activity names the variant threshold it would need if it alone were selected as well."""
+    frames = _pallet_example()
+    no_inspect_scrap = {"pallet": [a for a in every_activity(frames, "pallet")["pallet"] if a not in ("inspect", "scrap")]}
+    graph = directly_follows_graph(frames, [TypeSetting(object_type="pallet", variant_threshold=50)], activities=no_inspect_scrap)
+    options = {o.activity: o for o in graph.activity_options}
+    # With inspect selected: 5 x main, 3 x with inspect (50 % before); with scrap: p9 has a variant of its own (80 %).
+    assert options["inspect"].variant_threshold_needed == 51
+    assert options["scrap"].variant_threshold_needed == 81
+
+
+@pytest.mark.parametrize("object_type", ["coil"])
+def test_deselected_variant_thresholds_match_selecting_the_activity(frames, object_type):
+    """Brute force: select each deselected activity in turn and compare with the value of the default graph."""
+    setting = [TypeSetting(object_type=object_type)]
+    graph = directly_follows_graph(frames, setting)
+    compared = 0
+    for option in graph.activity_options:
+        own = next((t for t in option.object_types if t.object_type == object_type), None)
+        if own is None or own.included:
+            continue
+        compared += 1
+        selected = [a.activity for a in graph.activity_options if any(t.object_type == object_type and t.included for t in a.object_types)]
+        alone = directly_follows_graph(frames, setting, activities={object_type: [*selected, option.activity]})
+        expected = next(t for t in {o.activity: o for o in alone.activity_options}[option.activity].object_types if t.object_type == object_type)
+        assert own.variant_threshold_needed == expected.variant_threshold_needed, option.activity
+    assert compared > 0
+
 def _with_categories(frames: LogFrames) -> LogFrames:
     """The pallet example with event categories: "load" moves to the truck t1 (a vehicle), "ship" to the yard y1."""
     events = frames.events.with_columns(

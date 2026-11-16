@@ -85,15 +85,19 @@ const DisplayArcs = ({
   useEffect(() => setLocal(value), [value]);
   const commit = (v: number) => setState((s) => ({ ...s, arcCount: v >= top ? null : Math.max(0, Math.round(v)) }));
   return (
-    <Tooltip label={INFO.arcCount} multiline w={320} withinPortal openDelay={400}>
-      <Group
+    <Group
         gap={6}
         wrap="nowrap"
         px={6}
         py={2}
         style={{ border: "1px solid var(--mantine-color-default-border)", borderRadius: "var(--mantine-radius-sm)" }}
       >
-        <Text size="xs" fw={600}>Arcs (display)</Text>
+        <Tooltip label={INFO.arcCount} multiline w={320} withinPortal>
+          <Group gap={3} wrap="nowrap">
+            <Text size="xs" fw={600}>Arcs (display)</Text>
+            <InfoIcon size={11} style={{ opacity: 0.6 }} aria-label="About Arcs (display)" />
+          </Group>
+        </Tooltip>
         <SegmentedControl
           size="xs"
           aria-label="Arcs (display) counts"
@@ -127,8 +131,7 @@ const DisplayArcs = ({
         <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
           {num(shown)} of {num(left)} arcs
         </Text>
-      </Group>
-    </Tooltip>
+    </Group>
   );
 };
 
