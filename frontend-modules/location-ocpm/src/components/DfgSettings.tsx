@@ -223,7 +223,7 @@ const PercentSlider = ({
           {local === null && autoText && <Text size="xs" c="dimmed">{autoText}</Text>}
           {local !== null && onAuto && (
             <Button size="compact-xs" variant="subtle" px={4} onClick={onAuto}>
-              auto
+              {autoText ?? "auto"}
             </Button>
           )}
         </Group>
