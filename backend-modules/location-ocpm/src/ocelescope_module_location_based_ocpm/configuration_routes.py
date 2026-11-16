@@ -1,13 +1,14 @@
 """API routes of the configuration: table upload, form options, apply, and the cached derivation.
 
 Every route below works on the module state of the current backend session (see `state.py`).
-Routes with `{ocel_id}` read the log as Ocelescope currently shows it, i.e. with Ocelescope's own
-filters applied.
+Routes with `{ocel_id}` read the log as Ocelescope currently shows it, i.e. its active view (the
+log with Ocelescope's own filters applied), unless the request names another view (`view_id`) or
+the original log (`ocel_version=original`).
 """
 
 import threading
 from collections.abc import Callable
-from typing import Annotated
+from typing import Annotated, Literal
 
 import polars as pl
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
@@ -34,9 +35,9 @@ from ocelescope_module_location_based_ocpm.derivation.inputs import (
 )
 from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation, derive
 from ocelescope_module_location_based_ocpm.state import (
-    STATE_KEY,
     CachedDerivation,
     ModuleState,
+    SessionStates,
     UploadedTable,
     fingerprint,
 )
@@ -47,6 +48,11 @@ router = APIRouter()
 PREVIEW_ROWS = 5
 #: Maximum number of distinct values the attribute-value picker offers.
 MAX_ATTRIBUTE_VALUES = 500
+#: Which log a request reads, as in Ocelescope's `ApiOcel` dependency.
+OcelVersion = Literal["original", "filtered"]
+
+#: Module states of all backend sessions.
+STATES = SessionStates()
 
 
 #: Called in a background thread whenever a new derivation is cached, e.g. to precompute the directly-follows graph
@@ -55,7 +61,40 @@ MAX_ATTRIBUTE_VALUES = 500
 ON_DERIVED: list[Callable[[str, Callable[[], OCEL], CachedDerivation], None]] = []
 
 
-def _cache_derivation(state: ModuleState, session: Session, ocel_id: str, cached: CachedDerivation) -> None:
+def open_log(session: Session, ocel_id: str, ocel_version: OcelVersion = "filtered", view_id: str | None = None) -> OCEL:
+    """Open the log a request reads, outside the request (as Ocelescope's `ApiOcel` does; the caller closes it).
+
+    Example: `open_log(session, ocel_id)` opens the active view, i.e. the log with Ocelescope's filters.
+
+    Args:
+        session: The backend session.
+        ocel_id: Id of the log.
+        ocel_version: "original" for the unfiltered log, "filtered" for the active view.
+        view_id: A specific view instead of the active one.
+
+    Returns:
+        OCEL: The opened log.
+
+    Raises:
+        HTTPException: 404 if the log or the view does not exist (any more).
+    """
+    handle = session.get_ocel(ocel_id)
+    if view_id is None:
+        return handle.open(use_original=ocel_version == "original")
+    view = handle.get_view(view_id)
+    if view is None:
+        raise HTTPException(status_code=404, detail=f"View {view_id} not found")
+    return view.open()
+
+
+def _cache_derivation(
+    state: ModuleState,
+    session: Session,
+    ocel_id: str,
+    cached: CachedDerivation,
+    ocel_version: OcelVersion = "filtered",
+    view_id: str | None = None,
+) -> None:
     """Store a derivation in the session's cache and start the `ON_DERIVED` hooks in the background.
 
     Args:
@@ -63,10 +102,17 @@ def _cache_derivation(state: ModuleState, session: Session, ocel_id: str, cached
         session: The backend session (to open the log again in the background).
         ocel_id: Id of the log.
         cached: The derivation and its cache key.
+        ocel_version: Which log the derivation was computed on (see `log_version`).
+        view_id: A specific Ocelescope view (see `log_version`).
     """
     state.cache[ocel_id] = cached
+
+    def opener() -> OCEL:
+        """Open the same log version as the request (in the hook's thread)."""
+        return open_log(session, ocel_id, ocel_version, view_id)
+
     for hook in ON_DERIVED:
-        threading.Thread(target=hook, args=(ocel_id, lambda: session.get_ocel(ocel_id), cached), daemon=True).start()
+        threading.Thread(target=hook, args=(ocel_id, opener, cached), daemon=True).start()
 
 
 def get_state(session: ApiSession) -> ModuleState:
@@ -78,26 +124,36 @@ def get_state(session: ApiSession) -> ModuleState:
     Returns:
         ModuleState: Tables, configurations and cache of this session.
     """
-    return session.get_module_state(STATE_KEY, ModuleState)
+    return STATES.get(session.id, Session.sessions.keys())
 
 
 State = Annotated[ModuleState, Depends(get_state)]
 
 
-def log_version(session: ApiSession, ocel_id: str) -> str:
-    """Identify the current version of a log: its Ocelescope filter pipeline.
+def log_version(
+    session: ApiSession, ocel_id: str, ocel_version: OcelVersion = "filtered", view_id: str | None = None
+) -> str:
+    """Identify the version of a log a request reads: the original log or one of its views.
 
-    Ocelescope keeps the original log unchanged and applies its filters on top, so the log a
-    request sees only changes when the filters change.
+    Ocelescope (since 0.13) keeps the original log unchanged and shows its filters as views. A
+    view's id is a hash over the log and the view's operations, so the log a request sees only
+    changes when the view changes. The arguments mirror those of Ocelescope's `ApiOcel`.
 
     Args:
         session: The backend session.
         ocel_id: Id of the log.
+        ocel_version: "original" for the unfiltered log, "filtered" for the active view.
+        view_id: A specific view instead of the active one.
 
     Returns:
-        str: A text that changes whenever the filter pipeline changes.
+        str: "original" or "view:<id>"; it changes whenever the log the request reads changes.
     """
-    return repr([f.model_dump(mode="json") | {"type": type(f).__name__} for f in session.get_filter(ocel_id)])
+    if view_id is not None:
+        return f"view:{view_id}"
+    if ocel_version == "original":
+        return "original"
+    active = session.get_ocel(ocel_id).active_view_id
+    return "original" if active is None else f"view:{active}"
 
 
 def _table_info(table: UploadedTable) -> TableInfo:
@@ -155,11 +211,18 @@ def run_derivation(ocel: OCEL, config: DerivationConfig, state: ModuleState) -> 
         return [Message(code="missing_input", message=str(error.args[0]), count=0, ids=[])]
 
 
-def current_derivation(ocel_id: str, ocel: ApiOcel, session: ApiSession, state: State) -> Derivation:
+def current_derivation(
+    ocel_id: str,
+    ocel: ApiOcel,
+    session: ApiSession,
+    state: State,
+    ocel_version: OcelVersion = "filtered",
+    view_id: str | None = None,
+) -> Derivation:
     """The derivation of a log under its applied configuration, from the cache if still valid.
 
     Content routes use this as a dependency. The cache holds one derivation per log; it is reused
-    while configuration, log version (Ocelescope filters) and used tables are unchanged, and
+    while configuration, log version (Ocelescope view) and used tables are unchanged, and
     recomputed otherwise.
 
     Args:
@@ -167,6 +230,8 @@ def current_derivation(ocel_id: str, ocel: ApiOcel, session: ApiSession, state: 
         ocel: The log (with Ocelescope's filters).
         session: The backend session.
         state: The module state.
+        ocel_version: Which log the request reads (see `log_version`).
+        view_id: A specific Ocelescope view (see `log_version`).
 
     Returns:
         Derivation: The current derivation.
@@ -178,7 +243,7 @@ def current_derivation(ocel_id: str, ocel: ApiOcel, session: ApiSession, state: 
     config = state.configs.get(ocel_id)
     if config is None:
         raise HTTPException(status_code=409, detail="No configuration applied for this log yet.")
-    key = fingerprint(config, log_version(session, ocel_id), state.tables)
+    key = fingerprint(config, log_version(session, ocel_id, ocel_version, view_id), state.tables)
     cached = state.cache.get(ocel_id)
     if cached is not None and cached.key == key:
         return cached.derivation
@@ -190,7 +255,7 @@ def current_derivation(ocel_id: str, ocel: ApiOcel, session: ApiSession, state: 
             detail="The applied configuration does not work on the current log: "
             + " ".join(e.message for e in errors),
         )
-    _cache_derivation(state, session, ocel_id, CachedDerivation(key=key, derivation=result))
+    _cache_derivation(state, session, ocel_id, CachedDerivation(key=key, derivation=result), ocel_version, view_id)
     return result
 
 
@@ -287,7 +352,13 @@ def get_config(ocel_id: str, state: State) -> ConfigState:
 
 @router.post("/{ocel_id}/config", operation_id="applyConfig")
 def apply_config(
-    ocel_id: str, body: DerivationConfig, ocel: ApiOcel, session: ApiSession, state: State
+    ocel_id: str,
+    body: DerivationConfig,
+    ocel: ApiOcel,
+    session: ApiSession,
+    state: State,
+    ocel_version: OcelVersion = "filtered",
+    view_id: str | None = None,
 ) -> ApplyResult:
     """Derive with a configuration; store and cache it only if there is no blocking error.
 
@@ -300,8 +371,8 @@ def apply_config(
     if result.errors:
         return ApplyResult(applied=False, errors=[Message.of(e) for e in result.errors], notices=notices)
     state.configs[ocel_id] = body
-    key = fingerprint(body, log_version(session, ocel_id), state.tables)
-    _cache_derivation(state, session, ocel_id, CachedDerivation(key=key, derivation=result))
+    key = fingerprint(body, log_version(session, ocel_id, ocel_version, view_id), state.tables)
+    _cache_derivation(state, session, ocel_id, CachedDerivation(key=key, derivation=result), ocel_version, view_id)
     return ApplyResult(applied=True, notices=notices)
 
 

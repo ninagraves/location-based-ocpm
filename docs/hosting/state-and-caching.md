@@ -1,7 +1,8 @@
 # State and caching
 
 ## Where state lives
-- Backend: `state.py`, class `ModuleState`, kept in Ocelescope's backend session under the key `locationBasedOcpm` (`session.get_module_state`).
+- Backend: `state.py`, class `ModuleState`, one per backend session, kept in memory in `configuration_routes.STATES` (`SessionStates`, keyed by the session id). States of sessions the backend no longer knows ("Reset session") are dropped on the next access.
+  Ocelescope's own module state (`session.module_states`, since 0.13) is not used: it only holds JSON-serialisable pydantic models and serialises them on every update, which does not fit polars frames and cached derivations.
   - `tables`: uploaded CSV tables by file name (every column read as text). Uploading a file with the same name replaces the table.
   - `configs`: the applied `DerivationConfig` per log id.
   - `cache`: the latest derivation per log id (`CachedDerivation(key, derivation)`).
@@ -11,7 +12,7 @@
 
 ## Cache
 - Key (`state.fingerprint`): SHA-256 over the configuration (incl. level), the log version and the content hashes of the tables the configuration uses.
-- Log version (`configuration_routes.log_version`): the log's Ocelescope filter pipeline. Ocelescope never changes an uploaded log; it only applies filters, so the filters identify what a request sees.
+- Log version (`configuration_routes.log_version`): which version of the log a request reads: `original`, or `view:<id>` for an Ocelescope view. Ocelescope (since 0.13) never changes an uploaded log; a filter creates a view, whose id is a hash over the log and the filter's operations, and the active view is what requests read by default. Like Ocelescope's `ApiOcel`, `current_derivation` and `POST /{ocel_id}/config` accept `ocel_version=original` and `view_id=<id>`.
 - `POST /{ocel_id}/config` derives, and on success stores the configuration and the cache entry.
 - Content routes depend on `configuration_routes.current_derivation`: it recomputes the key on every request (cheap, no data read) and derives again only if the key changed. One entry per log; a new key replaces the old entry.
 - If the applied configuration fails on a changed log (e.g. a filter removed every movement event's target), `current_derivation` answers 409 with the errors; the applied configuration stays until the user changes it.
@@ -35,4 +36,4 @@ Messages carry at most 500 ids (`api_models.MAX_IDS`); `count` gives the total.
 - Persist configurations on disk: serialise `configs` (pydantic) on change; nothing else depends on where they live.
 
 ## Tests
-`tests/test_configuration_api.py` calls the route functions directly with a stand-in session (`FakeSession`): apply, cache reuse, invalidation by level, filters and tables, errors keeping the previous configuration.
+`tests/test_configuration_api.py` calls the route functions directly with a stand-in session (`FakeSession`, with an id and an active view): apply, cache reuse, invalidation by level, views and tables, errors keeping the previous configuration, log versions, and dropping states of closed sessions.

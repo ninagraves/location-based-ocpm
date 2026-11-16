@@ -8,29 +8,33 @@ from fastapi import HTTPException
 
 from ocelescope_module_location_based_ocpm import configuration_routes as routes
 from ocelescope_module_location_based_ocpm.derivation.config import DerivationConfig, LocationTable
-from ocelescope_module_location_based_ocpm.state import ModuleState
+from ocelescope_module_location_based_ocpm.state import ModuleState, SessionStates
 
 from conftest import EXAMPLE, example_config
 
 
-class FakeSession:
-    """The two things the routes use from Ocelescope's session: module state and filters."""
+class FakeLog:
+    """The one thing the routes use from Ocelescope's session log: its active view."""
 
     def __init__(self):
-        self.states = {}
-        self.filters = []
+        self.active_view_id = None
 
-    def get_module_state(self, key, state_cls):
-        return self.states.setdefault(key, state_cls())
 
-    def get_filter(self, ocel_id):
-        return self.filters
+class FakeSession:
+    """The two things the routes use from Ocelescope's session: its id and its logs."""
+
+    def __init__(self, id: str):
+        self.id = id
+        self.log = FakeLog()
+
+    def get_ocel(self, ocel_id):
+        return self.log
 
 
 @pytest.fixture
-def session() -> FakeSession:
+def session(request) -> FakeSession:
     """A fresh session per test."""
-    return FakeSession()
+    return FakeSession(request.node.name)
 
 
 @pytest.fixture
@@ -67,7 +71,7 @@ def test_cache_invalidated_by_level_filters_and_tables(ocel, session, state):
     assert routes.apply_config("log", config, ocel, session, state).applied
     first = routes.current_derivation("log", ocel, session, state)
 
-    session.filters = [example_config()]  # any pydantic model stands in for a filter
+    session.log.active_view_id = "a1b2"  # the user applied an Ocelescope filter
     second = routes.current_derivation("log", ocel, session, state)
     assert second is not first
 
@@ -153,3 +157,22 @@ def test_table_names_include_role_tables():
 
     roles = RolesFromTable(table="roles.csv", event_column="event", object_column="hu", role_column="role")
     assert "roles.csv" in table_names(example_config(transformation_roles=roles))
+
+
+def test_log_version_follows_views(session):
+    assert routes.log_version(session, "log") == "original"
+    session.log.active_view_id = "a1b2"
+    assert routes.log_version(session, "log") == "view:a1b2"
+    assert routes.log_version(session, "log", ocel_version="original") == "original"
+    assert routes.log_version(session, "log", view_id="c3d4") == "view:c3d4"
+
+
+def test_session_states_drop_closed_sessions():
+    states = SessionStates()
+    first = states.get("s1")
+    assert states.get("s1") is first
+    states.get("s2")
+    assert len(states) == 2
+    states.get("s2", live_ids=["s2"])  # s1 was reset
+    assert len(states) == 1
+    assert states.get("s1") is not first

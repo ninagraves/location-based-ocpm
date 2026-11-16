@@ -1,12 +1,16 @@
 """Per-session state of the module: uploaded tables, the applied configuration per log, and the cache.
 
-The state lives in the backend session (`session.get_module_state(STATE_KEY, ModuleState)`), so it
+The state is kept in memory per backend session (`SessionStates`, keyed by the session id), so it
 survives page switches and browser reloads, and is lost with "Reset session" or a backend restart.
+Ocelescope's own module state (`session.module_states`, since 0.13) only holds JSON-serialisable
+pydantic models and serialises them on every update, which does not fit polars frames and cached
+derivations.
 Documented in docs/hosting/state-and-caching.md.
 """
 
 import hashlib
 import io
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 import polars as pl
@@ -14,8 +18,6 @@ import polars as pl
 from ocelescope_module_location_based_ocpm.derivation.config import DerivationConfig
 from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation
 
-#: Key of the module's state in the backend session.
-STATE_KEY = "locationBasedOcpm"
 
 
 @dataclass
@@ -117,8 +119,8 @@ def fingerprint(config: DerivationConfig, log_version: str, tables: dict[str, Up
 
     Args:
         config: The configuration.
-        log_version: Anything identifying the current version of the log, e.g. its Ocelescope
-            filter pipeline (see `configuration_routes.log_version`).
+        log_version: Anything identifying the current version of the log, e.g. its active
+            Ocelescope view (see `configuration_routes.log_version`).
         tables: Uploaded tables by name; only those the configuration refers to are hashed.
 
     Returns:
@@ -127,3 +129,36 @@ def fingerprint(config: DerivationConfig, log_version: str, tables: dict[str, Up
     used = [f"{name}:{tables[name].digest if name in tables else '-'}" for name in table_names(config)]
     raw = "|".join([config.model_dump_json(), log_version, *used])
     return hashlib.sha256(raw.encode()).hexdigest()
+
+
+class SessionStates:
+    """The module states of all backend sessions, by session id.
+
+    A state is created on first use. States of sessions the backend no longer knows (after "Reset
+    session") are dropped on the next access, so they do not pile up.
+    """
+
+    def __init__(self) -> None:
+        """Start without any state."""
+        self._states: dict[str, ModuleState] = {}
+
+    def get(self, session_id: str, live_ids: Iterable[str] | None = None) -> ModuleState:
+        """The state of a session, created on first use.
+
+        Args:
+            session_id: Id of the backend session.
+            live_ids: Ids of all sessions the backend still knows; states of other sessions are
+                dropped. `None` keeps every state.
+
+        Returns:
+            ModuleState: The session's state.
+        """
+        if live_ids is not None:
+            keep = set(live_ids) | {session_id}
+            for stale in [key for key in self._states if key not in keep]:
+                del self._states[stale]
+        return self._states.setdefault(session_id, ModuleState())
+
+    def __len__(self) -> int:
+        """Number of stored states."""
+        return len(self._states)
