@@ -122,7 +122,7 @@ export const INFO = {
   arcs: "Arcs (projection), the arc threshold: ranks all arcs of a type (start and end arcs included) by objects, then traversals, and keeps this share of them (rounded up), together with every arc as frequent as the last kept one. 100 % keeps all. Default: 50 %. Click the number to type a value (decimals allowed).",
   arcCount:
     "Arcs (display), the arc count: of the arcs left by Arcs (projection), shows the first N, ranked by objects, traversals, first occurrence, then name (exactly N, ties broken by this order). General (default): N arcs of all object types together (types with an own value keep theirs); per type: N arcs of every type. − and + change it by one. The number shows how many arcs are shown of how many.",
-  stay: "Stay connected: every shown arc lies on a path from the start to the end of its object type. Arcs that Arcs (projection) or Arcs (display) removed are added back (dashed) where needed. It never adds arcs of removed variants, deselected activities or arcs removed by hand.",
+  stay: "Stay connected: every shown arc lies on a path from the start to the end of its object type. Arcs that Arcs (projection) or Arcs (display) removed are added back where needed (drawn like the others; hovering such an arc says “only kept to stay connected”). It never adds arcs of removed variants, deselected activities or arcs removed by hand.",
   removed:
     "Arcs removed by hand (right click on an arc in the graph). While there are any, the sliders no longer describe the graph on their own (marked as manual). Click × to restore an arc.",
   objectTypes:

@@ -143,13 +143,14 @@ const TerminalNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
 });
 
 /**
- * Arc: ELK's route in the object type's colour (dashed if shown only because of "Stay connected"), with a small
- * plain label (count or objects) that interrupts the line. A right click on the arc or its label removes it.
+ * Arc: ELK's route in the object type's colour, with a small plain label (count or objects) that interrupts the line.
+ * Hovering the line or the label shows its numbers and, for an arc shown only because of "Stay connected", says so
+ * (drawn like every other arc; Nina, 2026-11-17). A right click on the arc or its label removes it.
  */
 const ArcEdge = memo(({ id, data, markerEnd }: EdgeProps<Edge<ArcData>>) => {
   if (!data?.path) return null;
   const position = data.labelPosition;
-  const hint = `${data.objectType}: ${num(data.count)} traversals, ${num(data.objects)} objects${data.connecting ? " (shown to stay connected)" : ""} · right click to remove`;
+  const hint = `${data.objectType}: ${num(data.count)} traversals, ${num(data.objects)} objects${data.connecting ? " · only kept to stay connected (Arcs (projection) or Arcs (display) would hide it)" : ""} · right click to remove`;
   return (
     <>
       <BaseEdge
@@ -157,8 +158,12 @@ const ArcEdge = memo(({ id, data, markerEnd }: EdgeProps<Edge<ArcData>>) => {
         path={data.path}
         markerEnd={markerEnd}
         interactionWidth={12}
-        style={{ stroke: data.colour, strokeWidth: data.width, strokeDasharray: data.connecting ? "5 3" : undefined }}
+        style={{ stroke: data.colour, strokeWidth: data.width }}
       />
+      {/* Hover area along the line with the same hint as the label (the browser's own tooltip). */}
+      <path d={data.path} fill="none" stroke="transparent" strokeWidth={12} style={{ pointerEvents: "stroke" }}>
+        <title>{hint}</title>
+      </path>
       {position && (
         <EdgeLabelRenderer>
           <Tooltip label={hint} withinPortal>
@@ -196,7 +201,7 @@ const Legend = () => (
   <Text fz={11} lh={1.3} c="dimmed">
     ▶ / ■ in a circle: start / end of an object type (named below; arcs from and to them are grey) · coloured line:
     directly-follows arc of a selected object type (thicker = more traversals) · number on an arc: traversals or objects ·
-    dashed: shown only to stay connected · number in an activity: its events on the included traces · small circle on an
+    hover an arc: its numbers, and whether it is only kept to stay connected · number in an activity: its events on the included traces · small circle on an
     activity: an unselected object type involved in these events · right click on an arc: remove it · drag a node to
     move it (the arcs follow; positions reset when a setting changes)
   </Text>
