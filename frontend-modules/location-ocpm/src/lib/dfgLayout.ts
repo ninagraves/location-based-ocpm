@@ -145,7 +145,11 @@ export type LaidOutArc = {
   path: string;
   labelPosition: Point | null;
 };
-export type Layout = { nodes: LaidOutNode[]; arcs: LaidOutArc[] };
+/** A layout; `generation` changes with every new ELK run (not when a layout is only reduced, `reduceLayout`). */
+export type Layout = { nodes: LaidOutNode[]; arcs: LaidOutArc[]; generation: number };
+
+/** Counter of ELK runs (`Layout.generation`). */
+let generations = 0;
 
 /**
  * Size of an activity node: wrapped name, then one row with the frequency and a circle per unselected type
@@ -255,7 +259,9 @@ export const layoutGraph = async (
     data: data.get(n.id) as ActivityNodeData | TerminalNodeData,
   }));
   const routed = new Map((result.edges ?? []).map((e) => [e.id, e]));
+  generations += 1;
   return {
+    generation: generations,
     nodes,
     arcs: arcs.map((a) => {
       const edge = routed.get(a.id);
@@ -280,4 +286,32 @@ export const layoutGraph = async (
       };
     }),
   };
+};
+
+/** Key of an arc: object type, source and target activity (null = start / end). */
+const arcIdentity = (objectType: string, source: string | null | undefined, target: string | null | undefined) =>
+  JSON.stringify([objectType, source ?? null, target ?? null]);
+
+/**
+ * Reuse a layout for a graph whose arcs are a subset of the laid-out ones (e.g. after removing an arc by hand; Nina,
+ * 2026-11-17): the laid-out arcs that are still in the graph keep their routes, nodes without arcs are dropped, and
+ * nothing moves. Returns null if the graph has an arc that is not laid out (then a new layout is needed).
+ *
+ * Example: removing load truck → unload truck keeps every other arc and node where it was; if that leaves
+ * unload truck without arcs, its node disappears and leaves a gap.
+ *
+ * @param layout The current layout.
+ * @param graph The new graph (arcs already filtered by the arc settings).
+ * @returns The reduced layout, or null.
+ */
+export const reduceLayout = (layout: Layout, graph: DirectlyFollowsGraph): Layout | null => {
+  const laidOut = new Map(layout.arcs.map((a) => [arcIdentity(a.objectType, a.sourceActivity, a.targetActivity), a]));
+  const arcs: LaidOutArc[] = [];
+  for (const arc of graph.arcs) {
+    const known = laidOut.get(arcIdentity(arc.object_type, arc.source, arc.target));
+    if (!known) return null;
+    arcs.push({ ...known, connecting: arc.connecting ?? false });
+  }
+  const used = new Set(arcs.flatMap((a) => [a.source, a.target]));
+  return { nodes: layout.nodes.filter((n) => used.has(n.id)), arcs, generation: layout.generation };
 };

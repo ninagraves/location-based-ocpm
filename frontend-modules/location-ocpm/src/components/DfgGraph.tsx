@@ -18,7 +18,7 @@ import {
   ReactFlowProvider,
   useReactFlow,
 } from "@xyflow/react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DirectlyFollowsGraph } from "../api/locationBasedOcpm";
 import {
   type ActivityNodeData,
@@ -27,6 +27,7 @@ import {
   type LaidOutArc,
   type Layout,
   layoutGraph,
+  reduceLayout,
   SIZES,
   type TerminalNodeData,
 } from "../lib/dfgLayout";
@@ -55,6 +56,7 @@ const activityTooltip = (d: ActivityNodeData) => (
         {t.objectType}{t.selected ? "" : " (not selected)"}: {num(t.events)} events, {num(t.objects)} objects
       </Text>
     ))}
+    <Text size="xs" c="dimmed">Right click: copy the name</Text>
   </Stack>
 );
 
@@ -202,7 +204,8 @@ const Legend = () => (
     ▶ / ■ in a circle: start / end of an object type (named below; arcs from and to them are grey) · coloured line:
     directly-follows arc of a selected object type (thicker = more traversals) · number on an arc: traversals or objects ·
     hover an arc: its numbers, and whether it is only kept to stay connected · number in an activity: its events on the included traces · small circle on an
-    activity: an unselected object type involved in these events · right click on an arc: remove it · drag a node to
+    activity: an unselected object type involved in these events · right click on an arc: remove it · right click on an
+    activity: copy its name · drag a node to
     move it (the arcs follow; positions reset when a setting changes)
   </Text>
 );
@@ -287,12 +290,12 @@ const followNodes = (edges: Edge<ArcData>[], offsets: Map<string, Offset>) =>
     };
   });
 
-/** Fit the view whenever a new layout arrives. */
-const FitOnChange = ({ layout }: { layout: Layout | null }) => {
+/** Fit the view whenever a new layout arrives (not when a layout is only reduced, so the view stays where it is). */
+const FitOnChange = ({ generation }: { generation: number | null }) => {
   const { fitView } = useReactFlow();
   useEffect(() => {
-    if (layout) requestAnimationFrame(() => fitView({ padding: 0.08, maxZoom: 1 }));
-  }, [layout, fitView]);
+    if (generation !== null) requestAnimationFrame(() => fitView({ padding: 0.08, maxZoom: 1 }));
+  }, [generation, fitView]);
   return null;
 };
 
@@ -306,6 +309,8 @@ const FitOnChange = ({ layout }: { layout: Layout | null }) => {
  * @param compact Compact layout (little white space, `COMPACT_OPTIONS`).
  * @param height Height of the drawing area in pixels.
  * @param onRemoveArc Called when the user right-clicks an arc (to remove it).
+ * @param keepLayout Reuse the current layout if the new graph only lacks arcs (`reduceLayout`; set when only arcs were
+ *   removed by hand, Nina 2026-11-17): nodes and arcs stay where they are, dragged nodes too.
  */
 export const DfgGraph = ({
   graph,
@@ -315,6 +320,7 @@ export const DfgGraph = ({
   compact,
   height,
   onRemoveArc,
+  keepLayout = false,
 }: {
   graph: DirectlyFollowsGraph;
   colours: Map<string, string>;
@@ -323,29 +329,67 @@ export const DfgGraph = ({
   compact: boolean;
   height: number;
   onRemoveArc?: (arc: LaidOutArc) => void;
+  keepLayout?: boolean;
 }) => {
   const [layout, setLayout] = useState<Layout | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const current = useRef<{ layout: Layout | null; direction: Direction; arcLabel: ArcLabel; compact: boolean } | null>(null);
   useEffect(() => {
     let cancelled = false;
     setError(null);
+    // Only arcs removed (same look settings): drop them from the current layout instead of a new ELK run.
+    const previous = current.current;
+    if (keepLayout && previous?.layout && previous.direction === direction && previous.arcLabel === arcLabel && previous.compact === compact) {
+      const reduced = reduceLayout(previous.layout, graph);
+      if (reduced) {
+        current.current = { layout: reduced, direction, arcLabel, compact };
+        setLayout(reduced);
+        return;
+      }
+    }
     layoutGraph(graph, direction, arcLabel, compact).then(
-      (result) => !cancelled && setLayout(result),
+      (result) => {
+        if (cancelled) return;
+        current.current = { layout: result, direction, arcLabel, compact };
+        setLayout(result);
+      },
       (err: unknown) => !cancelled && setError(String(err)),
     );
     return () => {
       cancelled = true;
     };
+    // keepLayout is read when the graph changes, not a reason to lay out again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, direction, arcLabel, compact]);
   const flow = useMemo(() => (layout ? toFlow(layout, colours, onRemoveArc) : null), [layout, colours, onRemoveArc]);
-  // Dragged node positions, kept with the layout they belong to: a new layout (a setting changed) starts from its own positions.
-  const [dragged, setDragged] = useState<{ flow: typeof flow; nodes: Node<NodeData>[] }>({ flow: null, nodes: [] });
-  const nodes = useMemo(() => (dragged.flow === flow ? dragged.nodes : (flow?.nodes ?? [])), [dragged, flow]);
+  // Dragged node positions, kept per layout generation: a new ELK run (a setting changed) starts from its own
+  // positions; a reduced layout (arcs removed by hand) keeps them.
+  const generation = layout?.generation ?? null;
+  const [dragged, setDragged] = useState<{ generation: number | null; nodes: Map<string, Node<NodeData>> }>({
+    generation: null,
+    nodes: new Map(),
+  });
+  const nodes = useMemo(() => {
+    const flowNodes = flow?.nodes ?? [];
+    if (dragged.generation !== generation) return flowNodes;
+    // Keep React Flow's state of a node (position, measured size), with the data of the current layout.
+    return flowNodes.map((n) => {
+      const kept = dragged.nodes.get(n.id);
+      return kept ? { ...kept, data: n.data } : n;
+    });
+  }, [dragged, flow, generation]);
   const onNodesChange = useCallback(
     (changes: NodeChange<Node<NodeData>>[]) =>
-      setDragged((d) => ({ flow, nodes: applyNodeChanges(changes, d.flow === flow ? d.nodes : (flow?.nodes ?? [])) })),
-    [flow],
+      setDragged(() => ({ generation, nodes: new Map(applyNodeChanges(changes, nodes).map((n) => [n.id, n])) })),
+    [generation, nodes],
   );
+  // Right click on an activity copies its name (Nina, 2026-11-17); a note says so for a moment.
+  const [copied, setCopied] = useState<string | null>(null);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(null), 1500);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
   const edges = useMemo(() => {
     if (!flow) return [];
     const laidOut = new Map(flow.nodes.map((n) => [n.id, n.position]));
@@ -364,7 +408,17 @@ export const DfgGraph = ({
   return (
     <Stack gap={4}>
       <Legend />
-    <Box style={{ height, border: "1px solid var(--mantine-color-default-border)", borderRadius: 8 }}>
+    <Box style={{ height, border: "1px solid var(--mantine-color-default-border)", borderRadius: 8, position: "relative" }}>
+      {copied && (
+        <Text
+          size="xs"
+          px={6}
+          py={2}
+          style={{ position: "absolute", top: 6, left: "50%", transform: "translateX(-50%)", zIndex: 10, borderRadius: 4, background: "var(--mantine-color-default-hover)" }}
+        >
+          Copied “{copied}”
+        </Text>
+      )}
       <ReactFlowProvider>
         <ReactFlow
           nodes={nodes}
@@ -385,9 +439,19 @@ export const DfgGraph = ({
             const data = edge.data as ArcData | undefined;
             if (data) onRemoveArc?.(data);
           }}
+          // Right click on an activity copies its name to the clipboard (Nina, 2026-11-17).
+          onNodeContextMenu={(event, node) => {
+            event.preventDefault();
+            const data = node.data as NodeData;
+            if (data.kind !== "activity") return;
+            navigator.clipboard?.writeText(data.activity).then(
+              () => setCopied(data.activity),
+              () => setCopied(null),
+            );
+          }}
         >
           <Controls showInteractive={false} />
-          <FitOnChange layout={layout} />
+          <FitOnChange generation={generation} />
         </ReactFlow>
       </ReactFlowProvider>
     </Box>
