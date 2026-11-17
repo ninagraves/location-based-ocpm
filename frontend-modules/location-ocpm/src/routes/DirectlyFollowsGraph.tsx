@@ -9,7 +9,8 @@ import { getDirectlyFollowsGraph } from "../api/locationBasedOcpm";
 import { DfgGraph } from "../components/DfgGraph";
 import { arcSettings, DEFAULT_STATE, DfgSettings, type DfgState, removeArc, toRequest } from "../components/DfgSettings";
 import { DfgToolbar } from "../components/DfgToolbar";
-import { applyArcSettings } from "../lib/dfgView";
+import { applyArcSettings, pendingSelection } from "../lib/dfgView";
+import { useDebounced } from "../lib/useDebounced";
 import type { LaidOutArc } from "../lib/dfgLayout";
 import { ModulePage } from "../components/ModulePage";
 import { useScheme } from "../components/plots";
@@ -21,6 +22,9 @@ import { emphasisColourMap } from "../lib/palette";
 const SIDEBAR_WIDTH = { initial: 300, min: 220, max: 640 };
 /** Default, smallest and largest height of the drawing area in pixels (adjustable by dragging its bottom edge). */
 const GRAPH_HEIGHT = { initial: 760, min: 300, max: 4000 };
+
+/** Waiting time after the last change of a setting before the graph is recalculated (Nina, 2026-11-17). */
+const RECALCULATION_DELAY_MS = 2000;
 
 /** Width and visibility of the sidebar (one for all logs). */
 type SidebarState = { width: number; hidden: boolean };
@@ -114,14 +118,17 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
       setState((s) => removeArc(s, { object_type: arc.objectType, source: arc.sourceActivity, target: arc.targetActivity })),
     [setState],
   );
-  const request = useMemo(() => toRequest(state), [state]);
+  // The graph follows the settings 2 s after the last change, so that several can be changed first (Nina,
+  // 2026-11-17); the controls show the new values at once. "Update now" in the toolbar skips the wait.
+  const [applied, pending, applyNow] = useDebounced(state, RECALCULATION_DELAY_MS);
+  const request = useMemo(() => toRequest(applied), [applied]);
   const { data: base, error, isFetching } = useQuery({
     queryKey: ["locationBasedOcpm", "dfg", ocelId, request],
     queryFn: ({ signal }) => getDirectlyFollowsGraph(ocelId, request, undefined, undefined, signal),
     placeholderData: keepPreviousData,
   });
   // Arc threshold, arc count, removed arcs and Stay connected: in the browser, without a request (Nina, 2026-11-15).
-  const arcs = useMemo(() => arcSettings(state), [state]);
+  const arcs = useMemo(() => arcSettings(applied), [applied]);
   const data = useMemo(() => (base ? applyArcSettings(base, arcs) : undefined), [base, arcs]);
   // Handling-unit types get the signature colours first, the other types paler colours (Nina, 2026-11-15); each
   // group in the order of all object types (most objects first), so a type keeps its colour.
@@ -134,8 +141,14 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
     );
   }, [data, scheme]);
 
+  // The sidebar's checkboxes show the current selection while the graph still shows the applied one.
+  const sidebarGraph = useMemo(
+    () => (data ? pendingSelection(data, state.objectTypes, state.activities) : undefined),
+    [data, state.objectTypes, state.activities],
+  );
+
   if (error) return <Alert color="red">{errorText(error)}</Alert>;
-  if (!data) return <Loader size="sm" />;
+  if (!data || !sidebarGraph) return <Loader size="sm" />;
   return (
     <Group align="stretch" wrap="nowrap" gap={6}>
       <Stack gap={6} style={{ flex: 1, minWidth: 0 }}>
@@ -143,6 +156,8 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
           graph={data}
           state={state}
           setState={setState}
+          pending={pending}
+          onApplyNow={applyNow}
           sidebarHidden={sidebar.hidden}
           onToggleSidebar={() => setSidebar((s) => ({ ...s, hidden: !s.hidden }))}
         />
@@ -150,9 +165,9 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
           <DfgGraph
             graph={data}
             colours={colours}
-            direction={state.direction}
-            arcLabel={state.arcLabel}
-            compact={state.compact}
+            direction={applied.direction}
+            arcLabel={applied.arcLabel}
+            compact={applied.compact}
             height={height}
             onRemoveArc={onRemoveArc}
           />
@@ -165,7 +180,7 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
           {/* Ends with the bottom of the graph (above the height grab bar, 10 px). */}
           <Box w={sidebar.width} mb={10} style={{ flexShrink: 0, minHeight: 0, position: "relative" }}>
             <Box style={{ position: "absolute", inset: 0 }}>
-              <DfgSettings graph={data} baseArcs={base?.arcs ?? []} colours={colours} state={state} setState={setState} />
+              <DfgSettings graph={sidebarGraph} baseArcs={base?.arcs ?? []} colours={colours} state={state} setState={setState} />
             </Box>
           </Box>
         </>
