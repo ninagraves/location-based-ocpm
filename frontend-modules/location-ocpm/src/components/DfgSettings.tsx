@@ -130,9 +130,9 @@ export const INFO = {
   categories:
     "Event categories: an event is removed from the traces (before anything else, like deselecting an activity) only when all categories it belongs to are deselected. Move to vehicle / storage: movements whose target location is a vehicle / storage unit; such an event is also a movement, so it stays until both Movements and its Move to chip are off. Events in no category are not affected by the chips (the activity selection still applies).",
   activities:
-    "Activities by number of events that involve a handling unit (in brackets). The events of an unchecked activity are removed from the traces before anything else (as in Ocelescope): a trace a, b, c without b becomes a, c. Unfold an activity for its events per object type and to (de)select it for single selected types. Default per type: its most frequent 40 % of activities (at least 3, at most 10), plus every activity preselected for another selected handling-unit type. Upper part: activities on the included traces (the variants kept by the variant threshold); one that is not in the graph shows the smallest Arcs (projection) that would show it. Lower part: the others, each with the smallest variant threshold that would include it. Unfold for the values per type. Search for movements, vehicles, storage, processing or transformation to find the activities with these events too.",
+    "Activities by number of events that involve a handling unit (in brackets). The events of an unchecked activity are removed from the traces before anything else (as in Ocelescope): a trace a, b, c without b becomes a, c. Unfold an activity for its events per object type and to (de)select it for single selected types. Default per type: its most frequent 40 % of activities (at least 3, at most 10), plus every activity preselected for another selected handling-unit type. Upper part: the activities in the graph. Lower part: the others, each with the value it needs: in blue the smallest Arcs (projection) that would show it (it is on an included trace, but none of its arcs is kept), in grey the smallest variant threshold that would put it on an included trace. Unfold for the values per type. Search for movements, vehicles, storage, processing or transformation to find the activities with these events too.",
   outside:
-    "Activities on no included trace: the number is the smallest variant threshold (of any selected type) at which they would be; unfold for each selected type. Without a number, no variant threshold helps: the activity is deselected (unchecked), its events are removed by an event category, or only unselected types have it.",
+    "Activities not in the graph. Blue: on an included trace, but none of its arcs is kept; the number is the smallest Arcs (projection) (of any selected type) that keeps one, \"display\" if Arcs (projection) keeps one but Arcs (display) or a removal by hand hides it. Grey: on no included trace; the number is the smallest variant threshold (of any selected type) that would put it on one (for an unchecked activity: if it were checked). Without a number, no threshold helps: its events are removed by an event category, or only unselected types have it. Unfold for each selected type.",
   arcLabel: "What the number on an arc counts: traversals (an object repeating the arc counts each time) or distinct objects.",
   direction: "Direction of the layout: from left to right (→) or from top to bottom (↓).",
   settings: "Show or hide the discovery settings.",
@@ -494,9 +494,14 @@ export type ProjectionNeed = number | "display";
 /** Text of a `ProjectionNeed`. */
 const projectionText = (need: ProjectionNeed | undefined) => (need === undefined ? null : need === "display" ? "display" : `≥ ${num(need)} %`);
 
-/** Hover text of the upper part's numbers. */
+/** Hover text of a blue number (lower part, on an included trace but not drawn). */
 const PROJECTION_HINT =
-  "Not in the graph: smallest Arcs (projection) (of any selected type) at which an arc of the activity is kept; \"display\": already kept, but hidden by Arcs (display) or by arcs removed by hand.";
+  "For the Arcs (projection) slider: the smallest value (of any selected type) at which an arc of the activity is kept. \"display\": Arcs (projection) already keeps one, but Arcs (display) or an arc removed by hand hides it.";
+/** Hover text of a grey number (lower part, on no included trace). */
+const VARIANT_HINT =
+  "For the Variants slider: the smallest variant threshold (of any selected type) that puts the activity on an included trace (for an unchecked activity: if it were checked), or why none does.";
+/** Colour of the Arcs (projection) values, to tell them from the variant thresholds (Nina, 2026-11-17). */
+const PROJECTION_COLOUR = "blue.7";
 
 /** Words that find the activities with events of a category in the activity search (Nina, 2026-11-16). */
 const CATEGORY_WORDS: Record<string, string[]> = {
@@ -540,27 +545,29 @@ const ActivityRow = ({
   colours: Map<string, string>;
   selectedTypes: Set<string>;
   setIncluded: (activity: string, types: string[], included: boolean) => void;
-  /** Lower part of the list: show the variant threshold needed (or why none helps). */
+  /** Lower part of the list (not in the graph): show what it needs per type. */
   outside?: boolean;
-  /** Upper part, activity not in the graph: Arcs (projection) needed per type. */
+  /** On an included trace but not in the graph: Arcs (projection) needed per type (shown in blue). */
   projection?: Map<string, ProjectionNeed>;
 }) => {
   const [open, setOpen] = useState(false);
   const selectable = option.object_types.filter((t) => selectedTypes.has(t.object_type));
   const included = selectable.filter((t) => t.included).length;
-  const status = (t: DfgActivityTypeOption) =>
-    outside
-      ? t.on_included_trace
-        ? "in the graph"
-        : (neededText(t.variant_threshold_needed) ?? missingReason(t))
-      : projectionText(projection?.get(t.object_type));
+  // Per type: the Arcs (projection) needed (blue), "in the graph", or the variant threshold needed (or why none helps).
+  const status = (t: DfgActivityTypeOption): { text: string | null; projection: boolean } => {
+    if (!outside) return { text: null, projection: false };
+    const need = projectionText(projection?.get(t.object_type));
+    if (need) return { text: need, projection: true };
+    if (t.on_included_trace) return { text: projection ? "in the graph" : null, projection: false };
+    return { text: neededText(t.variant_threshold_needed) ?? missingReason(t), projection: false };
+  };
   const numbers = [...(projection?.values() ?? [])].filter((v): v is number => v !== "display");
-  const summary = outside
-    ? (neededText(option.variant_threshold_needed) ??
-      (selectable.length === 0 ? "other types only" : included === 0 ? null : "event category"))
+  const summary = !outside
+    ? null
     : projection
       ? projectionText(numbers.length > 0 ? Math.min(...numbers) : "display")
-      : null;
+      : (neededText(option.variant_threshold_needed) ??
+        (selectable.length === 0 ? "other types only" : included === 0 ? null : "event category"));
   return (
     <Stack gap={1}>
       <Group gap={6} wrap="nowrap" justify="space-between">
@@ -580,12 +587,12 @@ const ActivityRow = ({
         />
         {summary && (
           <Tooltip
-            label={outside ? "Smallest variant threshold that puts the activity on an included trace (of any selected type), or why none does" : PROJECTION_HINT}
+            label={projection ? PROJECTION_HINT : VARIANT_HINT}
             withinPortal
             multiline
-            w={240}
+            w={260}
           >
-            <Text size="xs" c="dimmed" ml="auto" style={{ whiteSpace: "nowrap" }}>{summary}</Text>
+            <Text size="xs" c={projection ? PROJECTION_COLOUR : "dimmed"} ml="auto" style={{ whiteSpace: "nowrap" }}>{summary}</Text>
           </Tooltip>
         )}
         <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => setOpen((o) => !o)} aria-label={`Object types of ${option.activity}`}>
@@ -607,7 +614,9 @@ const ActivityRow = ({
                   <Text size="xs">{t.object_type}</Text>
                   <Text size="xs" c="dimmed">({num(t.events)})</Text>
                   <CategoryBadges categories={t.categories} events={t.events} />
-                  {t.selected_type && status(t) && <Text size="xs" c="dimmed">· {status(t)}</Text>}
+                  {t.selected_type && status(t).text && (
+                    <Text size="xs" c={status(t).projection ? PROJECTION_COLOUR : "dimmed"}>· {status(t).text}</Text>
+                  )}
                 </Group>
               }
             />
@@ -680,10 +689,10 @@ export const DfgSettings = ({
         }
       return { ...s, activities };
     });
-  // Upper part: on an included trace (Nina, 2026-11-15); lower part: the others, least variant threshold needed first.
+  // Upper part: the activities in the graph; lower part: the others (Nina, 2026-11-17; before: upper part = on an
+  // included trace). Lower part: first those on an included trace (Arcs (projection) needed, in blue), then the
+  // others (variant threshold needed), least first.
   const listed = activityOptions.filter((a) => activityMatches(a, activityQuery));
-  const inGraph = listed.filter((a) => a.on_included_trace);
-  // Upper part, not in the graph: the Arcs (projection) needed per type (Nina, 2026-11-16).
   const needed = useMemo(() => neededArcThresholds(baseArcs), [baseArcs]);
   const shownActivities = new Set(graph.activities.map((a) => a.activity));
   const projectionNeeds = (option: DfgActivityOption) => {
@@ -697,9 +706,13 @@ export const DfgSettings = ({
     }
     return needs.size > 0 ? needs : undefined;
   };
-  const outsideGraph = listed
-    .filter((a) => !a.on_included_trace)
-    .sort((x, y) => (x.variant_threshold_needed ?? 1000) - (y.variant_threshold_needed ?? 1000));
+  const inGraph = listed.filter((a) => shownActivities.has(a.activity));
+  const rank = (a: DfgActivityOption) => {
+    const needs = projectionNeeds(a);
+    if (needs) return Math.min(...[...needs.values()].map((v) => (v === "display" ? 0 : v)));
+    return 1000 + (a.variant_threshold_needed ?? 1000);
+  };
+  const outsideGraph = listed.filter((a) => !shownActivities.has(a.activity)).sort((x, y) => rank(x) - rank(y));
   const removedInfo = new Map((graph.removed_arcs ?? []).map((a) => [arcText(a), a]));
 
   return (
@@ -815,13 +828,12 @@ export const DfgSettings = ({
                 colours={colours}
                 selectedTypes={selectedSet}
                 setIncluded={setIncluded}
-                projection={projectionNeeds(a)}
               />
             ))}
             {outsideGraph.length > 0 && (
               <Divider
                 my={2}
-                label={<Heading info={INFO.outside}>Not on the included traces ({outsideGraph.length})</Heading>}
+                label={<Heading info={INFO.outside}>Not in the graph ({outsideGraph.length})</Heading>}
                 labelPosition="left"
                 variant="dashed"
               />
@@ -833,6 +845,7 @@ export const DfgSettings = ({
                 colours={colours}
                 selectedTypes={selectedSet}
                 setIncluded={setIncluded}
+                projection={projectionNeeds(a)}
                 outside
               />
             ))}
