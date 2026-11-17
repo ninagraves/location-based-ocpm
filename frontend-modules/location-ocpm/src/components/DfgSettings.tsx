@@ -136,6 +136,8 @@ export const INFO = {
   arcLabel: "What the number on an arc counts: traversals (an object repeating the arc counts each time) or distinct objects.",
   direction: "Direction of the layout: from left to right (→) or from top to bottom (↓).",
   settings: "Show or hide the discovery settings.",
+  pending:
+    "The graph is recalculated 2 seconds after the last change, so several settings can be changed first. Update now: recalculate at once.",
   compact: "Less white space between nodes and arcs, e.g. to export the whole graph as a figure.",
 };
 

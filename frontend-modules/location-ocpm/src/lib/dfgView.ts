@@ -46,3 +46,40 @@ export const applyArcSettings = (graph: DirectlyFollowsGraph, settings: ArcSetti
     removed_arcs: graph.arcs.filter((a) => removed.has(arcKey(a))),
   };
 };
+
+/**
+ * The selection of the page state laid over a graph that was computed for an earlier state, so that the sidebar's
+ * checkboxes react at once while the graph waits for the delayed recalculation (Nina, 2026-11-17).
+ *
+ * Example: unchecking the activity "label" for coil checks it off in the list at once; the graph drops it 2 s later.
+ *
+ * @param graph The graph as computed (for the applied state).
+ * @param objectTypes Selected object types of the current state; null = the types with handling units.
+ * @param activities Selected activities per type of the current state; a missing type keeps the graph's selection.
+ * @returns The graph with `selected` (object types) and `selected_type` / `included` (activity list) of the state.
+ */
+export const pendingSelection = (
+  graph: DirectlyFollowsGraph,
+  objectTypes: string[] | null,
+  activities: Record<string, string[]>,
+): DirectlyFollowsGraph => {
+  const selected = new Set(
+    objectTypes ?? graph.object_types.filter((t) => t.handling_units).map((t) => t.object_type),
+  );
+  return {
+    ...graph,
+    object_types: graph.object_types.map((t) => ({ ...t, selected: selected.has(t.object_type) })),
+    activity_options: graph.activity_options.map((a) => ({
+      ...a,
+      object_types: a.object_types.map((t) => {
+        const own = activities[t.object_type];
+        const selectedType = selected.has(t.object_type);
+        return {
+          ...t,
+          selected_type: selectedType,
+          included: selectedType && (own ? own.includes(a.activity) : t.included),
+        };
+      }),
+    })),
+  };
+};

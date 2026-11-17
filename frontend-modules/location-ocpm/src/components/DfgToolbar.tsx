@@ -141,18 +141,24 @@ const DisplayArcs = ({
  *
  * @param graph The graph as drawn (categories and arc numbers).
  * @param state The settings; `setState` changes them.
+ * @param pending, onApplyNow Whether changed settings wait for the recalculation (2 s after the last change); applies
+ *   them at once.
  * @param sidebarHidden, onToggleSidebar Whether the sidebar is hidden; shows or hides it.
  */
 export const DfgToolbar = ({
   graph,
   state,
   setState,
+  pending,
+  onApplyNow,
   sidebarHidden,
   onToggleSidebar,
 }: {
   graph: DirectlyFollowsGraph;
   state: DfgState;
   setState: (update: (s: DfgState) => DfgState) => void;
+  pending: boolean;
+  onApplyNow: () => void;
   sidebarHidden: boolean;
   onToggleSidebar: () => void;
 }) => (
@@ -199,6 +205,13 @@ export const DfgToolbar = ({
           label="Compact"
         />
       </Tooltip>
+      {pending && (
+        <Tooltip label={INFO.pending} multiline w={260} withinPortal>
+          <Button size="compact-xs" variant="light" color="pink" onClick={onApplyNow}>
+            Update now
+          </Button>
+        </Tooltip>
+      )}
       <Tooltip label={INFO.reset} multiline w={260} withinPortal>
         <Button size="compact-xs" variant="default" leftSection={<RotateCcwIcon size={11} />} onClick={() => setState(() => DEFAULT_STATE)}>
           Reset
