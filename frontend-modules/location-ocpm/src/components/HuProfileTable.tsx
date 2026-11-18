@@ -34,8 +34,8 @@ import { useScheme } from "./plots";
 /** Rows per page offered (default 25). */
 const PAGE_SIZES = [10, 25, 50, 100];
 
-/** Column groups that can be shown or hidden, in table order (Time last). */
-const GROUPS = ["Lifecycle", "Lineage", "Locations", "MF Profile", "Time"] as const;
+/** Column groups that can be shown or hidden, in table order. */
+const GROUPS = ["Lifecycle", "Lineage", "Locations", "MF Profile"] as const;
 type Group = (typeof GROUPS)[number];
 
 /** Table state kept per log. */
@@ -148,17 +148,7 @@ const count = (accessor: ProfileFilterColumn, title: string, group: Group, info?
   info,
   render: (r) => num((r as unknown as Record<string, number>)[accessor]),
 });
-const time = (accessor: ProfileFilterColumn, title: string, info?: string, when?: ColumnSpec["when"]): ColumnSpec => ({
-  accessor,
-  title,
-  group: "Time",
-  format: "duration",
-  info,
-  when,
-  render: (r) => duration((r as unknown as Record<string, number>)[accessor]),
-});
-
-/** All columns, in table order: handling unit, Lifecycle, Lineage, Locations, MF Profile, Time. */
+/** All columns, in table order: handling unit, Lifecycle, Lineage, Locations, MF Profile. The times per location kind are only in the unfolded row. */
 const COLUMNS: ColumnSpec[] = [
   { accessor: "hu", title: "Handling unit", group: "Handling unit", format: "text" },
   { accessor: "object_type", title: "Object type", group: "Handling unit", format: "text" },
@@ -177,6 +167,14 @@ const COLUMNS: ColumnSpec[] = [
   { accessor: "first", title: "First", group: "Lifecycle", format: "time", render: (r) => stamp(r.first) },
   { accessor: "last", title: "Last", group: "Lifecycle", format: "time", render: (r) => stamp(r.last) },
   { accessor: "lifespan", title: "Lifespan", group: "Lifecycle", format: "duration", render: (r) => duration(r.lifespan) },
+  {
+    accessor: "time_split",
+    title: "Time split",
+    group: "Lifecycle",
+    format: "text",
+    info: "Shares of the lifespan on vehicles, in storage, at other locations and unlocated (legend above the table); the times are in the unfolded row.",
+    render: (r, scheme) => <TimeSplit row={r} scheme={scheme} />,
+  },
   count("n_partial_consumptions", "Partial consumptions", "Lifecycle"),
   count(
     "n_linked",
@@ -205,11 +203,6 @@ const COLUMNS: ColumnSpec[] = [
     render: (r) => (r.connectedness == null ? "–" : `${Math.round(r.connectedness * 100)} %`),
   },
   count("n_co_handled", "Co-handled HUs", "MF Profile", "Other handling units in the shared events (transformation events left out)."),
-  { accessor: "time_split", title: "Time split", group: "Time", format: "text", render: (r, scheme) => <TimeSplit row={r} scheme={scheme} /> },
-  time("time_vehicle", "On vehicles", undefined, (p) => !!p?.has_vehicles),
-  time("time_storage", "In storage", undefined, (p) => !!p?.has_storage),
-  time("time_other", "At other locations"),
-  time("time_unlocated", "Unlocated"),
 ];
 
 /** The shown columns (groups switched on, columns the log has). */
@@ -325,7 +318,15 @@ const Line = ({ label, children }: { label: string; children: React.ReactNode })
  * @param onPick Called with a handling unit clicked in the details (adds it to the selection).
  * @param width Visible width of the table: the panel stays in view when the table scrolls sideways.
  */
-const HuDetailsPanel = ({ ocelId, hu, onPick, width }: { ocelId: string; hu: string; onPick: (hu: string) => void; width: number }) => {
+const HuDetailsPanel = ({
+  ocelId,
+  row,
+  page,
+  onPick,
+  width,
+}: { ocelId: string; row: HuProfileRow; page: HuProfilePage | undefined; onPick: (hu: string) => void; width: number }) => {
+  const hu = row.hu;
+  const scheme = useScheme();
   const { data, error } = useQuery({
     queryKey: ["locationBasedOcpm", "instances", "details", ocelId, hu],
     queryFn: ({ signal }) => getHuDetails(ocelId, { hu }, undefined, signal),
@@ -333,7 +334,7 @@ const HuDetailsPanel = ({ ocelId, hu, onPick, width }: { ocelId: string; hu: str
   if (error) return <Text size="xs" c="red">{errorText(error)}</Text>;
   if (!data) return <Loader size="xs" m="xs" />;
   return (
-    <SimpleGrid cols={width > 1100 ? 4 : width > 560 ? 2 : 1} spacing="md" px="md" py="xs" style={{ position: "sticky", left: 0, width: width || undefined }}>
+    <SimpleGrid cols={width > 1350 ? 5 : width > 1100 ? 3 : width > 560 ? 2 : 1} spacing="md" px="md" py="xs" style={{ position: "sticky", left: 0, width: width || undefined }}>
       <Stack gap={2}>
         <Text size="xs" fw={600}>Start and end</Text>
         <Line label="First event">{eventLine(data.first_event)}</Line>
@@ -374,7 +375,35 @@ const HuDetailsPanel = ({ ocelId, hu, onPick, width }: { ocelId: string; hu: str
             : "–"}
         </Line>
       </Stack>
+      <TimeParts row={row} page={page} scheme={scheme} />
     </SimpleGrid>
+  );
+};
+
+/** Part "Time" of the unfolded row: the time per location kind, with its share of the lifespan. */
+const TimeParts = ({ row, page, scheme }: { row: HuProfileRow; page: HuProfilePage | undefined; scheme: Scheme }) => {
+  const colours = kindColours(scheme);
+  const parts = [
+    ["vehicle", "On vehicles", row.time_vehicle, !!page?.has_vehicles],
+    ["storage", "In storage", row.time_storage, !!page?.has_storage],
+    ["other", "At other locations", row.time_other, true],
+    ["unlocated", "Unlocated", row.time_unlocated, true],
+  ] as const;
+  const total = parts.reduce((s, [, , v]) => s + (v ?? 0), 0);
+  return (
+    <Stack gap={2}>
+      <Text size="xs" fw={600}>Time ({duration(row.lifespan)})</Text>
+      {parts
+        .filter(([, , , shown]) => shown)
+        .map(([k, label, v]) => (
+          <Line key={k} label={label}>
+            <Group gap={6} wrap="nowrap">
+              <Box w={10} h={10} style={{ background: colours[k], borderRadius: 2, flexShrink: 0 }} />
+              {`${duration(v)}${total ? ` (${Math.round(((v ?? 0) / total) * 100)} %)` : ""}`}
+            </Group>
+          </Line>
+        ))}
+    </Stack>
   );
 };
 
@@ -552,7 +581,7 @@ export const HuProfileTable = ({ ocelId, selected, onSelected }: { ocelId: strin
           </Anchor>
         </Group>
       )}
-      {state.groups.includes("Time") && <TimeLegend scheme={scheme} />}
+      {state.groups.includes("Lifecycle") && <TimeLegend scheme={scheme} />}
       {error ? (
         <Text size="sm" c="red">{errorText(error)}</Text>
       ) : (
@@ -577,7 +606,7 @@ export const HuProfileTable = ({ ocelId, selected, onSelected }: { ocelId: strin
           onSortStatusChange={(s) => set({ sort: { columnAccessor: s.columnAccessor as ProfileQuerySortBy, direction: s.direction }, page: 1 })}
           rowExpansion={{
             allowMultiple: true,
-            content: ({ record }) => <HuDetailsPanel ocelId={ocelId} hu={record.hu} width={width - 2} onPick={(hu) => onSelected(selected.includes(hu) ? selected : [...selected, hu])} />,
+            content: ({ record }) => <HuDetailsPanel ocelId={ocelId} row={record} page={data} width={width - 2} onPick={(hu) => onSelected(selected.includes(hu) ? selected : [...selected, hu])} />,
           }}
           selectedRecords={selectedRecords}
           onSelectedRecordsChange={(records) => onSelected(records.map((r) => r.hu))}

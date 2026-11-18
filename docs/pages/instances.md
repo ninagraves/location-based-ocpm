@@ -12,9 +12,9 @@ All values use the low-level location $loc = loc^k$ of the selected level (and $
 ## HU profile
 
 ### What it shows
-One row per handling unit (also those without events): object type, lifecycle class, events, first and last timestamp, lifespan, number of partial consumptions, linked handling units, numbers of parents, children and siblings, distinct low- and high-level locations, first and last location, location changes, locatedness, movements, processing operations, shared events, connectedness, co-handled handling units, time on vehicles / in storage / at other locations / unlocated (with a bar of the shares).
+One row per handling unit (also those without events): object type, lifecycle class, events, first and last timestamp, lifespan with a bar of the shares of time on vehicles / in storage / at other locations / unlocated, number of partial consumptions, linked handling units, numbers of parents, children and siblings, distinct low- and high-level locations, first and last location, location changes, locatedness, movements, processing operations, shared events, connectedness, co-handled handling units.
 The overview shows counts, so that every column sorts (Nina 2026-11-15, "like in the activity profile").
-Columns come in groups, in this order: Lifecycle, Lineage, Locations, MF Profile (material flow: movements, processing operations, shared events, connectedness, co-handled HUs), Time (always right-most); each group can be hidden (Nina 2026-11-18).
+Columns come in groups, in this order: Lifecycle, Lineage, Locations, MF Profile (material flow: movements, processing operations, shared events, connectedness, co-handled HUs); each group can be hidden (Nina 2026-11-18). The time split bar sits in Lifecycle next to the lifespan; the four times per location kind are only shown in the unfolded row (Nina 2026-11-18, evening), so they cannot be sorted, filtered or exported from the table.
 A header row above the column titles names the groups (no colours; Nina 2026-11-18).
 Columns with a dotted underline explain themselves on hover (e.g. Connectedness, Linked HUs).
 
@@ -23,6 +23,7 @@ Clicking a row unfolds it (several rows can be open) with the names behind the c
 - lineage: parents, children, siblings (clicking one adds it to the selection);
 - locations: the location path, one entry per location change with the event that reached it and its timestamp;
 - MF Profile: processing activities with counts, co-handled handling units with their shared events (clickable).
+- time: on vehicles, in storage (only if configured), at other locations and unlocated, each with its share of the lifespan.
 
 ### How it is calculated
 - Traces: the relations of a handling unit in `seq` order (time, AS4 via `visits/order.sort_by_seq`, event id).
