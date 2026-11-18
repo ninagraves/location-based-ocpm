@@ -12,15 +12,17 @@ All values use the low-level location $loc = loc^k$ of the selected level (and $
 ## HU profile
 
 ### What it shows
-One row per handling unit (also those without events): object type, lifecycle class, events, first and last timestamp, lifespan, number of partial consumptions, numbers of parents, children and siblings, distinct low- and high-level locations, first and last location, location changes, locatedness, time on vehicles / in storage / at other locations / unlocated (with a bar of the shares), movements, processing operations, shared events, connectedness, co-handled handling units.
+One row per handling unit (also those without events): object type, lifecycle class, events, first and last timestamp, lifespan, number of partial consumptions, linked handling units, numbers of parents, children and siblings, distinct low- and high-level locations, first and last location, location changes, locatedness, movements, processing operations, shared events, connectedness, co-handled handling units, time on vehicles / in storage / at other locations / unlocated (with a bar of the shares).
 The overview shows counts, so that every column sorts (Nina 2026-11-15, "like in the activity profile").
-Columns come in groups (Lifecycle, Lineage, Locations, Time, Activities, Connectedness) that can be hidden.
+Columns come in groups, in this order: Lifecycle, Lineage, Locations, MF Profile (material flow: movements, processing operations, shared events, connectedness, co-handled HUs), Time (always right-most); each group can be hidden (Nina 2026-11-18).
+A header row above the column titles names the groups, and each group has a very pale background of its own in both header rows.
+Columns with a dotted underline explain themselves on hover (e.g. Connectedness, Linked HUs).
 
 Clicking a row unfolds it (several rows can be open) with the names behind the counts, loaded per handling unit:
 - start and end: first and last event, creation event, final consumption, partial consumptions (activity, id, timestamp);
 - lineage: parents, children, siblings (clicking one adds it to the selection);
 - locations: the location path, one entry per location change with the event that reached it and its timestamp;
-- activities and connectedness: processing activities with counts, co-handled handling units with their shared events (clickable).
+- MF Profile: processing activities with counts, co-handled handling units with their shared events (clickable).
 
 ### How it is calculated
 - Traces: the relations of a handling unit in `seq` order (time, AS4 via `visits/order.sort_by_seq`, event id).
@@ -31,31 +33,48 @@ Clicking a row unfolds it (several rows can be open) with the names behind the c
 - Locatedness: General Concepts, "Locatedness" (handling-unit version).
 - Time per location kind: $r_j$ contributes $time(r_{j+1}) - time(r_j)$ to the kind of $loc(r_j)$ (vehicle if in $V$, else storage if in $W$, else other; unlocated if $\bot$); the last relation contributes nothing, so the four times add up to the lifespan.
 - Connectedness (Nina 2026-11-15): with $E'(hu)$ the events of $hu$ that are not transformation events, shared events $= |\{e \in E'(hu) \mid e$ involves another handling unit$\}|$, connectedness = shared events $/ |E'(hu)|$ (– if $E'(hu) = \emptyset$), co-handled = distinct other handling units in the shared events. Shared transformation events are left out, as they are lineage.
+- Linked HUs (Nina 2026-11-18): distinct other handling units sharing at least one event with $hu$, transformation events included, so parents, children and siblings count too ($\geq$ co-handled).
 - Location path (unfolded row): a new entry at every location change (as above), so A, ⊥, A is one entry.
 
 ### Example
-Running example, `data/running_example/configuration.json` (Level 3): c1 has 9 events, lifespan 11 h, lifecycle `produced` (roll e3), 4 locations, 3 high-level locations, 5 location changes, 2 h on vehicles, 1 h in storage, 8 h at other locations; c2 is `both` (roll e3, cut e15), shares 5 of its 6 non-transformation events (e4, e8, e9, e11, e12; not e6) with c1 and c3 (connectedness 83 %), location path A1 (e3), A2 (e6), T (e8), A2 (e9), B1 (e12); c5 is unlocated for 1 h.
+Running example, `data/running_example/configuration.json` (Level 3): c1 has 9 events, lifespan 11 h, lifecycle `produced` (roll e3), 4 locations, 3 high-level locations, 5 location changes, 2 h on vehicles, 1 h in storage, 8 h at other locations; c2 is `both` (roll e3, cut e15), shares 5 of its 6 non-transformation events (e4, e8, e9, e11, e12; not e6) with c1 and c3 (connectedness 83 %), has 4 linked HUs (s1 and c1 via roll e3, c3, c4 via cut e15), location path A1 (e3), A2 (e6), T (e8), A2 (e9), B1 (e12); c5 is unlocated for 1 h.
 Tests: `backend-modules/location-ocpm/tests/test_instances.py`.
 
 ### Filtering
-Own search and object-type filter only. Search: every word must occur in the lower-case concatenation of id, object type, first and last location, creation and final consumption activity, parents, children and processing activities (`profile.search_text`).
+Own search and column filters only (no page filter bar).
+- Search: every word must occur in the lower-case concatenation of id, object type, first and last location, creation and final consumption activity, parents, children and processing activities (`profile.search_text`).
+- Column filters (Nina 2026-11-18): every column except the time split has a filter icon in its header; a row is kept if it satisfies all active filters and the search. The kind of filter depends on the column (`profile.column_info`):
+  - categories (string columns with at most 100 distinct values, e.g. object type, lifecycle, locations, locatedness): checkboxes with the number of handling units per value, "(none)" for a missing value; the old object-type field above the table is gone, this filter replaces it;
+  - text (the handling unit id): "contains", case-insensitive;
+  - numbers, durations, connectedness, timestamps: a range slider over all values plus From/To fields (durations typed in hours, connectedness in %; timestamps by the slider only). A bound left at the column's minimum or maximum is not applied; a range drops rows without a value.
+- Active filters are listed as pills above the table (× removes one, "Clear all" removes all); a filtered column's icon is filled.
+
+Example: Object type = coil and Children ≥ 1 leaves c2.
+
+### Export
+"CSV" and "Save to session" export the table as shown, folded: all handling units matching search and filters (all pages, not only the current one), in the current order, with the shown columns (hidden groups and the time split left out; no unfolded names). Values are as stored: counts, durations in seconds, connectedness as a share 0..1, timestamps in ISO format.
+- CSV: downloads `hu_profile.csv`, one column per shown column, named by its id (e.g. `n_linked`).
+- Save to session: an Ocelescope "OCEL Mapping" resource (the standard resource for values per object) with the given name (default "HU profile"); its objects table holds the handling units as `ocel:oid` and the shown columns as values; events, e2o and o2o are empty. It appears under Resources.
 
 ### Settings and defaults
-Sort by any scalar column (`profile.SORTABLE`; nulls last, ties by id), 10/25/50/100 rows per page (default 25), all column groups shown. Kept per log in the page state (`instances.table.<ocel>`), as is the selection (`instances.selected.<ocel>`).
+Sort by any scalar column (`profile.SORTABLE`; nulls last, ties by id), 10/25/50/100 rows per page (default 25), all column groups shown. Kept per log in the page state (`instances.table.v2.<ocel>`, with the column filters), as is the selection (`instances.selected.<ocel>`).
 
 ### Where it lives in the code
-- `backend-modules/.../instances/profile.py`: `ordered_traces`, `lifecycle_basics`, `location_profile`, `location_kind`, `time_per_location_kind`, `transformation_profile`, `connectedness`, `hu_profile` (joins them), `search_text`, `query_profile(profile, search, object_types, sort_by, descending, offset, limit) -> (page, total)`; `location_path`, `hu_details(relations, profile_row, loc, hl, processing)` for an unfolded row.
-- `backend-modules/.../instance_routes.py`: `GET /{ocel_id}/instances/profile` (`getHuProfile`); the profile is cached per derivation key (`cached_profile`, LRU of 4), so paging and sorting only rerun `query_profile`; `GET /{ocel_id}/instances/details?hu=` (`getHuDetails`) for an unfolded row.
-- `frontend-modules/.../components/HuProfileTable.tsx` (mantine-datatable, server-side paging and sorting, `rowExpansion` with `HuDetailsPanel`, kept in view when the table scrolls sideways; `duration` formats seconds), `routes/Instances.tsx` (selection pills, cards).
+- `backend-modules/.../instances/profile.py`: `ordered_traces`, `lifecycle_basics`, `location_profile`, `location_kind`, `time_per_location_kind`, `transformation_profile`, `connectedness`, `linked_handling_units`, `hu_profile` (joins them), `search_text`, `ColumnFilter(column, values, min, max, text)`, `filter_expression`, `query_rows(profile, search, filters)`, `sort_rows`, `query_profile(profile, search, object_types, sort_by, descending, offset, limit, filters) -> (page, total)`, `column_info(profile)` (filter options), `export_frame(rows, columns)`; `location_path`, `hu_details(relations, profile_row, loc, hl, processing)` for an unfolded row.
+- `backend-modules/.../instance_routes.py`: `POST /{ocel_id}/instances/profile` (`getHuProfile`, body `ProfileQuery`: search, filters, sorting, page; the response carries `columns`, the filter options); `POST /{ocel_id}/instances/profile/csv` (`exportHuProfileCsv`) and `POST /{ocel_id}/instances/profile/save` (`saveHuProfile`, `session.add_resource(OCELMapping)`), both with `ProfileExportRequest` (query plus shown columns and name); the profile and its column options are cached per derivation key (`cached_profile`, `cached_column_info`, LRU of 4), so paging, sorting and filtering only rerun the query; `GET /{ocel_id}/instances/details?hu=` (`getHuDetails`) for an unfolded row.
+- `frontend-modules/.../components/HuProfileTable.tsx` (mantine-datatable with column `groups`, `COLUMNS` lists every column with group, format and hover text; server-side paging, sorting and filtering; `ExportButtons`; `rowExpansion` with `HuDetailsPanel`, kept in view when the table scrolls sideways; `duration` formats seconds), `components/ProfileColumnFilter.tsx` (filter popovers: checkboxes, text, range), `routes/Instances.tsx` (selection pills, cards).
 
 ### How to change it
-- New column: add it to the matching step function in `profile.py`, to `SORTABLE` if scalar, to `HuProfileRow` in `instance_routes.py`, rebuild the API client (`pnpm run build:modules`) and add it to `columns` in `HuProfileTable.tsx`; extend the test.
+- New column: add it to the matching step function in `profile.py`, to `SORTABLE` if scalar, to `HuProfileRow` in `instance_routes.py`, rebuild the API client (`pnpm run build:modules`) and add it to `COLUMNS` in `HuProfileTable.tsx` (group, format, optional hover text); it is then filterable and exportable as well; extend the test.
+- Another kind of filter for a column: `column_info` (kind) and `ProfileColumnFilter.tsx`; more values per category: `MAX_CATEGORIES`.
+- Another export format or resource type: `export_hu_profile_csv` / `save_hu_profile` in `instance_routes.py`.
 - Other notion of final consumption or lifecycle: `transformation_profile`; counting transformation events in the connectedness: drop the filter in `connectedness` (and in `hu_details`).
 - More in the unfolded row: add it to `hu_details`, `HuDetails` in `instance_routes.py` and `HuDetailsPanel`.
 - Precedence of vehicle over storage: `location_kind`.
 
 ### Alternatives
 - Client-side paging (all rows to the browser): rejected for logs with hundreds of thousands of handling units.
+- A module-specific table resource for "save to session": not used, Ocelescope's OCEL Mapping already holds values per object and other plugins can read it.
 - Times per visit or per high-level location: not used, the brief asks for low-level locations only.
 
 ## Lineage

@@ -14,11 +14,14 @@ The profile is built in small steps, each a function of its own (lazy polars in,
    siblings and the lifecycle class.
 6. `connectedness`: non-transformation events shared with other handling units, their share, and the number of
    handling units they are shared with.
-`hu_profile` joins them (also handling units without events); `query_profile` searches, sorts and pages it.
+7. `linked_handling_units`: handling units sharing any event (transformation events included, so the lineage counts).
+`hu_profile` joins them (also handling units without events); `query_profile` searches, filters by column, sorts
+and pages it (`ColumnFilter`, `column_info`); `export_frame` gives the folded table with the shown columns.
 `hu_details` gives what an unfolded row of the table shows for one handling unit (names, events, location path).
 """
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
+from dataclasses import dataclass
 from typing import Literal
 
 import polars as pl
@@ -65,8 +68,15 @@ SORTABLE = (
     "n_shared_events",
     "connectedness",
     "n_co_handled",
+    "n_linked",
     *(f"time_{kind}" for kind in KINDS),
 )
+
+#: Columns of the profile that can be filtered and exported (the sortable ones).
+FILTERABLE = SORTABLE
+
+#: A string column with at most this many distinct values is filtered by picking values, otherwise by text.
+MAX_CATEGORIES = 100
 
 
 def ordered_traces(
@@ -323,6 +333,33 @@ def connectedness(traces: pl.LazyFrame) -> pl.LazyFrame:
     )
 
 
+def linked_handling_units(traces: pl.LazyFrame) -> pl.LazyFrame:
+    """How many other handling units share at least one event with a handling unit, transformation events included.
+
+    Unlike `connectedness`, transformation events count, so parents, children and siblings are among them
+    (n_linked >= n_co_handled).
+
+    Args:
+        traces: Output of `ordered_traces`.
+
+    Returns:
+        pl.LazyFrame: One row per hu of `traces` with the column n_linked.
+    """
+    pairs = traces.select(c.EVENT, c.HU).unique()
+    linked = (
+        pairs.join(pairs.rename({c.HU: "_other"}), on=c.EVENT, how="inner")
+        .filter(pl.col(c.HU) != pl.col("_other"))
+        .group_by(c.HU)
+        .agg(pl.col("_other").n_unique().alias("n_linked"))
+    )
+    return (
+        traces.select(c.HU)
+        .unique()
+        .join(linked, on=c.HU, how="left")
+        .with_columns(pl.col("n_linked").fill_null(0).cast(pl.UInt32))
+    )
+
+
 def hu_profile(
     relations: pl.DataFrame | pl.LazyFrame,
     handling_units: pl.DataFrame,
@@ -346,7 +383,7 @@ def hu_profile(
 
     Returns:
         pl.DataFrame: The columns of `lifecycle_basics`, `location_profile`, `time_per_location_kind`,
-        `transformation_profile` and `connectedness`.
+        `transformation_profile`, `connectedness` and `linked_handling_units`.
     """
     traces = ordered_traces(relations, loc, hl, processing).cache()
     profile = (
@@ -355,6 +392,7 @@ def hu_profile(
         .join(time_per_location_kind(traces, context), on=c.HU, how="left")
         .join(transformation_profile(roles, traces), on=c.HU, how="left")
         .join(connectedness(traces), on=c.HU, how="left")
+        .join(linked_handling_units(traces), on=c.HU, how="left")
         .collect()
     )
     missing = handling_units.select(c.HU, c.OBJECT_TYPE).filter(~pl.col(c.HU).is_in(profile[c.HU].implode()))
@@ -395,6 +433,104 @@ def search_text() -> pl.Expr:
     )
 
 
+@dataclass
+class ColumnFilter:
+    """A filter on one column of the profile; a row is kept if it satisfies every filter.
+
+    Set one of:
+    - values: keep rows whose value is one of these (None in the list = missing value);
+    - min and/or max: keep rows whose value is in [min, max] (rows without a value are dropped); for timestamp
+      columns both are milliseconds since 1970-01-01 (UTC), for durations seconds, for connectedness a share 0..1;
+    - text: keep rows whose value contains the text (case-insensitive).
+
+    Example: `ColumnFilter("n_children", min=1)` keeps handling units with at least one child;
+    `ColumnFilter("object_type", values=["coil"])` keeps the coils.
+    """
+
+    column: str
+    values: list[str | None] | None = None
+    min: float | None = None
+    max: float | None = None
+    text: str | None = None
+
+
+def filter_expression(schema: pl.Schema, flt: ColumnFilter) -> pl.Expr | None:
+    """The polars expression of one column filter (None if the filter sets nothing).
+
+    Args:
+        schema: Schema of the profile (to treat timestamp columns as milliseconds).
+        flt: The filter.
+
+    Returns:
+        pl.Expr | None: Boolean expression.
+
+    Raises:
+        ValueError: If the column cannot be filtered.
+    """
+    if flt.column not in FILTERABLE or flt.column not in schema:
+        raise ValueError(f"cannot filter by {flt.column!r}")
+    col = pl.col(flt.column)
+    parts: list[pl.Expr] = []
+    if flt.values is not None:
+        known = [v for v in flt.values if v is not None]
+        expr = col.cast(pl.String).is_in(known)
+        parts.append(expr | col.is_null() if None in flt.values else expr.fill_null(False))
+    if flt.min is not None or flt.max is not None:
+        value = col.dt.epoch("ms") if schema[flt.column].is_temporal() else col.cast(pl.Float64)
+        if flt.min is not None:
+            parts.append(value >= flt.min)
+        if flt.max is not None:
+            parts.append(value <= flt.max)
+    if flt.text:
+        parts.append(col.cast(pl.String).str.to_lowercase().str.contains(flt.text.lower(), literal=True).fill_null(False))
+    return pl.all_horizontal(parts) if parts else None
+
+
+def query_rows(profile: pl.DataFrame, search: str = "", filters: Sequence[ColumnFilter] = ()) -> pl.DataFrame:
+    """The rows of the profile matching the search and all column filters (unsorted).
+
+    Args:
+        profile: Output of `hu_profile`.
+        search: Words that must all occur (case-insensitive substrings) in the `search_text` of a row; empty =
+            every row.
+        filters: Column filters (see `ColumnFilter`).
+
+    Returns:
+        pl.DataFrame: The matching rows.
+    """
+    frame = profile.lazy()
+    for flt in filters:
+        expr = filter_expression(profile.schema, flt)
+        if expr is not None:
+            frame = frame.filter(expr)
+    words = search.lower().split()
+    if words:
+        frame = frame.with_columns(search_text()).filter(
+            pl.all_horizontal(pl.col("_search").str.contains(word, literal=True) for word in words)
+        ).drop("_search")
+    return frame.collect()
+
+
+def sort_rows(rows: pl.DataFrame, sort_by: str = "hu", descending: bool = False) -> pl.DataFrame:
+    """Sort rows of the profile by one column, nulls last, ties by hu.
+
+    Args:
+        rows: Rows of the profile.
+        sort_by: A column of `SORTABLE`.
+        descending: Sort descending.
+
+    Returns:
+        pl.DataFrame: The sorted rows.
+
+    Raises:
+        ValueError: If `sort_by` is not sortable.
+    """
+    if sort_by not in SORTABLE:
+        raise ValueError(f"cannot sort by {sort_by!r}")
+    by = [sort_by] if sort_by == c.HU else [sort_by, c.HU]
+    return rows.sort(by, descending=[descending] + [False] * (len(by) - 1), nulls_last=True)
+
+
 def query_profile(
     profile: pl.DataFrame,
     search: str = "",
@@ -403,39 +539,93 @@ def query_profile(
     descending: bool = False,
     offset: int = 0,
     limit: int = 25,
+    filters: Sequence[ColumnFilter] = (),
 ) -> tuple[pl.DataFrame, int]:
     """Search, filter, sort and page the profile.
 
     Args:
         profile: Output of `hu_profile`.
-        search: Words that must all occur (case-insensitive substrings) in the `search_text` of a row; empty =
-            every row.
-        object_types: Keep only these object types; empty = all.
+        search: See `query_rows`.
+        object_types: Keep only these object types; empty = all (same as a values filter on object_type).
         sort_by: A column of `SORTABLE`; nulls last, ties by hu.
         descending: Sort descending.
         offset: First row of the page (0-based).
         limit: Rows per page.
+        filters: Column filters (see `ColumnFilter`).
 
     Returns:
         tuple[pl.DataFrame, int]: The rows of the page and the number of matching rows.
 
     Raises:
-        ValueError: If `sort_by` is not sortable.
+        ValueError: If `sort_by` is not sortable or a filter's column cannot be filtered.
     """
     if sort_by not in SORTABLE:
         raise ValueError(f"cannot sort by {sort_by!r}")
-    frame = profile.lazy()
     if object_types:
-        frame = frame.filter(pl.col(c.OBJECT_TYPE).is_in(list(object_types)))
-    words = search.lower().split()
-    if words:
-        frame = frame.with_columns(search_text()).filter(
-            pl.all_horizontal(pl.col("_search").str.contains(word, literal=True) for word in words)
-        ).drop("_search")
-    matching = frame.collect()
-    by = [sort_by] if sort_by == c.HU else [sort_by, c.HU]
-    page = matching.sort(by, descending=[descending] + [False] * (len(by) - 1), nulls_last=True).slice(offset, limit)
-    return page, matching.height
+        filters = [*filters, ColumnFilter(c.OBJECT_TYPE, values=list(object_types))]
+    matching = query_rows(profile, search, filters)
+    return sort_rows(matching, sort_by, descending).slice(offset, limit), matching.height
+
+
+def column_info(profile: pl.DataFrame) -> list[dict]:
+    """What the column filters of the table offer: per filterable column its kind and its values or range.
+
+    Kinds: `category` (string column with at most `MAX_CATEGORIES` distinct values: values with their number of
+    rows, most frequent first, missing value as None), `text` (other string columns), `number` and `time`
+    (min and max; time in milliseconds since 1970-01-01 UTC).
+
+    Args:
+        profile: Output of `hu_profile`.
+
+    Returns:
+        list[dict]: Entries with column, kind, values (list of (value, count) or None), min and max (or None).
+    """
+    info = []
+    for name in FILTERABLE:
+        if name not in profile.columns:
+            continue
+        dtype = profile.schema[name]
+        series = profile[name]
+        entry = {"column": name, "kind": "number", "values": None, "min": None, "max": None}
+        if dtype == pl.String or dtype == pl.Categorical:
+            counts = series.value_counts(sort=True)
+            if counts.height <= MAX_CATEGORIES and name != c.HU:
+                pairs = sorted(counts.iter_rows(), key=lambda r: (-r[1], r[0] is None, r[0] or ""))
+                entry.update(kind="category", values=[(v, int(n)) for v, n in pairs])
+            else:
+                entry["kind"] = "text"
+        else:
+            values = series.dt.epoch("ms") if dtype.is_temporal() else series.cast(pl.Float64)
+            entry.update(
+                kind="time" if dtype.is_temporal() else "number",
+                min=values.min(),
+                max=values.max(),
+            )
+        info.append(entry)
+    return info
+
+
+def export_frame(rows: pl.DataFrame, columns: Sequence[str]) -> pl.DataFrame:
+    """The folded table for an export: the given columns (hu always first) of the given rows, in their order.
+
+    Values stay as stored: counts as integers, durations in seconds, connectedness as a share 0..1, timestamps
+    as datetimes.
+
+    Args:
+        rows: Rows of the profile (e.g. `sort_rows(query_rows(...))`).
+        columns: Columns to export, in table order; unknown or list columns are refused.
+
+    Returns:
+        pl.DataFrame: The export.
+
+    Raises:
+        ValueError: If a column cannot be exported.
+    """
+    wrong = [col for col in columns if col not in FILTERABLE]
+    if wrong:
+        raise ValueError(f"cannot export {', '.join(map(repr, wrong))}")
+    ordered = [c.HU, *(col for col in dict.fromkeys(columns) if col != c.HU)]
+    return rows.select(ordered)
 
 
 def location_path(trace: pl.DataFrame) -> list[dict]:

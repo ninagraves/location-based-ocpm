@@ -21,9 +21,14 @@ from ocelescope_module_location_based_ocpm.instances.object_graph import (
     object_graph,
 )
 from ocelescope_module_location_based_ocpm.instances.profile import (
+    ColumnFilter,
+    column_info,
+    export_frame,
     hu_details,
     hu_profile,
     query_profile,
+    query_rows,
+    sort_rows,
 )
 
 HOUR = 3600.0
@@ -99,6 +104,47 @@ def test_connectedness(profile):
     c2 = row(profile, "c2")
     assert (c2["n_shared_events"], c2["connectedness"], c2["n_co_handled"]) == (5, 5 / 6, 2)
     assert (row(profile, "s1")["n_shared_events"], row(profile, "s1")["n_co_handled"]) == (0, 0)  # only e1, e2, e3
+
+
+def test_linked_handling_units(profile):
+    """Linked HUs count transformation events too: c2 shares e3 with s1 and c1, e15 with c4, others with c1 and c3."""
+    linked = dict(profile.select("hu", "n_linked").iter_rows())
+    assert linked["c2"] == 4  # s1, c1 (also roll e3), c3, c4
+    assert linked["s1"] == 2  # c1 and c2 via roll e3
+    assert all(linked[hu] >= row(profile, hu)["n_co_handled"] for hu in linked)
+
+
+def test_column_filters(profile):
+    """Values, ranges (also on timestamps, in ms) and text filters; all filters must hold."""
+    page, total = query_profile(profile, filters=[ColumnFilter("object_type", values=["coil"]), ColumnFilter("n_children", min=1)])
+    assert (total, page["hu"].to_list()) == (1, ["c2"])
+    _, total = query_profile(profile, filters=[ColumnFilter("lifecycle", values=["both", "open"])])
+    assert total == 4
+    first_c2 = row(profile, "c2")["first"].timestamp() * 1000
+    rows = query_rows(profile, filters=[ColumnFilter("first", max=first_c2)])
+    assert sorted(rows["hu"].to_list()) == ["c1", "c2", "s1"]
+    assert query_rows(profile, filters=[ColumnFilter("hu", text="C")]).height == 5
+    with pytest.raises(ValueError):
+        query_rows(profile, filters=[ColumnFilter("parents", values=["s1"])])
+
+
+def test_column_info(profile):
+    """Category columns list their values (most frequent first), number and time columns their range."""
+    info = {i["column"]: i for i in column_info(profile)}
+    assert info["object_type"]["kind"] == "category" and info["object_type"]["values"][0] == ("coil", 5)
+    assert info["hu"]["kind"] == "text"
+    assert (info["n_events"]["kind"], info["n_events"]["min"], info["n_events"]["max"]) == ("number", 2, 9)
+    assert info["first"]["kind"] == "time"
+
+
+def test_export_frame(profile):
+    """The folded table: matching rows in table order, hu first, then the shown columns."""
+    rows = sort_rows(query_rows(profile, filters=[ColumnFilter("object_type", values=["coil"])]), "n_events", True)
+    frame = export_frame(rows, ["n_events", "connectedness"])
+    assert frame.columns == ["hu", "n_events", "connectedness"]
+    assert frame["hu"].to_list()[:2] == ["c1", "c2"]
+    with pytest.raises(ValueError):
+        export_frame(rows, ["children"])
 
 
 def test_hu_details(full, profile):

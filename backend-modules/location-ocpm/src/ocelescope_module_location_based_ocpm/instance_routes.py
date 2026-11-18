@@ -7,11 +7,12 @@ so that paging, sorting and searching the table only rerun the cheap query step.
 import math
 from collections import OrderedDict
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Literal
 
 import polars as pl
-from fastapi import APIRouter, HTTPException, Query
-from ocelescope_backend.app.dependencies import ApiOcel
+from fastapi import APIRouter, HTTPException
+from ocelescope.resource.default.ocel_mapping import OCELMapping
+from ocelescope_backend.app.dependencies import ApiOcel, ApiSession
 from pydantic import BaseModel, Field
 
 from ocelescope_module_location_based_ocpm.configuration_routes import (
@@ -29,10 +30,16 @@ from ocelescope_module_location_based_ocpm.instances.object_graph import (
     object_graph,
 )
 from ocelescope_module_location_based_ocpm.instances.profile import (
+    FILTERABLE,
     SORTABLE,
+    ColumnFilter,
+    column_info,
+    export_frame,
     hu_details,
     hu_profile,
     query_profile,
+    query_rows,
+    sort_rows,
 )
 from ocelescope_module_location_based_ocpm.lineage.lineage import Direction
 from ocelescope_module_location_based_ocpm.timeline.object_timeline import (
@@ -46,8 +53,10 @@ router = APIRouter()
 #: Number of cached profiles (one per derivation key).
 CACHE_SIZE = 4
 _profiles: OrderedDict[str, pl.DataFrame] = OrderedDict()
+_column_infos: dict[str, list[dict]] = {}
 
 SortColumn = Literal[SORTABLE]  # type: ignore[valid-type]
+FilterColumn = Literal[FILTERABLE]  # type: ignore[valid-type]
 
 
 def cached_profile(key: str, derivation: Derivation) -> pl.DataFrame:
@@ -73,8 +82,24 @@ def cached_profile(key: str, derivation: Derivation) -> pl.DataFrame:
         processing_events(derivation),
     )
     while len(_profiles) > CACHE_SIZE:
-        _profiles.popitem(last=False)
+        old, _ = _profiles.popitem(last=False)
+        _column_infos.pop(old, None)
     return profile
+
+
+def cached_column_info(key: str, profile: pl.DataFrame) -> list[dict]:
+    """`instances.profile.column_info` of the cached profile of a derivation key, computed once.
+
+    Args:
+        key: Cache key of the derivation.
+        profile: Its profile (`cached_profile`).
+
+    Returns:
+        list[dict]: The column infos.
+    """
+    if key not in _column_infos:
+        _column_infos[key] = column_info(profile)
+    return _column_infos[key]
 
 
 class HuProfileRow(BaseModel):
@@ -111,10 +136,21 @@ class HuProfileRow(BaseModel):
     n_shared_events: int = 0
     connectedness: float | None = None
     n_co_handled: int = 0
+    n_linked: int = 0
     time_vehicle: float = 0
     time_storage: float = 0
     time_other: float = 0
     time_unlocated: float = 0
+
+
+class ColumnInfo(BaseModel):
+    """What the filter of one column offers (see `instances.profile.column_info`)."""
+
+    column: FilterColumn
+    kind: Literal["category", "text", "number", "time"]
+    values: list[tuple[str | None, int]] | None = None
+    min: float | None = None
+    max: float | None = None
 
 
 class HuProfilePage(BaseModel):
@@ -122,8 +158,9 @@ class HuProfilePage(BaseModel):
 
     Attributes:
         rows: The rows of the page.
-        total: Rows matching search and object types.
-        object_types: Object types of all handling units with their number of handling units (for the filter).
+        total: Rows matching search and filters.
+        object_types: Object types of all handling units with their number of handling units.
+        columns: Filter options per column (values or range over all handling units).
         has_high_level: True if high-level locations are configured.
         has_vehicles: True if vehicles are configured.
         has_storage: True if storage units are configured.
@@ -132,42 +169,141 @@ class HuProfilePage(BaseModel):
     rows: list[HuProfileRow]
     total: int
     object_types: list[tuple[str, int]]
+    columns: list[ColumnInfo]
     has_high_level: bool
     has_vehicles: bool
     has_storage: bool
 
 
-class HuIds(BaseModel):
-    """Ids of all handling units matching a search (for "select all matching")."""
+class ProfileFilter(BaseModel):
+    """A column filter of the table (see `instances.profile.ColumnFilter`)."""
 
-    ids: list[str]
-    total: int
+    column: FilterColumn
+    values: list[str | None] | None = None
+    min: float | None = None
+    max: float | None = None
+    text: str | None = None
 
 
-@router.get("/{ocel_id}/instances/profile", operation_id="getHuProfile")
-def get_hu_profile(
-    ocel_id: str,
-    derivation: CurrentDerivation,
-    state: State,
-    search: str = "",
-    object_types: Annotated[list[str] | None, Query()] = None,
-    sort_by: SortColumn = "hu",
-    descending: bool = False,
-    offset: int = 0,
-    limit: int = 25,
-) -> HuProfilePage:
-    """A page of the HU profile, searched, filtered by object type and sorted."""
-    profile = cached_profile(state.cache[ocel_id].key, derivation)
-    page, total = query_profile(profile, search, object_types or (), sort_by, descending, offset, limit)
+class ProfileQuery(BaseModel):
+    """Search, column filters, sorting and page of the HU profile table."""
+
+    search: str = ""
+    filters: list[ProfileFilter] = Field(default_factory=list)
+    sort_by: SortColumn = "hu"
+    descending: bool = False
+    offset: int = 0
+    limit: int = 25
+
+
+class ProfileExportRequest(ProfileQuery):
+    """The table as shown, for an export: all matching rows (not only the page), the shown columns.
+
+    Attributes:
+        columns: Shown columns in table order (hu is always included).
+        name: Name of the saved resource (save to session only).
+    """
+
+    columns: list[FilterColumn]
+    name: str = "HU profile"
+
+
+class ProfileCsv(BaseModel):
+    """A CSV export of the table."""
+
+    file_name: str
+    content: str
+    rows: int
+
+
+class SavedResource(BaseModel):
+    """A resource saved to the session."""
+
+    id: str
+    name: str
+    rows: int
+
+
+def _filters(query: ProfileQuery) -> list[ColumnFilter]:
+    """The column filters of a query as `ColumnFilter`s.
+
+    Args:
+        query: The query.
+
+    Returns:
+        list[ColumnFilter]: Its filters.
+    """
+    return [ColumnFilter(**f.model_dump()) for f in query.filters]
+
+
+def _shown_rows(key: str, derivation: Derivation, request: ProfileExportRequest) -> pl.DataFrame:
+    """All rows matching the request, sorted, with the shown columns (the folded table as shown).
+
+    Args:
+        key: Cache key of the derivation.
+        derivation: The derivation.
+        request: Search, filters, sorting and shown columns.
+
+    Returns:
+        pl.DataFrame: Output of `instances.profile.export_frame`.
+
+    Raises:
+        HTTPException: 422 if a column cannot be filtered, sorted or exported.
+    """
+    profile = cached_profile(key, derivation)
+    try:
+        rows = sort_rows(query_rows(profile, request.search, _filters(request)), request.sort_by, request.descending)
+        return export_frame(rows, request.columns)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+
+@router.post("/{ocel_id}/instances/profile", operation_id="getHuProfile")
+def get_hu_profile(ocel_id: str, derivation: CurrentDerivation, state: State, query: ProfileQuery) -> HuProfilePage:
+    """A page of the HU profile, searched, filtered by column and sorted."""
+    key = state.cache[ocel_id].key
+    profile = cached_profile(key, derivation)
+    try:
+        page, total = query_profile(
+            profile, query.search, (), query.sort_by, query.descending, query.offset, query.limit, _filters(query)
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
     counts = profile.group_by("object_type").len().sort("len", "object_type", descending=[True, False])
     return HuProfilePage(
         rows=[HuProfileRow(**row) for row in page.to_dicts()],
         total=total,
         object_types=[(t or "", n) for t, n in counts.iter_rows()],
+        columns=[ColumnInfo(**info) for info in cached_column_info(key, profile)],
         has_high_level=derivation.has_high_level,
         has_vehicles=bool(derivation.context.vehicles),
         has_storage=bool(derivation.context.storage_units),
     )
+
+
+@router.post("/{ocel_id}/instances/profile/csv", operation_id="exportHuProfileCsv")
+def export_hu_profile_csv(
+    ocel_id: str, derivation: CurrentDerivation, state: State, request: ProfileExportRequest
+) -> ProfileCsv:
+    """The table as shown (all matching rows, shown columns, folded) as CSV text."""
+    frame = _shown_rows(state.cache[ocel_id].key, derivation, request)
+    return ProfileCsv(file_name="hu_profile.csv", content=frame.write_csv(), rows=frame.height)
+
+
+@router.post("/{ocel_id}/instances/profile/save", operation_id="saveHuProfile")
+def save_hu_profile(
+    ocel_id: str, derivation: CurrentDerivation, state: State, session: ApiSession, request: ProfileExportRequest
+) -> SavedResource:
+    """Save the table as shown to the session as an Ocelescope "OCEL Mapping" resource.
+
+    The handling units are its objects (column ocel:oid), the shown columns its values; events, e2o and o2o stay
+    empty.
+    """
+    frame = _shown_rows(state.cache[ocel_id].key, derivation, request).rename({"hu": "ocel:oid"})
+    mapping = OCELMapping()
+    mapping.objects = frame
+    name = request.name.strip() or "HU profile"
+    return SavedResource(id=session.add_resource(mapping, name), name=name, rows=frame.height)
 
 
 class DetailEvent(BaseModel):

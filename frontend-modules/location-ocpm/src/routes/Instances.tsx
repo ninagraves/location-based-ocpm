@@ -78,7 +78,7 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
   // Object types of the log (most handling units first) for fixed colours; the first profile page carries them.
   const { data: profile } = useQuery({
     queryKey: ["locationBasedOcpm", "instances", "profile", ocelId, { limit: 1 }],
-    queryFn: ({ signal }) => getHuProfile(ocelId, { limit: 1 }, undefined, signal),
+    queryFn: ({ signal }) => getHuProfile(ocelId, { limit: 1 }, undefined, undefined, signal),
   });
   const colours = useMemo(() => colourMap((profile?.object_types ?? []).map(([t]) => t), scheme), [profile, scheme]);
   const pick = useCallback((hu: string) => setSelected((s) => (s.includes(hu) ? s : [...s, hu])), [setSelected]);
