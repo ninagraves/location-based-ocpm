@@ -232,6 +232,8 @@ class DfgActivityTypeOption(BaseModel):
             (`variants.activity_variant_thresholds`); for a deselected activity: the one it would need if it were
             selected (`variants.added_activity_thresholds`). None if the type is not selected or no trace of the
             type contains it (e.g. its events removed by an event category).
+        variant_threshold_needed_exact: The same with up to `variants.EXACT_DECIMALS` decimals (e.g. 66.667 for
+            2 of 3 objects covered before it), shown when the activity is unfolded.
         categories: Of `events`, how many are in each event category (`categories.CATEGORIES` key -> events; only
             non-zero ones).
     """
@@ -242,6 +244,7 @@ class DfgActivityTypeOption(BaseModel):
     included: bool
     on_included_trace: bool = False
     variant_threshold_needed: float | None = None
+    variant_threshold_needed_exact: float | None = None
     categories: dict[str, int] = Field(default_factory=dict)
 
 
@@ -256,6 +259,7 @@ class DfgActivityOption(BaseModel):
             for it; types with handling units first, then by events.
         on_included_trace: True if it is on an included trace of a selected type (the upper part of the list).
         variant_threshold_needed: Smallest of the types' `variant_threshold_needed` (None if none).
+        variant_threshold_needed_exact: Smallest of the types' `variant_threshold_needed_exact` (None if none).
         categories: Of `hu_events`, how many are in each event category (key -> events; only non-zero ones): the
             badges of the activity.
     """
@@ -266,6 +270,7 @@ class DfgActivityOption(BaseModel):
     object_types: list[DfgActivityTypeOption]
     on_included_trace: bool = False
     variant_threshold_needed: float | None = None
+    variant_threshold_needed_exact: float | None = None
     categories: dict[str, int] = Field(default_factory=dict)
 
 
@@ -518,9 +523,9 @@ def directly_follows_graph(
     log_counts = frames.events.group_by(c.ACTIVITY).agg(pl.len().alias(d.EVENTS))
     log_events = dict(zip(log_counts[c.ACTIVITY], log_counts[d.EVENTS], strict=True))
     on_trace = {(t, a) for t, a in kept_traces.select(c.OBJECT_TYPE, c.ACTIVITY).unique().iter_rows()}
-    needed = {(t, a): v for t, a, v in activity_variant_thresholds(variant_ranking(variants)).iter_rows()}
+    needed = {(t, a): (v, x) for t, a, v, x in activity_variant_thresholds(variant_ranking(variants)).iter_rows()}
     # Deselected activities: the variant threshold they would need if selected (Nina, 2026-11-16).
-    needed.update({(t, a): v for t, a, v in added_activity_thresholds(unprojected, variants, included).iter_rows()})
+    needed.update({(t, a): (v, x) for t, a, v, x in added_activity_thresholds(unprojected, variants, included).iter_rows()})
     activity_options = _activity_options(frames, type_activities, log_events, included, on_trace, needed)
     counts = category_counts(frames.categories) if frames.categories is not None else {}
     categories = [
@@ -618,7 +623,7 @@ def _activity_options(
     log_events: Mapping[str, int],
     included: Mapping[str, Collection[str]],
     on_trace: Collection[tuple[str, str]] = (),
-    needed: Mapping[tuple[str, str], float] | None = None,
+    needed: Mapping[tuple[str, str], tuple[float, float]] | None = None,
 ) -> list[DfgActivityOption]:
     """The activity list of the sidebar: every activity with its handling-unit events and its counts per type.
 
@@ -628,7 +633,8 @@ def _activity_options(
         log_events: Activity -> all its events.
         included: Selected object type -> its selected activities.
         on_trace: (object type, activity) pairs on an included trace.
-        needed: (object type, activity) -> smallest whole variant threshold that puts it on an included trace.
+        needed: (object type, activity) -> (smallest whole variant threshold, smallest threshold with
+            `variants.EXACT_DECIMALS` decimals) that puts it on an included trace.
 
     Returns:
         list[DfgActivityOption]: Most events with handling units first, then most events in the log, then by name.
@@ -641,6 +647,7 @@ def _activity_options(
     per_activity: dict[str, list[DfgActivityTypeOption]] = {}
     for row in type_activities.iter_rows(named=True):
         t = row[c.OBJECT_TYPE]
+        need = (needed or {}).get((t, row[c.ACTIVITY])) if t in included else None
         per_activity.setdefault(row[c.ACTIVITY], []).append(
             DfgActivityTypeOption(
                 object_type=t,
@@ -648,13 +655,15 @@ def _activity_options(
                 selected_type=t in included,
                 included=row[c.ACTIVITY] in set(included.get(t, ())),
                 on_included_trace=(t, row[c.ACTIVITY]) in on_trace,
-                variant_threshold_needed=(needed or {}).get((t, row[c.ACTIVITY])) if t in included else None,
+                variant_threshold_needed=need[0] if need else None,
+                variant_threshold_needed_exact=need[1] if need else None,
                 categories=type_categories.get((t, row[c.ACTIVITY]), {}),
             )
         )
     def option(a: str, n: int) -> DfgActivityOption:
         types = sorted(per_activity.get(a, []), key=lambda o: (o.object_type not in hu_types, -o.events, o.object_type))
         values = [o.variant_threshold_needed for o in types if o.variant_threshold_needed is not None]
+        exact = [o.variant_threshold_needed_exact for o in types if o.variant_threshold_needed_exact is not None]
         return DfgActivityOption(
             activity=a,
             hu_events=hu_events.get(a, 0),
@@ -662,6 +671,7 @@ def _activity_options(
             object_types=types,
             on_included_trace=any(o.on_included_trace for o in types),
             variant_threshold_needed=min(values) if values else None,
+            variant_threshold_needed_exact=min(exact) if exact else None,
             categories=activity_categories.get((a,), {}),
         )
 

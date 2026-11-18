@@ -114,11 +114,15 @@ export const arcCountFilter = <T extends BaseArc>(
  * activity (Nina, 2026-11-16: shown for the activities on the included traces that are not in the graph): for the
  * best-ranked such arc with tie rank r ("min") among n arcs, floor(100 (r - 1) / n) + 1, at most 100.
  * Example: 8 arcs, the activity's best arc has tie rank 7: floor(75) + 1 = 76 %.
+ * With `decimals` (Nina, 2026-11-18: 3 in the unfold of the activity list) the smallest value with that many decimals:
+ * the share rounded down to them plus one step, e.g. 3 arcs, tie rank 3: 66.666… -> 66.667 % (whole: 67 %).
  *
  * @param arcs All arcs of the included traces.
+ * @param decimals Decimals of the values (0 = whole percentages, as the summary shows them).
  * @returns Object type -> activity -> needed percentage.
  */
-export const neededArcThresholds = (arcs: BaseArc[]): Map<string, Map<string, number>> => {
+export const neededArcThresholds = (arcs: BaseArc[], decimals = 0): Map<string, Map<string, number>> => {
+  const step = 10 ** decimals;
   const result = new Map<string, Map<string, number>>();
   for (const [type, group] of byType(arcs)) {
     const sorted = [...group].sort((x, y) => y.objects - x.objects || y.count - x.count);
@@ -126,7 +130,8 @@ export const neededArcThresholds = (arcs: BaseArc[]): Map<string, Map<string, nu
     let minRank = 1;
     sorted.forEach((a, i) => {
       if (i > 0 && (a.objects !== sorted[i - 1].objects || a.count !== sorted[i - 1].count)) minRank = i + 1;
-      const value = Math.min(100, Math.floor(Math.round(((minRank - 1) * 100 * 1e6) / sorted.length) / 1e6) + 1);
+      const share = ((minRank - 1) * 100 * step) / sorted.length;
+      const value = Math.min(100, Math.round(((Math.floor(Math.round(share * 1e6) / 1e6) + 1) / step) * step) / step);
       for (const activity of [a.source, a.target]) {
         if (activity != null && !needed.has(activity)) needed.set(activity, value);
       }

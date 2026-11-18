@@ -104,7 +104,7 @@ NEEDED_RUNNER = """
 const { neededArcThresholds } = await import(process.argv[2]);
 const arcs = JSON.parse(await new Promise((ok) => { let s = ""; process.stdin.on("data", (d) => (s += d)); process.stdin.on("end", () => ok(s)); }));
 const out = {};
-for (const [t, m] of neededArcThresholds(arcs)) out[t] = Object.fromEntries(m);
+for (const [t, m] of neededArcThresholds(arcs, Number(process.argv[3] ?? 0))) out[t] = Object.fromEntries(m);
 console.log(JSON.stringify(out));
 """
 
@@ -131,3 +131,29 @@ def test_needed_projection_thresholds_match_python(tmp_path):
                 if activity is not None:
                     expected[activity] = alpha
     assert needed == expected
+
+
+def test_exact_projection_thresholds_match_python(tmp_path):
+    """With 3 decimals, `neededArcThresholds` gives the value at which Python's `arc_share_filter` keeps an arc of the
+    activity, and 0.001 less does not (Nina, 2026-11-18: shown in the unfold)."""
+    node = _node()
+    frames = _pallet_example()
+    every = every_activity(frames, "pallet")
+    base = directly_follows_graph(frames, [TypeSetting(object_type="pallet", variant_threshold=100, arc_threshold=100)], activities=every, stay=False)
+    runner = tmp_path / "needed.mjs"
+    runner.write_text(NEEDED_RUNNER)
+    result = subprocess.run(
+        [node, str(runner), DFG_ARCS.as_uri(), "3"], input=json.dumps([a.model_dump() for a in base.arcs]), capture_output=True, text=True, check=True
+    )
+    needed = json.loads(result.stdout)["pallet"]
+
+    def drawn(alpha: float) -> set[str]:
+        setting = [TypeSetting(object_type="pallet", variant_threshold=100, arc_threshold=alpha)]
+        arcs = directly_follows_graph(frames, setting, activities=every, stay=False).arcs
+        return {x for a in arcs for x in (a.source, a.target) if x is not None}
+
+    assert any(round(v) != v for v in needed.values())
+    for activity, value in needed.items():
+        assert activity in drawn(value)
+        if value > 0.001:
+            assert activity not in drawn(round(value - 0.001, 3))
