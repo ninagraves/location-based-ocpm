@@ -98,6 +98,10 @@ def needed_variant_thresholds(ranking: pl.DataFrame) -> dict[str, float]:
     return {t: min(100.0, float(math.floor(round(v, 6)) + 1)) for t, v in shares.iter_rows()}
 
 
+#: Decimals of the exact needed thresholds shown in the unfold of the activity list (Nina, 2026-11-18).
+EXACT_DECIMALS = 3
+
+
 def activity_variant_thresholds(ranking: pl.DataFrame) -> pl.DataFrame:
     """Per object type and activity: the smallest whole variant threshold that keeps a variant containing it.
 
@@ -105,13 +109,18 @@ def activity_variant_thresholds(ranking: pl.DataFrame) -> pl.DataFrame:
     threshold above the share of the objects of the variants ranked before $v$ (`covered_before`): the smallest whole
     percentage is that share rounded down plus 1 (Nina, 2026-11-15, for the activity list). Example: 10 pallets with
     the variants (5, 3, 1, 1 pallets); SC only in the third variant: covered before 8 -> 81 %.
+    `needed_exact` is the smallest threshold with `EXACT_DECIMALS` (3) decimals (Nina, 2026-11-18, shown in the
+    unfold): the share rounded down to 3 decimals plus 0.001, e.g. 2 of 3 objects before (66.666… %) -> 66.667 %,
+    where `needed` says 67 %.
 
     Args:
         ranking: Ranked variants (`variant_ranking`).
 
     Returns:
-        pl.DataFrame: Columns object_type, activity, needed (percent, 1 to 100).
+        pl.DataFrame: Columns object_type, activity, needed (whole percent, 1 to 100), needed_exact (percent with 3
+        decimals, 0.001 to 100).
     """
+    step = 10.0**EXACT_DECIMALS
     total = pl.col(d.OBJECTS).sum().over(c.OBJECT_TYPE)
     return (
         ranking.with_columns((pl.col("covered_before") * 100 / total).alias("share"))
@@ -123,6 +132,9 @@ def activity_variant_thresholds(ranking: pl.DataFrame) -> pl.DataFrame:
             c.OBJECT_TYPE,
             c.ACTIVITY,
             pl.min_horizontal(pl.col("share").round(6).floor() + 1, pl.lit(100.0)).alias("needed"),
+            pl.min_horizontal(
+                ((pl.col("share") * step).round(6).floor() + 1) / step, pl.lit(100.0)
+            ).round(EXACT_DECIMALS).alias("needed_exact"),
         )
         .sort(c.OBJECT_TYPE, c.ACTIVITY)
     )
@@ -205,10 +217,10 @@ def added_activity_thresholds(
         included: Selected type -> its selected activities.
 
     Returns:
-        pl.DataFrame: Columns object_type, activity, needed (percent, 1 to 100); only deselected activities of
+        pl.DataFrame: Columns object_type, activity, needed, needed_exact (as `activity_variant_thresholds`); only deselected activities of
         selected types that occur in their traces.
     """
-    schema = {c.OBJECT_TYPE: pl.String, c.ACTIVITY: pl.String, "needed": pl.Float64}
+    schema = {c.OBJECT_TYPE: pl.String, c.ACTIVITY: pl.String, "needed": pl.Float64, "needed_exact": pl.Float64}
     pairs = pl.DataFrame(
         [(t, a) for t, activities in included.items() for a in activities],
         schema={c.OBJECT_TYPE: pl.String, c.ACTIVITY: pl.String},
@@ -249,6 +261,11 @@ def added_activity_thresholds(
         activity_variant_thresholds(ranking)
         .with_columns(split.struct.field("field_0").alias("_type"), split.struct.field("field_1").alias(CANDIDATE))
         .filter(pl.col(c.ACTIVITY) == pl.col(CANDIDATE))
-        .select(pl.col("_type").alias(c.OBJECT_TYPE), c.ACTIVITY, pl.col("needed").cast(pl.Float64))
+        .select(
+            pl.col("_type").alias(c.OBJECT_TYPE),
+            c.ACTIVITY,
+            pl.col("needed").cast(pl.Float64),
+            pl.col("needed_exact").cast(pl.Float64),
+        )
         .sort(c.OBJECT_TYPE, c.ACTIVITY)
     )

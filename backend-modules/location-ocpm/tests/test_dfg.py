@@ -8,7 +8,7 @@ import pytest
 
 from ocelescope_module_location_based_ocpm.dfg.categories import event_categories
 from ocelescope_module_location_based_ocpm.dfg.projection import default_activity_count
-from ocelescope_module_location_based_ocpm.dfg.variants import object_variants, variant_ranking
+from ocelescope_module_location_based_ocpm.dfg.variants import activity_variant_thresholds, object_variants, variant_ranking
 from ocelescope_module_location_based_ocpm.dfg.graph import (
     DfgRequest,
     LogFrames,
@@ -407,6 +407,18 @@ def test_deselected_activities_name_the_variant_threshold_they_would_need():
     # With inspect selected: 5 x main, 3 x with inspect (50 % before); with scrap: p9 has a variant of its own (80 %).
     assert options["inspect"].variant_threshold_needed == 51
     assert options["scrap"].variant_threshold_needed == 81
+    assert options["inspect"].variant_threshold_needed_exact == 50.001
+    assert options["scrap"].variant_threshold_needed_exact == 80.001
+
+
+def test_exact_variant_thresholds_have_three_decimals():
+    """`needed_exact` is the share before rounded down to 3 decimals plus 0.001 (2 of 3 before -> 66.667 %)."""
+    ranking = pl.DataFrame(
+        {"object_type": ["pallet"] * 2, "variant": ["a", "b"], "objects": [2, 1], "covered_before": [0, 2]}
+    )
+    rows = {r["activity"]: r for r in activity_variant_thresholds(ranking).iter_rows(named=True)}
+    assert (rows["a"]["needed"], rows["a"]["needed_exact"]) == (1, 0.001)
+    assert (rows["b"]["needed"], rows["b"]["needed_exact"]) == (67, 66.667)
 
 
 @pytest.mark.parametrize("object_type", ["coil"])

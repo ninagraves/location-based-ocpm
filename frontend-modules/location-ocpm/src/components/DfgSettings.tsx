@@ -479,13 +479,13 @@ const CategoryBadges = ({ categories, events }: { categories?: Record<string, nu
 const neededText = (needed: number | null | undefined) => (needed == null ? null : `≥ ${num(needed)} %`);
 
 /**
- * Why an activity of the lower part is not on an included trace of a type when no variant threshold helps; null if it
- * is deselected for the type (the unchecked box says so; Nina, 2026-11-16).
+ * Why an activity of the lower part is not on an included trace of a type when no variant threshold helps: the type is
+ * not selected, or all its events of the type were removed by the event category chips (checked or not: an unchecked
+ * activity gets the threshold it would need if checked, so no value means the same; Nina, 2026-11-18).
  *
  * @param t The activity's entry for the type.
  */
-const missingReason = (t: DfgActivityTypeOption) =>
-  !t.selected_type ? "type not selected" : !t.included ? null : "removed by an event category";
+const missingReason = (t: DfgActivityTypeOption) => (!t.selected_type ? "type not selected" : "removed by an event category");
 
 /** For an activity of the upper part that is not in the graph: per type the Arcs (projection) needed, or "display" if
  * Arcs (projection) already keeps one of its arcs (it is hidden by Arcs (display) or by arcs removed by hand). */
@@ -499,7 +499,7 @@ const PROJECTION_HINT =
   "For the Arcs (projection) slider: the smallest value (of any selected type) at which an arc of the activity is kept. \"display\": Arcs (projection) already keeps one, but Arcs (display) or an arc removed by hand hides it.";
 /** Hover text of a grey number (lower part, on no included trace). */
 const VARIANT_HINT =
-  "For the Variants slider: the smallest variant threshold (of any selected type) that puts the activity on an included trace (for an unchecked activity: if it were checked). \"event category\" / \"removed by an event category\": the activity is checked, but all its events were removed by the event category chips above the graph (every category of each of its events is switched off), so no variant threshold helps; switch a chip on again. \"type not selected\": only unselected object types have the activity.";
+  "For the Variants slider: the smallest variant threshold (of any selected type) that puts the activity on an included trace (for an unchecked activity: if it were checked). \"event category\" / \"removed by an event category\": all events of the activity were removed by the event category chips above the graph (every category of each of its events is switched off), so no variant threshold helps, checked or not; switch a chip on again. Unfolded: the exact values (up to 3 decimals). \"type not selected\": only unselected object types have the activity.";
 /** Colour of the Arcs (projection) values, to tell them from the variant thresholds (Nina, 2026-11-17). */
 const PROJECTION_COLOUR = "blue.7";
 
@@ -540,6 +540,7 @@ const ActivityRow = ({
   setIncluded,
   outside,
   projection,
+  projectionExact,
 }: {
   option: DfgActivityOption;
   colours: Map<string, string>;
@@ -549,17 +550,22 @@ const ActivityRow = ({
   outside?: boolean;
   /** On an included trace but not in the graph: Arcs (projection) needed per type (shown in blue). */
   projection?: Map<string, ProjectionNeed>;
+  /** The same with up to 3 decimals, for the unfold ("display" types are left out). */
+  projectionExact?: Map<string, number>;
 }) => {
   const [open, setOpen] = useState(false);
   const selectable = option.object_types.filter((t) => selectedTypes.has(t.object_type));
   const included = selectable.filter((t) => t.included).length;
-  // Per type: the Arcs (projection) needed (blue), "in the graph", or the variant threshold needed (or why none helps).
+  // Per type (unfold, exact values with up to 3 decimals): the Arcs (projection) needed (blue), "in the graph", or the
+  // variant threshold needed (or why none helps).
   const status = (t: DfgActivityTypeOption): { text: string | null; projection: boolean } => {
     if (!outside) return { text: null, projection: false };
-    const need = projectionText(projection?.get(t.object_type));
-    if (need) return { text: need, projection: true };
+    const need = projection?.get(t.object_type);
+    if (need !== undefined) {
+      return { text: projectionText(need === "display" ? need : (projectionExact?.get(t.object_type) ?? need)), projection: true };
+    }
     if (t.on_included_trace) return { text: projection ? "in the graph" : null, projection: false };
-    return { text: neededText(t.variant_threshold_needed) ?? missingReason(t), projection: false };
+    return { text: neededText(t.variant_threshold_needed_exact ?? t.variant_threshold_needed) ?? missingReason(t), projection: false };
   };
   const numbers = [...(projection?.values() ?? [])].filter((v): v is number => v !== "display");
   const summary = !outside
@@ -567,7 +573,7 @@ const ActivityRow = ({
     : projection
       ? projectionText(numbers.length > 0 ? Math.min(...numbers) : "display")
       : (neededText(option.variant_threshold_needed) ??
-        (selectable.length === 0 ? "other types only" : included === 0 ? null : "event category"));
+        (selectable.length === 0 ? "other types only" : "event category"));
   return (
     <Stack gap={1}>
       <Group gap={6} wrap="nowrap" justify="space-between">
@@ -694,6 +700,7 @@ export const DfgSettings = ({
   // others (variant threshold needed), least first.
   const listed = activityOptions.filter((a) => activityMatches(a, activityQuery));
   const needed = useMemo(() => neededArcThresholds(baseArcs), [baseArcs]);
+  const neededExact = useMemo(() => neededArcThresholds(baseArcs, 3), [baseArcs]);
   const shownActivities = new Set(graph.activities.map((a) => a.activity));
   const projectionNeeds = (option: DfgActivityOption) => {
     if (shownActivities.has(option.activity)) return undefined;
@@ -705,6 +712,15 @@ export const DfgSettings = ({
       needs.set(t.object_type, value <= current ? "display" : value);
     }
     return needs.size > 0 ? needs : undefined;
+  };
+  /** Of `projectionNeeds`, the numbers with up to 3 decimals (for the unfold). */
+  const projectionExact = (option: DfgActivityOption, needs: Map<string, ProjectionNeed> | undefined) => {
+    const exact = new Map<string, number>();
+    for (const [t, need] of needs ?? []) {
+      const value = neededExact.get(t)?.get(option.activity);
+      if (need !== "display" && value !== undefined) exact.set(t, value);
+    }
+    return exact;
   };
   const inGraph = listed.filter((a) => shownActivities.has(a.activity));
   const rank = (a: DfgActivityOption) => {
@@ -838,17 +854,21 @@ export const DfgSettings = ({
                 variant="dashed"
               />
             )}
-            {outsideGraph.map((a) => (
-              <ActivityRow
-                key={a.activity}
-                option={a}
-                colours={colours}
-                selectedTypes={selectedSet}
-                setIncluded={setIncluded}
-                projection={projectionNeeds(a)}
-                outside
-              />
-            ))}
+            {outsideGraph.map((a) => {
+              const needs = projectionNeeds(a);
+              return (
+                <ActivityRow
+                  key={a.activity}
+                  option={a}
+                  colours={colours}
+                  selectedTypes={selectedSet}
+                  setIncluded={setIncluded}
+                  projection={needs}
+                  projectionExact={projectionExact(a, needs)}
+                  outside
+                />
+              );
+            })}
           </Stack>
         </ScrollArea.Autosize>
       </Stack>
