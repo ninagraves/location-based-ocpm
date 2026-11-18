@@ -15,7 +15,7 @@ All values use the low-level location $loc = loc^k$ of the selected level (and $
 One row per handling unit (also those without events): object type, lifecycle class, events, first and last timestamp, lifespan, number of partial consumptions, linked handling units, numbers of parents, children and siblings, distinct low- and high-level locations, first and last location, location changes, locatedness, movements, processing operations, shared events, connectedness, co-handled handling units, time on vehicles / in storage / at other locations / unlocated (with a bar of the shares).
 The overview shows counts, so that every column sorts (Nina 2026-11-15, "like in the activity profile").
 Columns come in groups, in this order: Lifecycle, Lineage, Locations, MF Profile (material flow: movements, processing operations, shared events, connectedness, co-handled HUs), Time (always right-most); each group can be hidden (Nina 2026-11-18).
-A header row above the column titles names the groups, and each group has a very pale background of its own in both header rows.
+A header row above the column titles names the groups (no colours; Nina 2026-11-18).
 Columns with a dotted underline explain themselves on hover (e.g. Connectedness, Linked HUs).
 
 Clicking a row unfolds it (several rows can be open) with the names behind the counts, loaded per handling unit:

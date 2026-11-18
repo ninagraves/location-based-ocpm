@@ -26,7 +26,7 @@ import {
 import { errorText } from "../lib/errors";
 import { num } from "../lib/format";
 import { usePageState } from "../lib/pageState";
-import { CATEGORICAL, OTHER, type Scheme, STATUS, UI } from "../lib/palette";
+import { OTHER, type Scheme, STATUS, UI } from "../lib/palette";
 import { filterText, ProfileColumnFilter, type ValueFormat } from "./ProfileColumnFilter";
 import { ShortList } from "./ShortList";
 import { useScheme } from "./plots";
@@ -212,13 +212,6 @@ const COLUMNS: ColumnSpec[] = [
   time("time_unlocated", "Unlocated"),
 ];
 
-/** Very pale background of each column group (header row and column titles), so the groups stand out. */
-const GROUP_TINT: Record<Group | "Handling unit", number> = { "Handling unit": -1, Lifecycle: 0, Lineage: 1, Locations: 2, "MF Profile": 3, Time: 4 };
-const tint = (group: Group | "Handling unit", scheme: Scheme) => {
-  const i = GROUP_TINT[group];
-  return i < 0 ? undefined : `${CATEGORICAL[scheme][i]}${scheme === "dark" ? "26" : "14"}`;
-};
-
 /** The shown columns (groups switched on, columns the log has). */
 const shownColumns = (groups: Group[], page: HuProfilePage | undefined) =>
   COLUMNS.filter((c) => (c.group === "Handling unit" || groups.includes(c.group)) && (!c.when || c.when(page)));
@@ -255,7 +248,6 @@ const columnGroups = (
       sortable: filterable,
       noWrap: true,
       textAlign: s.format === "count" || s.format === "duration" || s.format === "share" ? "right" : "left",
-      titleStyle: { background: tint(s.group, scheme) },
       render: s.render ? (r) => s.render?.(r, scheme) : undefined,
       ...(filterable
         ? {
@@ -282,17 +274,9 @@ const columnGroups = (
     .map(({ g, cols }) => ({
       id: g,
       title: <Text size="xs" fw={700} c="dimmed">{g === "Handling unit" ? "" : g}</Text>,
-      className: `lbo-group-${GROUP_TINT[g]}`,
       columns: cols.map(column),
     }));
 };
-
-/** Styles of the group header cells (pale tint per group). */
-const GroupStyles = ({ scheme }: { scheme: Scheme }) => (
-  <style>
-    {GROUPS.map((g) => `th.lbo-group-${GROUP_TINT[g]} { background: ${tint(g, scheme)} !important; }`).join("\n")}
-  </style>
-);
 
 /** Starts a download of a text file. */
 const download = (name: string, content: string, type: string) => {
@@ -528,7 +512,6 @@ export const HuProfileTable = ({ ocelId, selected, onSelected }: { ocelId: strin
 
   return (
     <Stack gap="xs" ref={ref}>
-      <GroupStyles scheme={scheme} />
       <Group gap="md" align="flex-end" justify="space-between">
         <Group gap="md" align="flex-end">
           <TextInput
