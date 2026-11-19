@@ -13,7 +13,7 @@ import polars as pl
 from fastapi import APIRouter, HTTPException
 from ocelescope.resource.default.ocel_mapping import OCELMapping
 from ocelescope_backend.app.dependencies import ApiOcel, ApiSession
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ocelescope_module_location_based_ocpm.configuration_routes import (
     CurrentDerivation,
@@ -136,10 +136,19 @@ class HuProfileRow(BaseModel):
     connectedness: float | None = None
     n_co_handled: int = 0
     n_linked: int = 0
+    #: Longest chain of parents above / children below; None = unbounded (a lineage loop, inf in the profile).
+    generations_up: float | None = 0
+    generations_down: float | None = 0
     time_vehicle: float = 0
     time_storage: float = 0
     time_other: float = 0
     time_unlocated: float = 0
+
+    @field_validator("generations_up", "generations_down", mode="before")
+    @classmethod
+    def _unbounded(cls, value: float | None) -> float | None:
+        """inf (a loop) as None, since JSON has no infinity."""
+        return None if value is not None and math.isinf(value) else value
 
 
 class ColumnInfo(BaseModel):

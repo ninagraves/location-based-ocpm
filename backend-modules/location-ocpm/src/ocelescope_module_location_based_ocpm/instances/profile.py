@@ -15,6 +15,7 @@ The profile is built in small steps, each a function of its own (lazy polars in,
 6. `connectedness`: non-transformation events shared with other handling units, their share, and the number of
    handling units they are shared with.
 7. `linked_handling_units`: handling units sharing any event (transformation events included, so the lineage counts).
+8. `generation_depths`: the longest chain of parents above and of children below a handling unit (inf on a loop).
 `hu_profile` joins them (also handling units without events); `query_profile` searches, filters by column, sorts
 and pages it (`ColumnFilter`, `column_info`); `export_frame` gives the folded table with the shown columns.
 `hu_details` gives what an unfolded row of the table shows for one handling unit (names, events, location path).
@@ -69,6 +70,8 @@ SORTABLE = (
     "connectedness",
     "n_co_handled",
     "n_linked",
+    "generations_up",
+    "generations_down",
     *(f"time_{kind}" for kind in KINDS),
 )
 
@@ -360,6 +363,73 @@ def linked_handling_units(traces: pl.LazyFrame) -> pl.LazyFrame:
     )
 
 
+def longest_path_rounds(nodes: pl.Series, edges: pl.DataFrame) -> pl.DataFrame:
+    """Length of the longest path ending in each node of a directed graph; inf if a cycle reaches the node.
+
+    Kahn's algorithm by rounds: round 0 removes the nodes without incoming edges, round r the nodes whose
+    predecessors were all removed in earlier rounds. A node removed in round r has a longest incoming path of
+    r edges. Nodes never removed lie on a cycle or have a cycle among their predecessors, so their longest
+    path is unbounded (inf).
+
+    Example: edges a→b, b→c, a→c, x→y, y→x, y→z give a 0, b 1, c 2, x inf, y inf, z inf.
+
+    Args:
+        nodes: All nodes (strings); nodes without edges get 0.
+        edges: Columns source and target (strings).
+
+    Returns:
+        pl.DataFrame: Columns node and depth (Float64).
+    """
+    remaining = edges.select("source", "target").unique()
+    open_nodes = nodes.unique()
+    rounds = []
+    depth = 0
+    while open_nodes.len():
+        ready = open_nodes.filter(~open_nodes.is_in(remaining["target"].implode()))
+        if not ready.len():
+            break
+        rounds.append(pl.DataFrame({"node": ready, "depth": float(depth)}))
+        open_nodes = open_nodes.filter(~open_nodes.is_in(ready.implode()))
+        remaining = remaining.filter(~pl.col("source").is_in(ready.implode()))
+        depth += 1
+    rounds.append(pl.DataFrame({"node": open_nodes, "depth": float("inf")}))
+    return pl.concat(rounds).with_columns(pl.col("node").cast(pl.String), pl.col("depth").cast(pl.Float64))
+
+
+def generation_depths(roles: pl.DataFrame, traces: pl.LazyFrame) -> pl.LazyFrame:
+    """Maximum number of generations above (to the top) and below (to the bottom) each handling unit.
+
+    On the lineage graph of `lineage_relations` (edge parent → child):
+    - generations_up: the longest chain of parents above hu, i.e. hu's parent, its parent, ... up to a handling
+      unit without parents (0 if hu has no parents);
+    - generations_down: the longest chain of children below hu down to a handling unit without children (0 if
+      hu has no children).
+    If a loop (cycle in the lineage) lies on such a chain, the value is inf. Both via `longest_path_rounds`
+    (down on the reversed edges).
+
+    Example: slab s1 → coil c1 → sheet p1 and s1 → p1 directly: s1 up 0 down 2, c1 up 1 down 1, p1 up 2 down 0.
+
+    Args:
+        roles: Transformation roles (see `transformation_profile`).
+        traces: Output of `ordered_traces`.
+
+    Returns:
+        pl.LazyFrame: One row per hu of `traces` with the columns generations_up and generations_down (Float64).
+    """
+    relations = lineage_relations(roles)
+    hus = traces.select(c.HU).unique().collect()[c.HU]
+    nodes = pl.concat([hus, relations["parent"], relations["child"]]).cast(pl.String)
+    down_edges = relations.select(pl.col("child").alias("source"), pl.col("parent").alias("target"))
+    up = longest_path_rounds(nodes, relations.select(pl.col("parent").alias("source"), pl.col("child").alias("target")))
+    down = longest_path_rounds(nodes, down_edges)
+    return (
+        hus.to_frame()
+        .lazy()
+        .join(up.lazy().rename({"node": c.HU, "depth": "generations_up"}), on=c.HU, how="left")
+        .join(down.lazy().rename({"node": c.HU, "depth": "generations_down"}), on=c.HU, how="left")
+    )
+
+
 def hu_profile(
     relations: pl.DataFrame | pl.LazyFrame,
     handling_units: pl.DataFrame,
@@ -383,7 +453,7 @@ def hu_profile(
 
     Returns:
         pl.DataFrame: The columns of `lifecycle_basics`, `location_profile`, `time_per_location_kind`,
-        `transformation_profile`, `connectedness` and `linked_handling_units`.
+        `transformation_profile`, `connectedness`, `linked_handling_units` and `generation_depths`.
     """
     traces = ordered_traces(relations, loc, hl, processing).cache()
     profile = (
@@ -393,12 +463,18 @@ def hu_profile(
         .join(transformation_profile(roles, traces), on=c.HU, how="left")
         .join(connectedness(traces), on=c.HU, how="left")
         .join(linked_handling_units(traces), on=c.HU, how="left")
+        .join(generation_depths(roles, traces), on=c.HU, how="left")
         .collect()
     )
     missing = handling_units.select(c.HU, c.OBJECT_TYPE).filter(~pl.col(c.HU).is_in(profile[c.HU].implode()))
     return (
         pl.concat([profile, missing], how="diagonal_relaxed")
-        .with_columns(pl.col("n_events").fill_null(0), pl.col("lifecycle").fill_null("open"))
+        .with_columns(
+            pl.col("n_events").fill_null(0),
+            pl.col("lifecycle").fill_null("open"),
+            pl.col("generations_up").fill_null(0.0),
+            pl.col("generations_down").fill_null(0.0),
+        )
         .sort(c.HU)
     )
 
@@ -596,6 +672,8 @@ def column_info(profile: pl.DataFrame) -> list[dict]:
                 entry["kind"] = "text"
         else:
             values = series.dt.epoch("ms") if dtype.is_temporal() else series.cast(pl.Float64)
+            if not dtype.is_temporal():
+                values = values.filter(values.is_finite())  # inf (a lineage loop) is not part of the slider range
             entry.update(
                 kind="time" if dtype.is_temporal() else "number",
                 min=values.min(),

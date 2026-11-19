@@ -4,6 +4,7 @@ The running example (Level 3); the object graph uses `data/object_graph_example`
 """
 
 import json
+import math
 import sys
 
 import polars as pl
@@ -26,6 +27,7 @@ from ocelescope_module_location_based_ocpm.instances.profile import (
     export_frame,
     hu_details,
     hu_profile,
+    longest_path_rounds,
     query_profile,
     query_rows,
     sort_rows,
@@ -112,6 +114,23 @@ def test_linked_handling_units(profile):
     assert linked["c2"] == 4  # s1, c1 (also roll e3), c3, c4
     assert linked["s1"] == 2  # c1 and c2 via roll e3
     assert all(linked[hu] >= row(profile, hu)["n_co_handled"] for hu in linked)
+
+
+def test_generation_depths(profile):
+    """Longest chain of parents above and children below; inf on a lineage loop."""
+    up = dict(profile.select("hu", "generations_up").iter_rows())
+    down = dict(profile.select("hu", "generations_down").iter_rows())
+    assert up == {"c1": 1, "c2": 1, "c3": 0, "c4": 2, "c5": 0, "s1": 0}  # s1 -> c2 -> c4
+    assert down == {"c1": 0, "c2": 1, "c3": 0, "c4": 0, "c5": 0, "s1": 2}
+    # Longest, not shortest chain (a -> c directly and via b); a loop x <-> y makes everything after it inf.
+    edges = pl.DataFrame({"source": ["a", "b", "a", "x", "y", "y"], "target": ["b", "c", "c", "y", "x", "z"]})
+    depth = dict(longest_path_rounds(pl.Series(["a", "b", "c", "x", "y", "z", "q"]), edges).iter_rows())
+    assert depth == {"a": 0, "b": 1, "c": 2, "q": 0, "x": math.inf, "y": math.inf, "z": math.inf}
+    # The API sends inf as None (JSON has no infinity).
+    from ocelescope_module_location_based_ocpm.instance_routes import HuProfileRow
+
+    api = HuProfileRow(hu="x", object_type=None, lifecycle="open", n_events=0, generations_up=math.inf)
+    assert (api.generations_up, api.generations_down) == (None, 0)
 
 
 def test_column_filters(profile):

@@ -128,6 +128,9 @@ const eventText = (activity?: string | null, event?: string | null) => (event ? 
 const CONNECTEDNESS_INFO =
   "Share of a handling unit’s own events that it shares with at least one other handling unit. Transformation events are left out, because sharing those is lineage, not being handled together.";
 
+/** A generation depth; missing means unbounded (a loop in the lineage). */
+const generations = (value: number | null | undefined) => (value == null ? "∞" : num(value));
+
 /** One column of the table: where it belongs, its title and hover text, how its values look. */
 type ColumnSpec = {
   accessor: ProfileFilterColumn | "time_split";
@@ -185,6 +188,22 @@ const COLUMNS: ColumnSpec[] = [
   count("n_parents", "Parents", "Lineage"),
   count("n_children", "Children", "Lineage"),
   count("n_siblings", "Siblings", "Lineage"),
+  {
+    accessor: "generations_up",
+    title: "Generations up",
+    group: "Lineage",
+    format: "count",
+    info: "Longest chain of parents above this handling unit (parent, grandparent, …) up to one without parents; ∞ if a loop in the lineage lies above it.",
+    render: (r) => generations(r.generations_up),
+  },
+  {
+    accessor: "generations_down",
+    title: "Generations down",
+    group: "Lineage",
+    format: "count",
+    info: "Longest chain of children below this handling unit (child, grandchild, …) down to one without children; ∞ if a loop in the lineage lies below it.",
+    render: (r) => generations(r.generations_down),
+  },
   count("n_locations", "Locations", "Locations"),
   { ...count("n_high_level_locations", "High-level locations", "Locations"), when: (p) => !!p?.has_high_level },
   { accessor: "first_location", title: "First location", group: "Locations", format: "text", render: (r) => r.first_location ?? "⊥" },
