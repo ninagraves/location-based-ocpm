@@ -117,7 +117,7 @@ class DfgRequest(BaseModel):
         stay_connected: Connectivity repair on (`connectivity.stay_connected`).
         removed_arcs: Arcs removed by hand (right click).
         excluded_categories: Deselected event categories (`categories.CATEGORIES` keys); an event is removed from
-            the traces first if all its categories are deselected. Default: Move to vehicle and Move to storage
+            the traces first if all its categories are deselected. Default: Movements, Move to vehicle and Move to storage
             (`categories.DEFAULT_EXCLUDED`).
     """
 
@@ -452,6 +452,83 @@ def type_overview(objects: pl.DataFrame, handling_units: Collection[str]) -> pl.
     )
 
 
+@dataclass(frozen=True)
+class IncludedTraces:
+    """The results of steps 1 to 3 (`included_traces`).
+
+    Attributes:
+        type_activities: `projection.type_activity_counts` of the log.
+        shared: The selected handling-unit types, whose default activities are shared with all selected types.
+        included: Selected type -> its selected activities (defaults filled in).
+        unprojected: Traces of the selected types after the event categories, before the activity projection.
+        variants: The variants of the projected traces (`variants.object_variants`).
+        variant_thresholds: Selected type -> the variant threshold used.
+        kept: The included traces: projected and variant-filtered (`traces.object_traces` columns).
+    """
+
+    type_activities: pl.DataFrame
+    shared: list[str]
+    included: dict[str, list[str]]
+    unprojected: pl.DataFrame
+    variants: pl.DataFrame
+    variant_thresholds: dict[str, float]
+    kept: pl.DataFrame
+
+
+def included_traces(
+    frames: LogFrames,
+    selection: Sequence[TypeSetting],
+    traces: pl.DataFrame | None = None,
+    activities: Mapping[str, Collection[str]] | None = None,
+    excluded_categories: Collection[str] = (),
+) -> IncludedTraces:
+    """Steps 1 to 3: traces of the selected types, event categories, activity projection, variant filter.
+
+    Shared by `directly_follows_graph` and the export (`export.py`), so both use the same included traces.
+
+    Args:
+        frames: The log's frames.
+        selection: Selected object types with settings.
+        traces: Precomputed `object_traces` of the selected types; None = compute them.
+        activities: Selected activities per object type; a missing type gets `projection.default_activities` (from
+            the activities with events left after the event categories, `activities_with_events`).
+        excluded_categories: Deselected event categories.
+
+    Returns:
+        IncludedTraces: The intermediate results.
+    """
+    hu = frames.handling_units.to_list()
+    settings = {s.object_type: s for s in selection}
+    if traces is None:
+        traces = selected_traces(frames, list(settings))
+    type_activities = frames.type_activities
+    if type_activities is None:
+        type_activities = type_activity_counts(frames.e2o, frames.events, frames.objects, hu)
+    # Activities preselected for one selected handling-unit type are preselected for every type (Nina, 2026-11-16).
+    hu_types = set(frames.objects.filter(pl.col(d.OBJECT).is_in(hu))[c.OBJECT_TYPE].unique().to_list())
+    shared = [t for t in settings if t in hu_types]
+    if frames.categories is not None:
+        traces = remove_categories(traces, frames.categories, excluded_categories)
+    # Defaults only from the activities with events left after the event categories (Nina, 2026-11-19).
+    left = activities_with_events(type_activities, traces)
+    included = default_activities(left, [t for t in settings if t not in (activities or {})], shared)
+    included.update({t: list(a) for t, a in (activities or {}).items() if t in settings})
+    projected = project_traces(traces, included)
+    variants = object_variants(projected)
+    variant_thresholds = {
+        t: DEFAULT_VARIANT_THRESHOLD if s.variant_threshold is None else s.variant_threshold for t, s in settings.items()
+    }
+    return IncludedTraces(
+        type_activities=type_activities,
+        shared=shared,
+        included=included,
+        unprojected=traces,
+        variants=variants,
+        variant_thresholds=variant_thresholds,
+        kept=variant_filter(projected, variant_thresholds),
+    )
+
+
 def directly_follows_graph(
     frames: LogFrames,
     selection: Sequence[TypeSetting] | None = None,
@@ -489,29 +566,10 @@ def directly_follows_graph(
     if selection is None:
         selection = default_selection(frames.objects, hu)
     settings = {s.object_type: s for s in selection}
-    if traces is None:
-        traces = selected_traces(frames, list(settings))
-    type_activities = frames.type_activities
-    if type_activities is None:
-        type_activities = type_activity_counts(frames.e2o, frames.events, frames.objects, hu)
-    # Activities preselected for one selected handling-unit type are preselected for every type (Nina, 2026-11-16).
-    hu_types = set(frames.objects.filter(pl.col(d.OBJECT).is_in(hu))[c.OBJECT_TYPE].unique().to_list())
-    shared = [t for t in settings if t in hu_types]
-    if frames.categories is not None:
-        traces = remove_categories(traces, frames.categories, excluded_categories)
-    # Defaults only from the activities with events left after the event categories (Nina, 2026-11-19).
-    left = activities_with_events(type_activities, traces)
-    included = default_activities(left, [t for t in settings if t not in (activities or {})], shared)
-    included.update({t: list(a) for t, a in (activities or {}).items() if t in settings})
-    unprojected = traces
-    traces = project_traces(traces, included)
-
-    variants = object_variants(traces)
-    variant_default = DEFAULT_VARIANT_THRESHOLD
-    variant_thresholds = {
-        t: variant_default if s.variant_threshold is None else s.variant_threshold for t, s in settings.items()
-    }
-    kept_traces = variant_filter(traces, variant_thresholds)
+    steps = included_traces(frames, selection, traces, activities, excluded_categories)
+    type_activities, shared, included = steps.type_activities, steps.shared, steps.included
+    unprojected, variants, variant_thresholds = steps.unprojected, steps.variants, steps.variant_thresholds
+    kept_traces = steps.kept
     n_kept = objects_per_type(kept_traces)
     all_arcs = directly_follows_arcs(kept_traces).with_columns(
         pl.int_range(1, pl.len() + 1).over(c.OBJECT_TYPE).alias(RANK)
@@ -595,7 +653,7 @@ def directly_follows_graph(
         ],
         arcs=[DfgArc(**row) for row in shown_arcs.select(*arc_fields, CONNECTING).iter_rows(named=True)],
         activity_options=activity_options,
-        variant_default=variant_default,
+        variant_default=DEFAULT_VARIANT_THRESHOLD,
         arc_count_max=max(arcs_threshold.values(), default=0),
         removed_arcs=[DfgArc(**row) for row in removed_rows.select(arc_fields).iter_rows(named=True)],
         event_categories=categories,

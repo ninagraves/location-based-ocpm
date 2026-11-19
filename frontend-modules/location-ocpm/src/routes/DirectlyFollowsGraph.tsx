@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type DfgActivityOption, getDirectlyFollowsGraph } from "../api/locationBasedOcpm";
 import { DfgGraph } from "../components/DfgGraph";
 import { arcSettings, DEFAULT_STATE, DfgSettings, type DfgState, removeArc, toRequest } from "../components/DfgSettings";
+import { DfgSave } from "../components/DfgSave";
 import { DfgToolbar } from "../components/DfgToolbar";
 import { applyArcSettings, pendingSelection } from "../lib/dfgView";
 import { useDebounced } from "../lib/useDebounced";
@@ -244,7 +245,14 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
           {/* Ends with the bottom of the graph (above the height grab bar, 10 px). */}
           <Box w={sidebar.width} mb={10} style={{ flexShrink: 0, minHeight: 0, position: "relative" }}>
             <Box style={{ position: "absolute", inset: 0 }}>
-              <DfgSettings graph={sidebarGraph} baseArcs={base?.arcs ?? []} colours={colours} state={state} setState={setState} />
+              <DfgSettings
+                graph={sidebarGraph}
+                baseArcs={base?.arcs ?? []}
+                colours={colours}
+                state={state}
+                setState={setState}
+                footer={base && <DfgSave ocelId={ocelId} base={base} applied={applied} pending={pending} />}
+              />
             </Box>
           </Box>
         </>
