@@ -41,9 +41,10 @@ CATEGORIES: dict[str, str] = {
     PROCESSING: "Processing",
     TRANSFORMATION: "Transforming",
 }
-#: Categories deselected by default (Nina, 2026-11-16). As an event stays while any of its categories is selected,
-#: this removes nothing as long as Movements is selected.
-DEFAULT_EXCLUDED: tuple[str, ...] = (TO_VEHICLE, TO_STORAGE)
+#: Categories deselected by default (Nina, 2026-11-16: Move to vehicle / storage; 2026-11-19: all movements). As an
+#: event stays while any of its categories is selected, this removes the movements that are not also processing
+#: operations or transformations.
+DEFAULT_EXCLUDED: tuple[str, ...] = (MOVEMENT, TO_VEHICLE, TO_STORAGE)
 
 
 def event_categories(events: pl.DataFrame, vehicles: Collection[str], storage_units: Collection[str]) -> pl.DataFrame:

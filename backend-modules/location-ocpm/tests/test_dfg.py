@@ -202,6 +202,18 @@ def test_default_activities_are_the_most_frequent_40_percent_between_3_and_10(fr
     assert options["crane move"].hu_events == 4
 
 
+def test_default_activities_skip_activities_without_events_left(frames):
+    """With the default event categories (all movements off), activities whose events are all removed take no default
+    slot (Nina, 2026-11-19): coil's 4 remaining activities (quality check, roll, cut, label) -> 3, roll shared anyway."""
+    from ocelescope_module_location_based_ocpm.dfg.categories import DEFAULT_EXCLUDED
+
+    graph = directly_follows_graph(frames, excluded_categories=DEFAULT_EXCLUDED)
+    options = {o.activity: o for o in graph.activity_options}
+    coil = {a for a, o in options.items() for t in o.object_types if t.object_type == "coil" and t.included}
+    assert coil == {"quality check", "roll", "label"}
+    assert {a.activity for a in graph.activities} == {"cast slab", "inspect slab", "label", "quality check", "roll"}
+
+
 def _synthetic_frames(handling_units: list[str]) -> LogFrames:
     """Two pallets and a truck; e2 and e3 share a timestamp (e3 is a movement, so it comes first by AS4)."""
     t = [datetime(2026, 1, 1, h) for h in (1, 2, 2, 3)]
