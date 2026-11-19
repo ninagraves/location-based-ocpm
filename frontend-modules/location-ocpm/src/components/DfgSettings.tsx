@@ -693,12 +693,15 @@ export const DfgSettings = ({
   colours,
   state,
   setState,
+  footer,
 }: {
   graph: DirectlyFollowsGraph;
   baseArcs: BaseArc[];
   colours: Map<string, string>;
   state: DfgState;
   setState: (update: (s: DfgState) => DfgState) => void;
+  /** Shown below the scrolling part, at the bottom of the sidebar ("Save to session", `DfgSave`). */
+  footer?: ReactNode;
 }) => {
   const [typeQuery, setTypeQuery] = useState("");
   const [activityQuery, setActivityQuery] = useState("");
@@ -961,6 +964,7 @@ export const DfgSettings = ({
         </ScrollArea>
       </Stack>
       </Box>
+      {footer}
     </Card>
   );
 };

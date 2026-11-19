@@ -10,20 +10,24 @@ import logging
 import threading
 from collections import OrderedDict
 from collections.abc import Callable, Hashable
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 import polars as pl
 from fastapi import APIRouter
 from ocelescope import OCEL
-from ocelescope_backend.app.dependencies import ApiOcel
+from ocelescope_backend.app.dependencies import ApiOcel, ApiSession
+from pydantic import BaseModel, Field
 
 from ocelescope_module_location_based_ocpm.configuration_routes import ON_DERIVED, CurrentDerivation, State
 from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation
+from ocelescope_module_location_based_ocpm.dfg.export import dfg_resource, filtered_log, kept_event_ids
 from ocelescope_module_location_based_ocpm.dfg.graph import (
+    DfgArc,
     DfgRequest,
     DirectlyFollowsGraph,
     LogFrames,
     directly_follows_graph,
+    included_traces,
     log_frames,
     resolve_selection,
     selected_traces,
@@ -149,3 +153,59 @@ def get_directly_follows_graph(
 ) -> DirectlyFollowsGraph:
     """The directly-follows graph of the selected object types, projected on their selected activities and variant-filtered, with all arcs of the included traces (the page applies the arc settings)."""
     return _graph(state.cache[ocel_id].key, ocel, derivation, request)
+
+
+class DfgSaveRequest(BaseModel):
+    """What "Save to session" saves (Nina, 2026-11-16/19).
+
+    Attributes:
+        kind: "model" (Ocelescope's DirectlyFollowsGraph resource) or "log" (a new OCEL).
+        name: Name in the session.
+        request: The page's request (object types, variants, activities, event categories).
+        arcs: For the model: the arcs to save, computed by the page (projected or as displayed).
+        activities: For the log as displayed: the drawn activities (their events are kept); None = all events of the
+            included traces (projected).
+    """
+
+    kind: Literal["model", "log"]
+    name: str = ""
+    request: DfgRequest = Field(default_factory=DfgRequest)
+    arcs: list[DfgArc] = Field(default_factory=list)
+    activities: list[str] | None = None
+
+
+class DfgSaved(BaseModel):
+    """A saved model or log.
+
+    Attributes:
+        id: Its id in the session (resource or OCEL).
+        name: Its name.
+        kind: "model" or "log".
+        size: Edges of the model, or events of the log.
+    """
+
+    id: str
+    name: str
+    kind: Literal["model", "log"]
+    size: int
+
+
+@router.post("/{ocel_id}/dfg/save", operation_id="saveDirectlyFollowsGraph")
+def save_directly_follows_graph(
+    ocel_id: str, ocel: ApiOcel, derivation: CurrentDerivation, state: State, session: ApiSession, request: DfgSaveRequest
+) -> DfgSaved:
+    """Save the model (as Ocelescope's DirectlyFollowsGraph resource) or the log (as a new OCEL) to the session."""
+    if request.kind == "model":
+        resource = dfg_resource(request.arcs)
+        name = request.name.strip() or "Directly-follows graph"
+        return DfgSaved(id=session.add_resource(resource, name), name=name, kind="model", size=len(resource.edges))
+    key = state.cache[ocel_id].key
+    frames = _cached(_frames, key, lambda: log_frames(ocel, derivation))
+    selection = resolve_selection(request.request, frames.objects, frames.handling_units.to_list())
+    types = tuple(sorted({s.object_type for s in selection}))
+    traces = _cached(_traces, (key, types), lambda: selected_traces(frames, types))
+    steps = included_traces(frames, selection, traces, request.request.activities, request.request.excluded_categories)
+    events = kept_event_ids(steps.kept, request.activities)
+    name = request.name.strip() or "DFG log"
+    log = filtered_log(ocel, events)
+    return DfgSaved(id=session.add_ocel(log, name, source_id=ocel_id), name=name, kind="log", size=len(events))
