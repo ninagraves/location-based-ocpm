@@ -60,7 +60,7 @@ export type DfgState = {
 /**
  * Defaults (Nina, 2026-11-15/16): handling-unit types; per type its most frequent 40 % of activities (3 to 10), shared
  * between the handling-unit types; variants 80 % (backend default); Arcs (projection) 50 %; Arcs (display) all, general;
- * Stay connected on; Move to vehicle and Move to storage deselected.
+ * Stay connected on; Movements, Move to vehicle and Move to storage deselected (Nina, 2026-11-19).
  */
 export const DEFAULT_STATE: DfgState = {
   objectTypes: null,
@@ -72,7 +72,8 @@ export const DEFAULT_STATE: DfgState = {
   activities: {},
   stayConnected: true,
   removed: [],
-  excludedCategories: ["to_vehicle", "to_storage"],
+  // All movements off by default (Nina, 2026-11-19; `categories.DEFAULT_EXCLUDED`).
+  excludedCategories: ["movement", "to_vehicle", "to_storage"],
   arcLabel: "count",
   direction: "RIGHT",
   compact: false,
@@ -130,7 +131,7 @@ export const INFO = {
   categories:
     "Event categories: an event is removed from the traces (before anything else, like deselecting an activity) only when all categories it belongs to are deselected. Move to vehicle / storage: movements whose target location is a vehicle / storage unit; such an event is also a movement, so it stays until both Movements and its Move to chip are off. Events in no category are not affected by the chips (the activity selection still applies).",
   activities:
-    "Activities by number of events that involve a handling unit (in brackets). The events of an unchecked activity are removed from the traces before anything else (as in Ocelescope): a trace a, b, c without b becomes a, c. Unfold an activity for its events per object type and to (de)select it for single selected types. Default per type: its most frequent 40 % of activities (at least 3, at most 10), plus every activity preselected for another selected handling-unit type. Upper part: the activities in the graph. Lower part: the others, each with the value it needs: in blue the smallest Arcs (projection) that would show it (it is on an included trace, but none of its arcs is kept), in grey the smallest variant threshold that would put it on an included trace. Unfold for the values per type. Search for movements, vehicles, storage, processing or transformation to find the activities with these events too.",
+    "Activities by number of events that involve a handling unit (in brackets). The events of an unchecked activity are removed from the traces before anything else (as in Ocelescope): a trace a, b, c without b becomes a, c. Unfold an activity for its events per object type and to (de)select it for single selected types. Default per type: its most frequent 40 % of activities (at least 3, at most 10) among those with events left after the event categories, plus every activity preselected for another selected handling-unit type. Upper part: the activities in the graph. Lower part: the others, each with the value it needs: in blue the smallest Arcs (projection) that would show it (it is on an included trace, but none of its arcs is kept), in grey the smallest variant threshold that would put it on an included trace. Unfold for the values per type. Search for movements, vehicles, storage, processing or transformation to find the activities with these events too.",
   outside:
     "Activities not in the graph. Blue: on an included trace, but none of its arcs is kept; the number is the smallest Arcs (projection) (of any selected type) that keeps one, \"display\" if Arcs (projection) keeps one but Arcs (display) or a removal by hand hides it. Grey: on no included trace; the number is the smallest variant threshold (of any selected type) that would put it on one (for an unchecked activity: if it were checked). Without a number, no threshold helps: “removed by an event category” means all its events were removed by the event category chips above the graph (each of them is only in categories that are switched off), checked or not, e.g. “unload truck” with Movements and Move to storage off; “type not selected” means only unselected types have it. Unfold for each selected type.",
   withoutHu:

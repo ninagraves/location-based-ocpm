@@ -497,10 +497,12 @@ def directly_follows_graph(
     # Activities preselected for one selected handling-unit type are preselected for every type (Nina, 2026-11-16).
     hu_types = set(frames.objects.filter(pl.col(d.OBJECT).is_in(hu))[c.OBJECT_TYPE].unique().to_list())
     shared = [t for t in settings if t in hu_types]
-    included = default_activities(type_activities, [t for t in settings if t not in (activities or {})], shared)
-    included.update({t: list(a) for t, a in (activities or {}).items() if t in settings})
     if frames.categories is not None:
         traces = remove_categories(traces, frames.categories, excluded_categories)
+    # Defaults only from the activities with events left after the event categories (Nina, 2026-11-19).
+    left = activities_with_events(type_activities, traces)
+    included = default_activities(left, [t for t in settings if t not in (activities or {})], shared)
+    included.update({t: list(a) for t, a in (activities or {}).items() if t in settings})
     unprojected = traces
     traces = project_traces(traces, included)
 
@@ -698,6 +700,25 @@ def _activity_options(
     return sorted(options, key=lambda o: (-o.hu_events, -o.log_events, o.activity))
 
 
+def activities_with_events(type_activities: pl.DataFrame, traces: pl.DataFrame) -> pl.DataFrame:
+    """The rows of `type_activities` whose (object type, activity) still has events in the traces, in the same order.
+
+    Used for the default activities (Nina, 2026-11-19): with Movements off by default, an activity whose events are
+    all movements would be preselected without contributing anything; it no longer takes a default slot. Example:
+    coil with crane move, quality check, load truck, ... and all movements removed: the defaults are picked from
+    quality check, roll, cut, label, ...
+
+    Args:
+        type_activities: `projection.type_activity_counts` (sorted: most events first).
+        traces: Object traces after removing the event categories (`categories.remove_categories`).
+
+    Returns:
+        pl.DataFrame: The kept rows of `type_activities`; the counts stay those of the log.
+    """
+    pairs = traces.select(c.OBJECT_TYPE, c.ACTIVITY).unique()
+    return type_activities.join(pairs, on=[c.OBJECT_TYPE, c.ACTIVITY], how="semi", maintain_order="left")
+
+
 def unselected_type_thresholds(
     frames: LogFrames,
     type_activities: pl.DataFrame,
@@ -741,7 +762,7 @@ def unselected_type_thresholds(
     traces = selected_traces(frames, types)
     if frames.categories is not None:
         traces = remove_categories(traces, frames.categories, excluded_categories)
-    included = default_activities(type_activities, types, shared)
+    included = default_activities(activities_with_events(type_activities, traces), types, shared)
     variants = object_variants(project_traces(traces, included))
     own = activity_variant_thresholds(variant_ranking(variants)).select(
         c.OBJECT_TYPE, c.ACTIVITY, pl.col("needed").cast(pl.Float64), pl.col("needed_exact").cast(pl.Float64)

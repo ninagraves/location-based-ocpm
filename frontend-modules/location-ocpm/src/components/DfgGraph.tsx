@@ -309,6 +309,7 @@ const FitOnChange = ({ generation }: { generation: number | null }) => {
  * @param compact Compact layout (little white space, `COMPACT_OPTIONS`).
  * @param height Height of the drawing area in pixels.
  * @param onRemoveArc Called when the user right-clicks an arc (to remove it).
+ * @param onDeselectActivity Called when the user double-clicks an activity node (to deselect it for all types).
  * @param keepLayout Reuse the current layout if the new graph only lacks arcs (`reduceLayout`; set when only arcs were
  *   removed by hand, Nina 2026-11-17): nodes and arcs stay where they are, dragged nodes too.
  */
@@ -320,6 +321,7 @@ export const DfgGraph = ({
   compact,
   height,
   onRemoveArc,
+  onDeselectActivity,
   keepLayout = false,
 }: {
   graph: DirectlyFollowsGraph;
@@ -329,6 +331,7 @@ export const DfgGraph = ({
   compact: boolean;
   height: number;
   onRemoveArc?: (arc: LaidOutArc) => void;
+  onDeselectActivity?: (activity: string) => void;
   keepLayout?: boolean;
 }) => {
   const [layout, setLayout] = useState<Layout | null>(null);
@@ -438,6 +441,13 @@ export const DfgGraph = ({
             event.preventDefault();
             const data = edge.data as ArcData | undefined;
             if (data) onRemoveArc?.(data);
+          }}
+          // Double click on an activity deselects it for every object type (Nina, 2026-11-19); no zoom on double click.
+          zoomOnDoubleClick={false}
+          onNodeDoubleClick={(event, node) => {
+            event.preventDefault();
+            const data = node.data as NodeData;
+            if (data.kind === "activity") onDeselectActivity?.(data.activity);
           }}
           // Right click on an activity copies its name to the clipboard (Nina, 2026-11-17).
           onNodeContextMenu={(event, node) => {

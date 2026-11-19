@@ -5,7 +5,7 @@
 import { Alert, Box, Group, Loader, Stack } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getDirectlyFollowsGraph } from "../api/locationBasedOcpm";
+import { type DfgActivityOption, getDirectlyFollowsGraph } from "../api/locationBasedOcpm";
 import { DfgGraph } from "../components/DfgGraph";
 import { arcSettings, DEFAULT_STATE, DfgSettings, type DfgState, removeArc, toRequest } from "../components/DfgSettings";
 import { DfgToolbar } from "../components/DfgToolbar";
@@ -115,6 +115,29 @@ const HeightHandle = ({ height, onChange }: { height: number; onChange: (height:
   );
 };
 
+/**
+ * Deselects an activity for every object type that has it selected (double click on its node).
+ * A type without own selection in the state gets its current selection (from the graph's activity options) minus the
+ * activity. Example: coil selects crane move, roll, cut; slab cast slab, roll: double click on roll leaves crane move,
+ * cut and cast slab.
+ *
+ * @param state The page state.
+ * @param options The activity options of the last graph (`activity_options`).
+ * @param activity The activity to deselect.
+ * @returns The new state.
+ */
+export const deselectActivity = (state: DfgState, options: DfgActivityOption[], activity: string): DfgState => {
+  const activities = { ...state.activities };
+  const types = options.find((o) => o.activity === activity)?.object_types.filter((t) => t.selected_type) ?? [];
+  for (const t of types) {
+    const current =
+      activities[t.object_type] ??
+      options.filter((o) => o.object_types.some((x) => x.object_type === t.object_type && x.included)).map((o) => o.activity);
+    activities[t.object_type] = current.filter((a) => a !== activity);
+  }
+  return { ...state, activities };
+};
+
 /** Sidebar and graph of one log. */
 const DfgContent = ({ ocelId }: { ocelId: string }) => {
   const [stored, setStored] = usePageState<DfgState>(`dfg.v5.${ocelId}`, DEFAULT_STATE);
@@ -135,6 +158,13 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
       removeNow.current = true;
       setState((s) => removeArc(s, { object_type: arc.objectType, source: arc.sourceActivity, target: arc.targetActivity }));
     },
+    [setState],
+  );
+  // Double click on an activity node deselects it for every object type (Nina, 2026-11-19); applied after the usual
+  // 2 s wait, like a checkbox in the sidebar.
+  const options = useRef<DfgActivityOption[]>([]);
+  const onDeselectActivity = useCallback(
+    (activity: string) => setState((s) => deselectActivity(s, options.current, activity)),
     [setState],
   );
   // The graph follows the settings 2 s after the last change, so that several can be changed first (Nina,
@@ -161,6 +191,7 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
   // Arc threshold, arc count, removed arcs and Stay connected: in the browser, without a request (Nina, 2026-11-15).
   const arcs = useMemo(() => arcSettings(applied), [applied]);
   const data = useMemo(() => (base ? applyArcSettings(base, arcs) : undefined), [base, arcs]);
+  options.current = data?.activity_options ?? [];
   // Handling-unit types get the signature colours first, the other types paler colours (Nina, 2026-11-15); each
   // group in the order of all object types (most objects first), so a type keeps its colour.
   const colours = useMemo(() => {
@@ -201,6 +232,7 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
             compact={applied.compact}
             height={height}
             onRemoveArc={onRemoveArc}
+            onDeselectActivity={onDeselectActivity}
             keepLayout={keepLayout}
           />
           <HeightHandle height={height} onChange={setHeight} />
