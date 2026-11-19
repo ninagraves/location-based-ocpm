@@ -53,13 +53,19 @@ const CategoryChips = ({
  *
  * @param graph The graph as drawn (`applyArcSettings`).
  * @param state The settings.
- * @returns The slider's maximum, and the arcs shown and left (of the types it applies to).
+ * "shown" counts only the arcs kept by the arc settings; the arcs added by Stay connected are counted apart
+ * (`connecting`), since they may lie outside the arcs left by Arcs (projection) (Nina, 2026-11-19: "128 of 127 arcs").
+ *
+ * @returns The slider's maximum, the arcs shown and left (of the types it applies to), and the arcs added by Stay
+ *   connected.
  */
 export const displayNumbers = (graph: DirectlyFollowsGraph, state: DfgState) => {
   const types = graph.object_types.filter((t) => t.selected && state.own[t.object_type]?.count === undefined);
   const sum = (f: (t: (typeof types)[number]) => number | undefined) => types.reduce((n, t) => n + (f(t) ?? 0), 0);
   const max = state.arcCountMode === "general" ? sum((t) => t.threshold_arcs) : Math.max(0, ...types.map((t) => t.threshold_arcs ?? 0));
-  return { max, shown: sum((t) => t.shown_arcs), left: sum((t) => t.threshold_arcs) };
+  const names = new Set(types.map((t) => t.object_type));
+  const connecting = graph.arcs.filter((a) => a.connecting && names.has(a.object_type)).length;
+  return { max, shown: sum((t) => t.shown_arcs) - connecting, left: sum((t) => t.threshold_arcs), connecting };
 };
 
 /**
@@ -78,7 +84,7 @@ const DisplayArcs = ({
   state: DfgState;
   setState: (update: (s: DfgState) => DfgState) => void;
 }) => {
-  const { max, shown, left } = displayNumbers(graph, state);
+  const { max, shown, left, connecting } = displayNumbers(graph, state);
   const top = Math.max(max, 1);
   const value = state.arcCount ?? top;
   const [local, setLocal] = useState(value);
@@ -130,6 +136,7 @@ const DisplayArcs = ({
         />
         <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
           {num(shown)} of {num(left)} arcs
+          {connecting > 0 && ` + ${num(connecting)} to stay connected`}
         </Text>
     </Group>
   );

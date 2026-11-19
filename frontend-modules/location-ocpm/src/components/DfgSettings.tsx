@@ -257,7 +257,8 @@ const PercentSlider = ({
  *
  * @param value The current value; null = all.
  * @param max The largest useful value (the most arcs of one type).
- * @param shown, total Arcs shown and arcs left by the arc threshold (for the note).
+ * @param shown, total Arcs shown (kept by the arc settings) and arcs left by the arc threshold (for the note).
+ * @param connecting Arcs added by Stay connected, shown apart as "+ n to stay connected" (Nina, 2026-11-19).
  * @param onCommit Called with the new value (null when set to `max` or more, i.e. all).
  */
 const CountSlider = ({
@@ -267,6 +268,7 @@ const CountSlider = ({
   max,
   shown,
   total,
+  connecting = 0,
   onCommit,
 }: {
   label: string;
@@ -275,6 +277,7 @@ const CountSlider = ({
   max: number;
   shown: number;
   total: number;
+  connecting?: number;
   onCommit: (v: number | null) => void;
 }) => {
   const top = Math.max(max, 1);
@@ -313,7 +316,9 @@ const CountSlider = ({
           />
           <Text size="xs" c="dimmed">per type</Text>
         </Group>
-        <Text size="xs" c="dimmed">{num(shown)} of {num(total)} arcs</Text>
+        <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
+          {num(shown)} of {num(total)} arcs{connecting > 0 && ` + ${num(connecting)} to connect`}
+        </Text>
       </Group>
       <Slider aria-label={label} size="xs" min={0} max={top} step={1} value={local} onChange={setLocal} onChangeEnd={commit} label={(v) => `${v} arcs`} />
     </Stack>
@@ -342,6 +347,7 @@ const TypeRow = ({
   selectedTypes,
   arcCountMax,
   variantDefault,
+  connecting = 0,
 }: {
   type: DfgObjectType;
   colour?: string;
@@ -350,6 +356,8 @@ const TypeRow = ({
   selectedTypes: string[];
   arcCountMax: number;
   variantDefault: number;
+  /** Arcs of the type added by Stay connected. */
+  connecting?: number;
 }) => {
   const [open, setOpen] = useState(false);
   const scheme = useScheme();
@@ -414,8 +422,9 @@ const TypeRow = ({
             info={INFO.arcCount}
             value={own.count ?? (state.arcCountMode === "perType" ? state.arcCount : null)}
             max={type.selected ? (type.threshold_arcs ?? 0) : arcCountMax}
-            shown={type.shown_arcs ?? 0}
+            shown={(type.shown_arcs ?? 0) - connecting}
             total={type.threshold_arcs ?? 0}
+            connecting={connecting}
             onCommit={(v) => setOwn({ count: v ?? Math.max(type.threshold_arcs ?? 0, arcCountMax) })}
           />
           {marks.length > 0 && (
@@ -559,6 +568,7 @@ const ActivityRow = ({
   projection,
   projectionExact,
   withoutHu,
+  missingTypes,
 }: {
   option: DfgActivityOption;
   colours: Map<string, string>;
@@ -572,6 +582,8 @@ const ActivityRow = ({
   projectionExact?: Map<string, number>;
   /** Third part (no event with a handling unit): name the easiest type and show values for unselected types too. */
   withoutHu?: boolean;
+  /** Upper part: the selected types without a drawn arc of the activity; their unfold shows the values as below. */
+  missingTypes?: Set<string>;
 }) => {
   const [open, setOpen] = useState(false);
   const selectable = option.object_types.filter((t) => selectedTypes.has(t.object_type));
@@ -579,12 +591,12 @@ const ActivityRow = ({
   // Per type (unfold, exact values with up to 3 decimals): the Arcs (projection) needed (blue), "in the graph", or the
   // variant threshold needed (or why none helps).
   const status = (t: DfgActivityTypeOption): { text: string | null; projection: boolean } => {
-    if (!outside) return { text: null, projection: false };
+    if (!outside && !missingTypes?.has(t.object_type)) return { text: null, projection: false };
     const need = projection?.get(t.object_type);
     if (need !== undefined) {
       return { text: projectionText(need === "display" ? need : (projectionExact?.get(t.object_type) ?? need)), projection: true };
     }
-    if (t.on_included_trace) return { text: projection ? "in the graph" : null, projection: false };
+    if (t.on_included_trace) return { text: projection && outside ? "in the graph" : null, projection: false };
     return { text: neededText(t.variant_threshold_needed_exact ?? t.variant_threshold_needed) ?? missingReason(t), projection: false };
   };
   const numbers = [...(projection?.values() ?? [])].filter((v): v is number => v !== "display");
@@ -724,10 +736,20 @@ export const DfgSettings = ({
   const needed = useMemo(() => neededArcThresholds(baseArcs), [baseArcs]);
   const neededExact = useMemo(() => neededArcThresholds(baseArcs, 3), [baseArcs]);
   const shownActivities = new Set(graph.activities.map((a) => a.activity));
-  const projectionNeeds = (option: DfgActivityOption) => {
-    if (shownActivities.has(option.activity)) return undefined;
+  // (type, activity) pairs with a drawn arc: an activity of the upper part can miss arcs of some types (Nina,
+  // 2026-11-19: their unfold shows the same values as the lower part).
+  const drawnPairs = new Set(graph.arcs.flatMap((a) => [a.source, a.target].filter((x) => x != null).map((x) => `${a.object_type}\u0000${x}`)));
+  const missingTypes = (option: DfgActivityOption) =>
+    new Set(option.object_types.filter((t) => t.selected_type && !drawnPairs.has(`${t.object_type}\u0000${option.activity}`)).map((t) => t.object_type));
+  /**
+   * Arcs (projection) needed per type: for an activity not in the graph every type, else only `types` (the types
+   * without a drawn arc of it).
+   */
+  const projectionNeeds = (option: DfgActivityOption, types?: Set<string>) => {
+    if (shownActivities.has(option.activity) && !types) return undefined;
     const needs = new Map<string, ProjectionNeed>();
     for (const t of option.object_types) {
+      if (types && !types.has(t.object_type)) continue;
       const value = t.on_included_trace ? needed.get(t.object_type)?.get(option.activity) : undefined;
       if (value === undefined) continue;
       const current = state.own[t.object_type]?.arc ?? state.arcThreshold;
@@ -834,6 +856,7 @@ export const DfgSettings = ({
                   selectedTypes={selectedTypes}
                   arcCountMax={graph.arc_count_max ?? 0}
                   variantDefault={graph.variant_default ?? 100}
+                  connecting={graph.arcs.filter((a) => a.connecting && a.object_type === t.object_type).length}
                 />
               ))}
           </Stack>
@@ -864,15 +887,22 @@ export const DfgSettings = ({
         </Group>
         <ScrollArea.Autosize mah={320} type="auto" offsetScrollbars>
           <Stack gap={2}>
-            {inGraph.map((a) => (
-              <ActivityRow
-                key={a.activity}
-                option={a}
-                colours={colours}
-                selectedTypes={selectedSet}
-                setIncluded={setIncluded}
-              />
-            ))}
+            {inGraph.map((a) => {
+              const missing = missingTypes(a);
+              const needs = projectionNeeds(a, missing);
+              return (
+                <ActivityRow
+                  key={a.activity}
+                  option={a}
+                  colours={colours}
+                  selectedTypes={selectedSet}
+                  setIncluded={setIncluded}
+                  projection={needs}
+                  projectionExact={projectionExact(a, needs)}
+                  missingTypes={missing}
+                />
+              );
+            })}
             {outsideGraph.length > 0 && (
               <Divider
                 my={2}
