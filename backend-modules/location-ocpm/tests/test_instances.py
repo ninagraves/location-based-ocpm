@@ -198,7 +198,7 @@ def test_timeline_movement_labels(full):
     texts = lambda figure: [a["text"] for a in figure["layout"].get("annotations", [])]
     assert sorted(set(texts(labelled)) - set(texts(plain))) == ["crane move", "load truck", "unload truck"]
     shifts = {(a["text"], a["xshift"], a["yshift"]) for a in labelled["layout"]["annotations"]}
-    assert ("load truck", 0, 2) in shifts and ("roll", 2, 7) in shifts
+    assert ("load truck", -6, 6) in shifts and ("roll", 2, 7) in shifts
     assert not any(t.get("name", "").startswith("movement (explicit)") for t in labelled["data"])
 
 

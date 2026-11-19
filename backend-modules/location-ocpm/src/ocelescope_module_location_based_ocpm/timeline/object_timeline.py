@@ -98,10 +98,10 @@ SIZE = {"processing": 17, "other": 10, "movement": 16}
 PICKUP_DIFFERS_SYMBOL = "diamond-tall-open"
 PICKUP_DIFFERS_SIZE = 13
 #: Offset in pixels of an activity label from its marker: events above the band start a bit to the right of and
-#: above their marker; movement labels start exactly above their line on the band, without a shift to the right
-#: (Nina 2026-11-19).
+#: above their marker; a movement label is moved left so that the lower end of the angled text sits exactly above
+#: its line on the band (about font height x sin(35°)), and up for a gap to the band (Nina 2026-11-19).
 LABEL_SHIFT = (2, 7)
-MOVEMENT_LABEL_SHIFT = (0, 2)
+MOVEMENT_LABEL_SHIFT = (-6, 6)
 #: Most handling units shown in one timeline (Nina 2026-10-31).
 MAX_HANDLING_UNITS = 50
 
