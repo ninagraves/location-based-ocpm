@@ -529,6 +529,11 @@ const EASIEST_HINT =
 /** Colour of the Arcs (projection) values, to tell them from the variant thresholds (Nina, 2026-11-17). */
 const PROJECTION_COLOUR = "blue.7";
 
+/** Height of the object type list in px before it scrolls (about 6 types; Nina, 2026-11-19, before 300). */
+const TYPE_LIST_HEIGHT = 160;
+/** Smallest height of the activity list in px; it takes all the rest of the sidebar (Nina, 2026-11-19, before 320). */
+const ACTIVITY_LIST_MIN_HEIGHT = 360;
+
 /** Words that find the activities with events of a category in the activity search (Nina, 2026-11-16). */
 const CATEGORY_WORDS: Record<string, string[]> = {
   movement: ["movements", "movement", "move"],
@@ -784,7 +789,8 @@ export const DfgSettings = ({
     <Card withBorder padding="xs" h="100%" style={{ display: "flex", flexDirection: "column" }}>
       <Text size="sm" fw={700} mb={6}>Discovery Settings</Text>
       <Box style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden" }} pr={4}>
-      <Stack gap={6}>
+      {/* Fills the sidebar's height; the activity list takes the rest (Nina, 2026-11-19: more room than the types). */}
+      <Stack gap={6} mih="100%">
 
         <Divider label={<Group gap={6}>General<Manual on={manual} /></Group>} labelPosition="left" />
         <PercentSlider
@@ -842,7 +848,7 @@ export const DfgSettings = ({
           <Heading info={INFO.objectTypes}>{selectedTypes.length} of {objectTypes.length} selected</Heading>
         </Group>
         <Search value={typeQuery} onChange={setTypeQuery} placeholder="Search object types" />
-        <ScrollArea.Autosize mah={300} type="auto" offsetScrollbars>
+        <ScrollArea.Autosize mah={TYPE_LIST_HEIGHT} type="auto" offsetScrollbars>
           <Stack gap={2}>
             {listedTypes
               .filter((t) => matches(t.object_type, typeQuery))
@@ -885,7 +891,7 @@ export const DfgSettings = ({
             </Tooltip>
           )}
         </Group>
-        <ScrollArea.Autosize mah={320} type="auto" offsetScrollbars>
+        <ScrollArea type="auto" offsetScrollbars style={{ flex: "1 1 0", minHeight: ACTIVITY_LIST_MIN_HEIGHT }}>
           <Stack gap={2}>
             {inGraph.map((a) => {
               const missing = missingTypes(a);
@@ -951,7 +957,7 @@ export const DfgSettings = ({
               );
             })}
           </Stack>
-        </ScrollArea.Autosize>
+        </ScrollArea>
       </Stack>
       </Box>
     </Card>
