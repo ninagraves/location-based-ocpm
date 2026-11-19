@@ -132,7 +132,9 @@ export const INFO = {
   activities:
     "Activities by number of events that involve a handling unit (in brackets). The events of an unchecked activity are removed from the traces before anything else (as in Ocelescope): a trace a, b, c without b becomes a, c. Unfold an activity for its events per object type and to (de)select it for single selected types. Default per type: its most frequent 40 % of activities (at least 3, at most 10), plus every activity preselected for another selected handling-unit type. Upper part: the activities in the graph. Lower part: the others, each with the value it needs: in blue the smallest Arcs (projection) that would show it (it is on an included trace, but none of its arcs is kept), in grey the smallest variant threshold that would put it on an included trace. Unfold for the values per type. Search for movements, vehicles, storage, processing or transformation to find the activities with these events too.",
   outside:
-    "Activities not in the graph. Blue: on an included trace, but none of its arcs is kept; the number is the smallest Arcs (projection) (of any selected type) that keeps one, \"display\" if Arcs (projection) keeps one but Arcs (display) or a removal by hand hides it. Grey: on no included trace; the number is the smallest variant threshold (of any selected type) that would put it on one (for an unchecked activity: if it were checked). Without a number, no threshold helps: “removed by an event category” means the activity is checked, but all its events were removed by the event category chips above the graph (each of them is only in categories that are switched off), e.g. “unload truck” with Movements and Move to storage off; “type not selected” means only unselected types have it. Unfold for each selected type.",
+    "Activities not in the graph. Blue: on an included trace, but none of its arcs is kept; the number is the smallest Arcs (projection) (of any selected type) that keeps one, \"display\" if Arcs (projection) keeps one but Arcs (display) or a removal by hand hides it. Grey: on no included trace; the number is the smallest variant threshold (of any selected type) that would put it on one (for an unchecked activity: if it were checked). Without a number, no threshold helps: “removed by an event category” means all its events were removed by the event category chips above the graph (each of them is only in categories that are switched off), checked or not, e.g. “unload truck” with Movements and Move to storage off; “type not selected” means only unselected types have it. Unfold for each selected type.",
+  withoutHu:
+    "Activities with no event that involves a handling unit (not in the graph). The value names the object type for which the activity is easiest to include: the type with the smallest variant threshold that puts it on an included trace, if that type were selected with its default activities (and the activity checked), e.g. “operator · ≥ 67 %”. Blue as above: on an included trace of a selected type, but none of its arcs is kept. Unfold for the value of every type, selected or not.",
   arcLabel: "What the number on an arc counts: traversals (an object repeating the arc counts each time) or distinct objects.",
   direction: "Direction of the layout: from left to right (→) or from top to bottom (↓).",
   settings: "Show or hide the discovery settings.",
@@ -487,6 +489,18 @@ const neededText = (needed: number | null | undefined) => (needed == null ? null
  */
 const missingReason = (t: DfgActivityTypeOption) => (!t.selected_type ? "type not selected" : "removed by an event category");
 
+/**
+ * Summary of an activity without handling units (Nina, 2026-11-19): the type for which it is easiest to include and
+ * its whole variant threshold, e.g. "operator · ≥ 67 %"; "event category" if no type has a value.
+ *
+ * @param option The activity.
+ */
+const easiestText = (option: DfgActivityOption) => {
+  const easiest = option.object_types.find((t) => t.object_type === option.easiest_type);
+  const needed = neededText(easiest?.variant_threshold_needed);
+  return easiest && needed ? `${easiest.object_type} · ${needed}` : "event category";
+};
+
 /** For an activity of the upper part that is not in the graph: per type the Arcs (projection) needed, or "display" if
  * Arcs (projection) already keeps one of its arcs (it is hidden by Arcs (display) or by arcs removed by hand). */
 export type ProjectionNeed = number | "display";
@@ -500,6 +514,9 @@ const PROJECTION_HINT =
 /** Hover text of a grey number (lower part, on no included trace). */
 const VARIANT_HINT =
   "For the Variants slider: the smallest variant threshold (of any selected type) that puts the activity on an included trace (for an unchecked activity: if it were checked). \"event category\" / \"removed by an event category\": all events of the activity were removed by the event category chips above the graph (every category of each of its events is switched off), so no variant threshold helps, checked or not; switch a chip on again. Unfolded: the exact values (up to 3 decimals). \"type not selected\": only unselected object types have the activity.";
+/** Hover text of the value of an activity without handling units (third part). */
+const EASIEST_HINT =
+  "For the Variants slider of the named object type: the type for which the activity is easiest to include, i.e. the smallest variant threshold that would put it on an included trace if that type were selected with its default activities (and the activity checked). Select the type under Object types first. Unfold for every type.";
 /** Colour of the Arcs (projection) values, to tell them from the variant thresholds (Nina, 2026-11-17). */
 const PROJECTION_COLOUR = "blue.7";
 
@@ -541,6 +558,7 @@ const ActivityRow = ({
   outside,
   projection,
   projectionExact,
+  withoutHu,
 }: {
   option: DfgActivityOption;
   colours: Map<string, string>;
@@ -552,6 +570,8 @@ const ActivityRow = ({
   projection?: Map<string, ProjectionNeed>;
   /** The same with up to 3 decimals, for the unfold ("display" types are left out). */
   projectionExact?: Map<string, number>;
+  /** Third part (no event with a handling unit): name the easiest type and show values for unselected types too. */
+  withoutHu?: boolean;
 }) => {
   const [open, setOpen] = useState(false);
   const selectable = option.object_types.filter((t) => selectedTypes.has(t.object_type));
@@ -572,8 +592,10 @@ const ActivityRow = ({
     ? null
     : projection
       ? projectionText(numbers.length > 0 ? Math.min(...numbers) : "display")
-      : (neededText(option.variant_threshold_needed) ??
-        (selectable.length === 0 ? "other types only" : "event category"));
+      : withoutHu
+        ? easiestText(option)
+        : (neededText(option.variant_threshold_needed) ??
+          (selectable.length === 0 ? "other types only" : "event category"));
   return (
     <Stack gap={1}>
       <Group gap={6} wrap="nowrap" justify="space-between">
@@ -593,7 +615,7 @@ const ActivityRow = ({
         />
         {summary && (
           <Tooltip
-            label={projection ? PROJECTION_HINT : VARIANT_HINT}
+            label={projection ? PROJECTION_HINT : withoutHu ? EASIEST_HINT : VARIANT_HINT}
             withinPortal
             multiline
             w={260}
@@ -620,7 +642,7 @@ const ActivityRow = ({
                   <Text size="xs">{t.object_type}</Text>
                   <Text size="xs" c="dimmed">({num(t.events)})</Text>
                   <CategoryBadges categories={t.categories} events={t.events} />
-                  {t.selected_type && status(t).text && (
+                  {(t.selected_type || withoutHu) && status(t).text && (
                     <Text size="xs" c={status(t).projection ? PROJECTION_COLOUR : "dimmed"}>· {status(t).text}</Text>
                   )}
                 </Group>
@@ -728,7 +750,12 @@ export const DfgSettings = ({
     if (needs) return Math.min(...[...needs.values()].map((v) => (v === "display" ? 0 : v)));
     return 1000 + (a.variant_threshold_needed ?? 1000);
   };
-  const outsideGraph = listed.filter((a) => !shownActivities.has(a.activity)).sort((x, y) => rank(x) - rank(y));
+  // Third part: activities with no event with a handling unit (Nina, 2026-11-19), easiest first.
+  const notShown = listed.filter((a) => !shownActivities.has(a.activity));
+  const outsideGraph = notShown.filter((a) => a.hu_events > 0).sort((x, y) => rank(x) - rank(y));
+  const withoutHu = notShown
+    .filter((a) => a.hu_events === 0)
+    .sort((x, y) => rank(x) - rank(y) || (x.variant_threshold_needed_exact ?? 1000) - (y.variant_threshold_needed_exact ?? 1000));
   const removedInfo = new Map((graph.removed_arcs ?? []).map((a) => [arcText(a), a]));
 
   return (
@@ -866,6 +893,30 @@ export const DfgSettings = ({
                   projection={needs}
                   projectionExact={projectionExact(a, needs)}
                   outside
+                />
+              );
+            })}
+            {withoutHu.length > 0 && (
+              <Divider
+                my={2}
+                label={<Heading info={INFO.withoutHu}>Without handling units ({withoutHu.length})</Heading>}
+                labelPosition="left"
+                variant="dashed"
+              />
+            )}
+            {withoutHu.map((a) => {
+              const needs = projectionNeeds(a);
+              return (
+                <ActivityRow
+                  key={a.activity}
+                  option={a}
+                  colours={colours}
+                  selectedTypes={selectedSet}
+                  setIncluded={setIncluded}
+                  projection={needs}
+                  projectionExact={projectionExact(a, needs)}
+                  outside
+                  withoutHu
                 />
               );
             })}

@@ -230,8 +230,10 @@ class DfgActivityTypeOption(BaseModel):
         on_included_trace: True if it is on an included trace of the type (projected, variant-filtered).
         variant_threshold_needed: Smallest whole variant threshold of the type that puts it on an included trace
             (`variants.activity_variant_thresholds`); for a deselected activity: the one it would need if it were
-            selected (`variants.added_activity_thresholds`). None if the type is not selected or no trace of the
-            type contains it (e.g. its events removed by an event category).
+            selected (`variants.added_activity_thresholds`). For an activity without handling units also for an
+            unselected type: the one it would need if the type were selected with its default activities
+            (`unselected_type_thresholds`; Nina, 2026-11-19). None otherwise for an unselected type, or if no trace
+            of the type contains it (e.g. its events removed by an event category).
         variant_threshold_needed_exact: The same with up to `variants.EXACT_DECIMALS` decimals (e.g. 66.667 for
             2 of 3 objects covered before it), shown when the activity is unfolded.
         categories: Of `events`, how many are in each event category (`categories.CATEGORIES` key -> events; only
@@ -260,6 +262,9 @@ class DfgActivityOption(BaseModel):
         on_included_trace: True if it is on an included trace of a selected type (the upper part of the list).
         variant_threshold_needed: Smallest of the types' `variant_threshold_needed` (None if none).
         variant_threshold_needed_exact: Smallest of the types' `variant_threshold_needed_exact` (None if none).
+        easiest_type: The object type with that smallest exact threshold (ties: selected types first, then most
+            events, then name); for an activity without handling units (`hu_events` 0) it may be an unselected type:
+            the type for which it is "easiest" to include the activity (Nina, 2026-11-19, third part of the list).
         categories: Of `hu_events`, how many are in each event category (key -> events; only non-zero ones): the
             badges of the activity.
     """
@@ -271,6 +276,7 @@ class DfgActivityOption(BaseModel):
     on_included_trace: bool = False
     variant_threshold_needed: float | None = None
     variant_threshold_needed_exact: float | None = None
+    easiest_type: str | None = None
     categories: dict[str, int] = Field(default_factory=dict)
 
 
@@ -526,6 +532,15 @@ def directly_follows_graph(
     needed = {(t, a): (v, x) for t, a, v, x in activity_variant_thresholds(variant_ranking(variants)).iter_rows()}
     # Deselected activities: the variant threshold they would need if selected (Nina, 2026-11-16).
     needed.update({(t, a): (v, x) for t, a, v, x in added_activity_thresholds(unprojected, variants, included).iter_rows()})
+    # Activities without handling units: also the threshold for every unselected type (Nina, 2026-11-19).
+    hu_counts = frames.hu_events
+    if hu_counts is None:
+        hu_counts = handling_unit_event_counts(frames.e2o, frames.events, hu)
+    frames = replace(frames, hu_events=hu_counts)
+    without_hu = {a for a in log_events if hu_counts.get(a, 0) == 0}
+    if without_hu:
+        others = unselected_type_thresholds(frames, type_activities, without_hu, list(settings), shared, excluded_categories)
+        needed.update({(t, a): (v, x) for t, a, v, x in others.iter_rows()})
     activity_options = _activity_options(frames, type_activities, log_events, included, on_trace, needed)
     counts = category_counts(frames.categories) if frames.categories is not None else {}
     categories = [
@@ -647,7 +662,7 @@ def _activity_options(
     per_activity: dict[str, list[DfgActivityTypeOption]] = {}
     for row in type_activities.iter_rows(named=True):
         t = row[c.OBJECT_TYPE]
-        need = (needed or {}).get((t, row[c.ACTIVITY])) if t in included else None
+        need = (needed or {}).get((t, row[c.ACTIVITY]))
         per_activity.setdefault(row[c.ACTIVITY], []).append(
             DfgActivityTypeOption(
                 object_type=t,
@@ -664,6 +679,9 @@ def _activity_options(
         types = sorted(per_activity.get(a, []), key=lambda o: (o.object_type not in hu_types, -o.events, o.object_type))
         values = [o.variant_threshold_needed for o in types if o.variant_threshold_needed is not None]
         exact = [o.variant_threshold_needed_exact for o in types if o.variant_threshold_needed_exact is not None]
+        # Easiest type: the smallest exact threshold; ties: selected types first, then most events, then name.
+        candidates = [o for o in types if o.variant_threshold_needed_exact is not None]
+        easiest = min(candidates, key=lambda o: (o.variant_threshold_needed_exact, not o.selected_type, -o.events, o.object_type), default=None)
         return DfgActivityOption(
             activity=a,
             hu_events=hu_events.get(a, 0),
@@ -672,11 +690,67 @@ def _activity_options(
             on_included_trace=any(o.on_included_trace for o in types),
             variant_threshold_needed=min(values) if values else None,
             variant_threshold_needed_exact=min(exact) if exact else None,
+            easiest_type=easiest.object_type if easiest is not None else None,
             categories=activity_categories.get((a,), {}),
         )
 
     options = [option(a, n) for a, n in log_events.items()]
     return sorted(options, key=lambda o: (-o.hu_events, -o.log_events, o.activity))
+
+
+def unselected_type_thresholds(
+    frames: LogFrames,
+    type_activities: pl.DataFrame,
+    activities: Collection[str],
+    selected: Collection[str],
+    shared: Collection[str] = (),
+    excluded_categories: Collection[str] = (),
+) -> pl.DataFrame:
+    """For activities without handling units: the variant threshold each unselected type would need to include them.
+
+    Per unselected object type $ot$ with events of such an activity $a$: $ot$ as if it were selected with its default
+    activities (`projection.default_activities`, sharing the defaults of `shared` as the selection does) and the
+    current event categories; $a$ needs `variants.activity_variant_thresholds` if it is one of these defaults, else
+    `variants.added_activity_thresholds` (the defaults plus $a$). Nina, 2026-11-19: the third part of the activity
+    list names the type for which an activity without handling units is easiest to include.
+    Example (test_activities_without_handling_units_name_the_easiest_type): operators o2 (tea, train), o3 (train,
+    handover), o1 (inspect, ..., break), one object each, ranked in this order; "break" is not a default of operator,
+    so it is added for o1, whose variant has 2 of 3 operators before it -> 66.667 %.
+
+    Args:
+        frames: The log's frames.
+        type_activities: `projection.type_activity_counts`.
+        activities: The activities without handling units.
+        selected: The selected object types (left out).
+        shared: The selected handling-unit types whose default activities are shared (as in `directly_follows_graph`).
+        excluded_categories: Deselected event categories (`categories.remove_categories`).
+
+    Returns:
+        pl.DataFrame: Columns object_type, activity, needed, needed_exact (as `variants.activity_variant_thresholds`),
+        only the given activities of unselected types.
+    """
+    schema = {c.OBJECT_TYPE: pl.String, c.ACTIVITY: pl.String, "needed": pl.Float64, "needed_exact": pl.Float64}
+    types = (
+        type_activities.filter(pl.col(c.ACTIVITY).is_in(list(activities)) & ~pl.col(c.OBJECT_TYPE).is_in(list(selected)))[c.OBJECT_TYPE]
+        .unique()
+        .sort()
+        .to_list()
+    )
+    if not types:
+        return pl.DataFrame(schema=schema)
+    traces = selected_traces(frames, types)
+    if frames.categories is not None:
+        traces = remove_categories(traces, frames.categories, excluded_categories)
+    included = default_activities(type_activities, types, shared)
+    variants = object_variants(project_traces(traces, included))
+    own = activity_variant_thresholds(variant_ranking(variants)).select(
+        c.OBJECT_TYPE, c.ACTIVITY, pl.col("needed").cast(pl.Float64), pl.col("needed_exact").cast(pl.Float64)
+    )
+    return (
+        pl.concat([own, added_activity_thresholds(traces, variants, included)])
+        .filter(pl.col(c.ACTIVITY).is_in(list(activities)))
+        .sort(c.OBJECT_TYPE, c.ACTIVITY)
+    )
 
 
 def selected_traces(frames: LogFrames, object_types: Collection[str]) -> pl.DataFrame:
