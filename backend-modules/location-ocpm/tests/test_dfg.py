@@ -411,6 +411,53 @@ def test_deselected_activities_name_the_variant_threshold_they_would_need():
     assert options["scrap"].variant_threshold_needed_exact == 80.001
 
 
+def _pallet_example_with_activities_without_handling_units() -> LogFrames:
+    """The worked example plus activities without handling units (Nina, 2026-11-19): truck t2 refuels; operators o2
+    and o3 train, o2 has tea, o1 a break; t1 and o3 share a handover (all of 2025 except the handover in 2027)."""
+    frames = _pallet_example()
+    extra = [
+        ("x1", datetime(2025, 1, 1, 0), "tea", ["o2"]),
+        ("x2", datetime(2025, 1, 1, 1), "train", ["o3"]),
+        ("x3", datetime(2025, 1, 1, 2), "train", ["o2"]),
+        ("x4", datetime(2025, 1, 1, 3), "refuel", ["t2"]),
+        ("x5", datetime(2025, 6, 1, 0), "break", ["o1"]),
+        ("x6", datetime(2027, 1, 1, 0), "handover", ["t1", "o3"]),
+    ]
+    objects = pl.concat([frames.objects, pl.DataFrame({"object": ["t2", "o2", "o3"], "object_type": ["truck", "operator", "operator"]})])
+    events = pl.concat(
+        [
+            frames.events,
+            pl.DataFrame(
+                [(e, t, a, False, False, False) for e, t, a, _ in extra],
+                schema=frames.events.columns,
+                orient="row",
+            ),
+        ]
+    )
+    links = pl.DataFrame([(e, o) for e, _, _, objs in extra for o in objs], schema=["event", "object"], orient="row")
+    e2o = pl.concat([frames.e2o, links.join(objects, on="object")])
+    return replace(frames, e2o=e2o, events=events, objects=objects)
+
+
+def test_activities_without_handling_units_name_the_easiest_type():
+    """An activity without handling units names, per type, the variant threshold it would need if the type were
+    selected with its default activities, and the type with the smallest one (Nina, 2026-11-19)."""
+    frames = _pallet_example_with_activities_without_handling_units()
+    graph = directly_follows_graph(frames)
+    options = {o.activity: o for o in graph.activity_options}
+    assert {a for a, o in options.items() if o.hu_events == 0} == {"tea", "train", "refuel", "break", "handover"}
+    # Operators (defaults inspect, train, tea): variants o2 (tea, train), o3 (train), o1 (inspect ...), one object
+    # each, ranked by first time; break only for o1: 2 of 3 operators before -> 66.667 %.
+    assert (options["break"].easiest_type, options["break"].variant_threshold_needed_exact) == ("operator", 66.667)
+    assert (options["refuel"].easiest_type, options["refuel"].variant_threshold_needed) == ("truck", 1)
+    # handover: truck 50.001 % (t1 second of 2), operator 33.334 % (o3 second of 3) -> operator.
+    per_type = {t.object_type: t.variant_threshold_needed_exact for t in options["handover"].object_types}
+    assert per_type == {"truck": 50.001, "operator": 33.334}
+    assert options["handover"].easiest_type == "operator"
+    # Activities with handling units are unchanged: unselected types get no value.
+    assert all(t.variant_threshold_needed is None for t in options["load"].object_types if not t.selected_type)
+
+
 def test_exact_variant_thresholds_have_three_decimals():
     """`needed_exact` is the share before rounded down to 3 decimals plus 0.001 (2 of 3 before -> 66.667 %)."""
     ranking = pl.DataFrame(
