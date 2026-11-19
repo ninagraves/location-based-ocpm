@@ -190,17 +190,16 @@ def test_timeline_figure(full):
     assert notes == ["Not handling units of this log: zz."]
 
 
-def test_timeline_movement_markers(full):
-    """Explicit movements: one open circle per movement of c2 (5) on the band; with labels also their activity names."""
-    implicit, _ = timeline_figure(full, ["c2"])
-    explicit, _ = timeline_figure(full, ["c2"], movement_markers="explicit")
-    labelled, _ = timeline_figure(full, ["c2"], movement_markers="explicit with label")
-    circles = [t for t in explicit["data"] if t.get("name", "").startswith("movement (explicit)")]
-    assert sum(len(t["customdata"]) for t in circles) == 5
-    assert not any(t.get("name", "").startswith("movement (explicit)") for t in implicit["data"])
+def test_timeline_movement_labels(full):
+    """Movement labels: the activity names of c2's movements are added, starting exactly above their line (no shift
+    to the right); the other labels keep their offset."""
+    plain, _ = timeline_figure(full, ["c2"])
+    labelled, _ = timeline_figure(full, ["c2"], label_movements=True)
     texts = lambda figure: [a["text"] for a in figure["layout"].get("annotations", [])]
-    assert texts(explicit) == texts(implicit)
-    assert sorted(set(texts(labelled)) - set(texts(implicit))) == ["crane move", "load truck", "unload truck"]
+    assert sorted(set(texts(labelled)) - set(texts(plain))) == ["crane move", "load truck", "unload truck"]
+    shifts = {(a["text"], a["xshift"], a["yshift"]) for a in labelled["layout"]["annotations"]}
+    assert ("load truck", 0, 2) in shifts and ("roll", 2, 7) in shifts
+    assert not any(t.get("name", "").startswith("movement (explicit)") for t in labelled["data"])
 
 
 @pytest.fixture(scope="module")

@@ -27,7 +27,6 @@ from ocelescope_module_location_based_ocpm.lineage.lineage import Direction
 from ocelescope_module_location_based_ocpm.lineage.relations import lineage_relations
 from ocelescope_module_location_based_ocpm.timeline.object_timeline import (
     MAX_HANDLING_UNITS,
-    MovementMarkers,
     TimelineAxis,
     object_timeline,
     timeline_relations,
@@ -161,7 +160,7 @@ def timeline_figure(
     mark_ties: bool = True,
     link_shared_events: bool = True,
     by_first_event: bool = False,
-    movement_markers: MovementMarkers = "implicit",
+    label_movements: bool = False,
     max_handling_units: int = MAX_HANDLING_UNITS,
 ) -> tuple[dict, list[str]]:
     """The HU timeline (`timeline.object_timeline`) of handling units at the selected level, as Plotly JSON.
@@ -175,7 +174,7 @@ def timeline_figure(
         mark_ties: Grey boxes behind events with the same timestamp.
         link_shared_events: Dotted lines between the markers of an event shared by shown handling units.
         by_first_event: Order the rows by first event (then id) instead of the given order.
-        movement_markers: "implicit", "explicit" or "explicit with label" (`object_timeline.MovementMarkers`).
+        label_movements: Also write the activity names of movements (`object_timeline.object_timeline`).
         max_handling_units: Rows drawn at most.
 
     Returns:
@@ -214,7 +213,7 @@ def timeline_figure(
         show_activity_labels=show_activity_labels,
         mark_ties=mark_ties,
         link_shared_events=link_shared_events,
-        movement_markers=movement_markers,
+        label_movements=label_movements,
     )
     figure.update_layout(width=None, autosize=True)
     return json.loads(figure.to_json()), notes

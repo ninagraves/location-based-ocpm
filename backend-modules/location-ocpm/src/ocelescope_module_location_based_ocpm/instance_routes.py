@@ -44,7 +44,6 @@ from ocelescope_module_location_based_ocpm.instances.profile import (
 from ocelescope_module_location_based_ocpm.lineage.lineage import Direction
 from ocelescope_module_location_based_ocpm.timeline.object_timeline import (
     MAX_HANDLING_UNITS,
-    MovementMarkers,
     TimelineAxis,
 )
 
@@ -438,8 +437,7 @@ class TimelineRequest(BaseModel):
         mark_ties: Grey boxes behind events with the same timestamp.
         link_shared_events: Dotted lines between markers of shared events.
         by_first_event: Rows ordered by first event instead of the given order.
-        movement_markers: How movements are drawn: "implicit", "explicit" (open circle on the band) or
-            "explicit with label" (also the activity name).
+        label_movements: Also write the activity names of movements, starting exactly above their line.
     """
 
     handling_units: list[str]
@@ -449,7 +447,7 @@ class TimelineRequest(BaseModel):
     mark_ties: bool = True
     link_shared_events: bool = True
     by_first_event: bool = False
-    movement_markers: MovementMarkers = "implicit"
+    label_movements: bool = False
 
 
 class TimelineResponse(BaseModel):
@@ -474,7 +472,7 @@ def get_hu_timeline(derivation: CurrentDerivation, request: TimelineRequest) -> 
         request.mark_ties,
         request.link_shared_events,
         request.by_first_event,
-        request.movement_markers,
+        request.label_movements,
     )
     return TimelineResponse(figure=figure, notes=notes)
 
