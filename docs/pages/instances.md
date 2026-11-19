@@ -48,6 +48,7 @@ Own search and column filters only (no page filter bar).
   - categories (string columns with at most 100 distinct values, e.g. object type, lifecycle, locations, locatedness): checkboxes with the number of handling units per value, "(none)" for a missing value; the old object-type field above the table is gone, this filter replaces it;
   - text (the handling unit id): "contains", case-insensitive;
   - numbers, durations, connectedness, timestamps: a range slider over all values plus From/To fields (durations typed in hours, connectedness in %; timestamps by the slider only). A bound left at the column's minimum or maximum is not applied; a range drops rows without a value.
+- Above the table, a line counts the listed handling units: "6 handling units listed", or "1 of 6 handling units listed (search and filters)" when search or filters hide some (Nina 2026-11-19).
 - Active filters are listed as pills above the table (× removes one, "Clear all" removes all); a filtered column's icon is filled.
 
 Example: Object type = coil and Children ≥ 1 leaves c2.

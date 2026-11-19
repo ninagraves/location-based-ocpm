@@ -536,6 +536,8 @@ export const HuProfileTable = ({ ocelId, selected, onSelected }: { ocelId: strin
     columns: specs.filter((s) => s.accessor !== "time_split").map((s) => s.accessor as ProfileFilterColumn),
   };
   const formats = new Map(COLUMNS.map((c) => [c.accessor, c]));
+  // All handling units of the log (the object types carry their counts), to compare with the listed ones.
+  const allUnits = (data?.object_types ?? []).reduce((sum, [, n]) => sum + n, 0);
   const { ref, width } = useElementSize();
   const selectedRecords = useMemo(() => selected.map((hu) => ({ hu }) as HuProfileRow), [selected]);
 
@@ -565,6 +567,12 @@ export const HuProfileTable = ({ ocelId, selected, onSelected }: { ocelId: strin
         </Group>
         <ExportButtons ocelId={ocelId} request={exportRequest} />
       </Group>
+      {data && (
+        <Text size="sm">
+          <b>{num(data.total)}</b>
+          {data.total === allUnits ? ` handling unit${data.total === 1 ? "" : "s"} listed` : ` of ${num(allUnits)} handling units listed (search and filters)`}
+        </Text>
+      )}
       {filters.length > 0 && (
         <Group gap={6}>
           <Text size="xs" c="dimmed">Filters:</Text>
