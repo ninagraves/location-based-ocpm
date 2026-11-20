@@ -6,6 +6,8 @@ Demo: `notebooks/instances.ipynb`.
 
 The page has no sidebar: four cards one below the other (HU profile, Lineage, Object graph, HU timeline), every chart with its own settings row above it.
 It ignores the filter bar of the overview page.
+Between the HU profile and the charts, the selection bar ("Selected (n):", one removable pill per selected handling unit, "Clear") sticks to the top of the window once scrolled to (CSS `position: sticky` below the app header; Nina 2026-11-20), so the selection stays visible and editable while looking at the charts.
+In the lineage and the object graph, double-clicking a handling unit selects it, or unselects it if it is selected; double-clicking an event or another object does nothing (Nina 2026-11-20; `toggle` in `routes/Instances.tsx`). A single click does nothing, and double-clicking does not zoom.
 The graph canvases (lineage, object graph) can be made taller by dragging their bottom-right corner (CSS `resize: vertical`; Nina 2026-11-15).
 All values use the low-level location $loc = loc^k$ of the level chosen in the settings bar (and $\widehat{hl} = agg(loc)$, the identity in Locations: low, so the high-level columns and band then repeat the locations); visits are not used (`settings-bar.md`).
 
@@ -91,7 +93,7 @@ Direction `both`, generations 2 (1–10 or all), transformation events off, sibl
 ### Where it lives in the code
 - `instances/charts.py`: `selection_lineage(derivation, handling_units, direction, gen, with_events, with_siblings, max_nodes) -> SelectionLineage(nodes, edges, notes)`.
 - Route `POST /{ocel_id}/instances/lineage` (`getSelectionLineage`).
-- `components/LineageChart.tsx`: ELK layout (options of `lib/dfgLayout.ts`) and React Flow drawing; clicking a handling unit adds it to the selection.
+- `components/LineageChart.tsx`: ELK layout (options of `lib/dfgLayout.ts`) and React Flow drawing; double-clicking a handling unit selects or unselects it (`onNodeDoubleClick`; handling-unit nodes get `pointerEvents: "all"`, since React Flow gives none to nodes that can be neither dragged nor selected).
 
 ### Alternatives
 - Ocelescope's graph viewer (as in the playground): its first fit zooms in too far; React Flow + ELK as on the DFG page instead.
@@ -104,14 +106,16 @@ Requested by Nina 2026-11-15.
 Nodes: the selected handling units (`focal`, thick border) and every object related to one of them by a shared event or by an o2o relation in either direction (`related`), handling units and other objects alike (handling units rounded, other objects square, in the colour of their object type).
 Arcs: one undirected arc per pair of nodes sharing at least one event, labelled with the event ids (at most three, then "+ n"; thicker for more events), and one dashed arrow per o2o relation (source → target), labelled with its qualifier.
 The arcs are all arcs between the nodes, also between two related objects.
-Hovering an arc's label lists its events (id, timestamp, activity) or the o2o relation; hovering a node gives its number of events and of events shared with the selection; clicking a handling unit adds it to the selection.
-Objects can be dragged (Nina 2026-11-15); the arcs follow, and positions are kept until the graph is laid out again (other selection or other visible part).
+Hovering an arc's label lists its events (id, timestamp, activity) or the o2o relation; hovering a node gives its number of events and of events shared with the selection; double-clicking a handling unit selects or unselects it.
+Option *Events as boxes* (Nina 2026-11-20, default off): every event of a selected handling unit becomes a white box (event id, activity; hover: timestamp and number of objects), with a thin line to every shown object it involves; these events then leave the event arcs, so an event arc only remains for events between related objects that involve no selected handling unit (e.g. c1–c3 with e14). Hidden object types get no line.
+Objects (and event boxes) can be dragged (Nina 2026-11-15); the arcs follow, and positions are kept until the graph is laid out again (other selection or other visible part).
 
 ### How it is calculated
 For the selected handling units $S$, with $E(o)$ the events of object $o$ (e2o) and $O2O$ the o2o relations:
 - related objects $R = \{o \notin S \mid E(o) \cap E(S) \neq \emptyset\} \cup \{o \notin S \mid (s, o) \in O2O \lor (o, s) \in O2O, s \in S\}$ (one hop);
 - event arcs: pairs $\{o, o'\} \subseteq S \cup R$ with $E(o) \cap E(o') \neq \emptyset$, carrying $E(o) \cap E(o')$ ordered by time and id;
-- o2o arcs: $(o, o') \in O2O$ with $o, o' \in S \cup R$.
+- o2o arcs: $(o, o') \in O2O$ with $o, o' \in S \cup R$;
+- event boxes: every $e \in E(S)$ with the nodes it involves, $\{o \in S \cup R \mid e \in E(o)\}$ (`focal_events`).
 The backend returns the whole graph once; object types and arc kinds are hidden in the browser, so changing them needs no new request (only a new layout).
 Unlike the rest of the page it reads the log's e2o and o2o tables directly (all objects, not only handling units).
 
@@ -119,6 +123,7 @@ Unlike the rest of the page it reads the log's e2o and o2o tables directly (all 
 `data/object_graph_example` (the running example plus crane1, truck1, op1, op2, customer orders o1, o2, customer k1 and nine o2o relations; same configuration).
 Selecting c2: related objects c1, c3, c4, s1 (shared events), crane1, op1, op2, truck1 (shared events) and o1 (o2o only); c5, o2 and k1 are two hops away and not part of the graph.
 Arcs: c1–c2 with e3, e4, e8, e9, e11; crane1–op1 with e5, e6, e11, e12 (between two related objects); o2o c4 → c2 "cut from", c2 → o1 "part of".
+Event boxes: c2's eight events e3, e4, e6, e8, e9, e11, e12, e15; e3 (roll) has lines to c1, c2 and s1, e6 (crane move) to c2, crane1 and op1 (if crane and operator are switched on); left as event arcs: c1–c3 with e14, c1–crane1 with e5.
 Tests: `test_object_graph` in `tests/test_instances.py`.
 
 ### Settings and defaults
@@ -126,13 +131,14 @@ Tests: `test_object_graph` in `tests/test_instances.py`.
 - Shared events, O2O relations: arc kinds, both on.
 - Arcs between related objects: on (off: only arcs touching a selected handling unit, a star around the selection).
 - Labels: on.
+- Events as boxes: off.
 - At most `MAX_OBJECT_NODES` = 500 nodes (selected first, then handling units, then other objects, each by shared events; cut with a note).
 Kept per log in the page state (`instances.objectGraph.<ocel>`).
 
 ### Where it lives in the code
-- `instances/object_graph.py`: `object_frames(ocel)` (e2o, o2o, objects, events renamed), `related_objects(frames, selected)`, `graph_nodes(frames, selected, related, handling_units)`, `event_arcs(frames, nodes)`, `o2o_arcs(frames, nodes)`, `object_graph(frames, selected, handling_units, max_nodes) -> ObjectGraph(nodes, event_arcs, o2o_arcs, notes)`.
+- `instances/object_graph.py`: `object_frames(ocel)` (e2o, o2o, objects, events renamed), `related_objects(frames, selected)`, `graph_nodes(frames, selected, related, handling_units)`, `event_arcs(frames, nodes)`, `o2o_arcs(frames, nodes)`, `focal_events(frames, selected, nodes)`, `object_graph(frames, selected, handling_units, max_nodes) -> ObjectGraph(nodes, event_arcs, o2o_arcs, events, notes)`.
 - Route `POST /{ocel_id}/instances/object-graph` (`getObjectGraph`).
-- `components/ObjectGraphChart.tsx`: settings row, `visibleGraph` (hiding), `layoutGraph` (ELK `stress`, one layout edge per pair), `routeArcs` (from the current node positions, so arcs follow dragged nodes: straight lines or, several between two objects, curves to both sides, clipped at the node boxes), React Flow drawing, label tooltips.
+- `components/ObjectGraphChart.tsx`: settings row, `visibleGraph` (hiding; with event boxes it adds the event nodes and e2o arcs and removes the boxed events from the event arcs), `layoutGraph` (ELK `stress`, one layout edge per pair), `routeArcs` (from the current node positions, so arcs follow dragged nodes: straight lines or, several between two objects, curves to both sides, clipped at the node boxes), React Flow drawing, label tooltips.
 
 ### How to change it
 - More hops (objects related to related objects): repeat `related_objects` with $S \cup R$ in `object_graph`.

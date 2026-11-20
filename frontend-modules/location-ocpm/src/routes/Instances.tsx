@@ -1,7 +1,7 @@
 // The instance page: the HU profile (one row per handling unit; rows can be selected), then, for the selected
 // handling units, the lineage chart, the object graph and the HU timeline, each with its own settings row.
 // Documented in docs/pages/instances.md.
-import { Button, Card, CloseButton, Group, Pill, Stack, Text, Title } from "@mantine/core";
+import { Box, Button, Card, Group, Pill, Stack, Text, Title } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getHuProfile } from "../api/locationBasedOcpm";
@@ -24,12 +24,23 @@ import { colourMap } from "../lib/palette";
 const MAX_PILLS = 30;
 
 /**
- * The selected handling units as removable pills, with "Clear".
+ * The selected handling units as removable pills, with "Clear". It sticks to the top of the window once scrolled to,
+ * so that the selection stays visible and editable next to the charts below.
  *
  * @param selected The selection.
  * @param onChange Called with the new selection.
  */
 const SelectionBar = ({ selected, onChange }: { selected: string[]; onChange: (ids: string[]) => void }) => (
+  <Box
+    style={{
+      position: "sticky",
+      top: "var(--app-shell-header-offset, 0px)",
+      zIndex: 5,
+      background: "var(--mantine-color-body)",
+      borderBottom: "1px solid var(--mantine-color-default-border)",
+      padding: "6px 0",
+    }}
+  >
   <Group gap={6}>
     <Text size="sm" fw={500}>Selected ({selected.length}):</Text>
     {selected.slice(0, MAX_PILLS).map((hu) => (
@@ -42,6 +53,7 @@ const SelectionBar = ({ selected, onChange }: { selected: string[]; onChange: (i
       Clear
     </Button>
   </Group>
+  </Box>
 );
 
 /** A card with a title, an optional reset button, settings and content. */
@@ -81,7 +93,8 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
     queryFn: ({ signal }) => getHuProfile(ocelId, { limit: 1 }, undefined, undefined, signal),
   });
   const colours = useMemo(() => colourMap((profile?.object_types ?? []).map(([t]) => t), scheme), [profile, scheme]);
-  const pick = useCallback((hu: string) => setSelected((s) => (s.includes(hu) ? s : [...s, hu])), [setSelected]);
+  // Double-clicking a handling unit in the lineage or object graph selects it, or unselects it if it is selected.
+  const toggle = useCallback((hu: string) => setSelected((s) => (s.includes(hu) ? s.filter((x) => x !== hu) : [...s, hu])), [setSelected]);
 
   // Handling units of the loaded lineage, selected ones first (siblings only if shown).
   const lineageUnits = useMemo(() => {
@@ -123,7 +136,7 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
               setLineageLayout((k) => k + 1);
             }}>
             <LineageSettingsRow settings={lineageSettings} onChange={setLineage} />
-            <LineageChart layoutKey={lineageLayout} query={lineage} colours={colours} settings={lineageSettings} onPick={pick} />
+            <LineageChart layoutKey={lineageLayout} query={lineage} colours={colours} settings={lineageSettings} onToggle={toggle} />
           </ChartCard>
           <ChartCard title="Object graph" onReset={() => {
               setObjectGraph(DEFAULT_OBJECT_GRAPH);
@@ -136,7 +149,7 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
               colours={colours}
               settings={objectGraphSettings}
               onChange={setObjectGraph}
-              onPick={pick}
+              onToggle={toggle}
             />
           </ChartCard>
           <ChartCard title="HU timeline" onReset={() => setTimeline(DEFAULT_TIMELINE)}>

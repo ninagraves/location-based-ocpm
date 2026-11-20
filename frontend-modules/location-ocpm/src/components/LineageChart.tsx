@@ -56,7 +56,7 @@ const SIZE = { font: 12, small: 10, padX: 10, padY: 6, minWidth: 64, height: 40,
 const HEIGHT = 420;
 
 // A mapped copy of LineageNode (an interface has no index signature, which React Flow's node data needs).
-type NodeData = { [K in keyof LineageNode]: LineageNode[K] } & { width: number; height: number; colour: string; onPick?: (hu: string) => void };
+type NodeData = { [K in keyof LineageNode]: LineageNode[K] } & { width: number; height: number; colour: string; onToggle?: (hu: string) => void };
 type EdgeData = { path: string; dashed: boolean; label: string | null; labelPosition: { x: number; y: number } | null; colour: string };
 
 const Handles = () => (
@@ -72,11 +72,10 @@ const ObjectNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
   const focal = data.role === "focal";
   return (
     <Tooltip
-      label={`${data.node} (${data.object_type ?? "?"})${focal ? ", selected" : sibling ? ", sibling" : ""}${data.onPick && !focal ? " · click to select" : ""}`}
+      label={`${data.node} (${data.object_type ?? "?"})${focal ? ", selected · double-click to unselect" : `${sibling ? ", sibling" : ""}${data.onToggle ? " · double-click to select" : ""}`}`}
       withinPortal
     >
       <Box
-        onClick={() => data.onPick?.(data.node)}
         style={{
           width: data.width,
           height: data.height,
@@ -88,7 +87,7 @@ const ObjectNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
           alignItems: "center",
           justifyContent: "center",
           lineHeight: 1.1,
-          cursor: data.onPick && !focal ? "pointer" : "default",
+          cursor: data.onToggle ? "pointer" : "default",
           opacity: sibling ? 0.7 : 1,
         }}
       >
@@ -179,7 +178,7 @@ const edgeLabel = (e: LineageEdge, withEvents: boolean) =>
  * @param direction Layout direction.
  * @param edgeColour Colour of the edges.
  * @param grey Colour of siblings and sibling edges.
- * @param onPick Called with a handling unit when its node is clicked.
+ * @param onToggle Called with a handling unit when its node is double-clicked (selects or unselects it).
  */
 const layoutLineage = async (
   lineage: LineageResponse,
@@ -188,7 +187,7 @@ const layoutLineage = async (
   direction: "RIGHT" | "DOWN",
   edgeColour: string,
   grey: string,
-  onPick?: (hu: string) => void,
+  onToggle?: (hu: string) => void,
 ) => {
   const sizes = new Map(lineage.nodes.map((n) => [n.node, nodeSize(n)]));
   const root: ElkNode = {
@@ -214,9 +213,12 @@ const layoutLineage = async (
       id: n.node,
       type: n.kind,
       position: position.get(n.node) ?? { x: 0, y: 0 },
-      data: { ...n, ...(sizes.get(n.node) as { width: number; height: number }), colour, onPick: n.kind === "object" ? onPick : undefined },
+      data: { ...n, ...(sizes.get(n.node) as { width: number; height: number }), colour, onToggle: n.kind === "object" ? onToggle : undefined },
       draggable: false,
       connectable: false,
+      // Handling units take pointer events (React Flow gives none to nodes that cannot be dragged, selected or clicked),
+      // so that a double click reaches `onNodeDoubleClick` and the hover shows.
+      style: n.kind === "object" ? { pointerEvents: "all" } : undefined,
     };
   });
   const edges: Edge<EdgeData>[] = lineage.edges.map((e, i) => {
@@ -259,7 +261,7 @@ const Legend = ({ withEvents }: { withEvents: boolean }) => (
     Rounded box: handling unit in the colour of its object type (thick border: selected; grey and dashed: sibling, i.e. produced
     together with a handling unit of the lineage) · arrow: component → product
     {withEvents ? " via the transformation event (white box)" : ", labelled with the transformation event"}
-    {withEvents ? "" : " · dashed line: siblings"} · click a handling unit to add it to the selection
+    {withEvents ? "" : " · dashed line: siblings"} · double-click a handling unit to select or unselect it
   </Text>
 );
 
@@ -336,7 +338,7 @@ export const useSelectionLineage = (ocelId: string, handlingUnits: string[], set
  * @param query The query of the lineage (`useSelectionLineage`).
  * @param colours Colour per object type (all object types of the log, so colours stay fixed).
  * @param settings The settings (for the shape of the graph).
- * @param onPick Called with a handling unit clicked in the graph.
+ * @param onToggle Called with a handling unit double-clicked in the graph (selects or unselects it).
  * @param layoutKey Changing it lays the graph out again and fits it (drops zoom and pan; "Reset settings").
  */
 export const LineageChart = ({
@@ -344,12 +346,12 @@ export const LineageChart = ({
   query,
   colours,
   settings,
-  onPick,
+  onToggle,
 }: {
   query: ReturnType<typeof useSelectionLineage>;
   colours: Map<string, string>;
   settings: LineageSettings;
-  onPick: (hu: string) => void;
+  onToggle: (hu: string) => void;
   layoutKey?: number;
 }) => {
   const scheme = useScheme();
@@ -359,7 +361,7 @@ export const LineageChart = ({
   useEffect(() => {
     if (!data) return;
     let cancelled = false;
-    layoutLineage(data, colours, settings.withEvents, settings.layout, scheme === "dark" ? "#909296" : "#666666", OTHER[scheme], onPick).then(
+    layoutLineage(data, colours, settings.withEvents, settings.layout, scheme === "dark" ? "#909296" : "#666666", OTHER[scheme], onToggle).then(
       (f) => !cancelled && setFlow(f),
       (e: unknown) => !cancelled && setLayoutError(String(e)),
     );
@@ -367,7 +369,7 @@ export const LineageChart = ({
       cancelled = true;
     };
     // layoutKey only triggers a new layout.
-  }, [data, colours, settings.withEvents, settings.layout, scheme, onPick, layoutKey]);
+  }, [data, colours, settings.withEvents, settings.layout, scheme, onToggle, layoutKey]);
 
   if (query.isError) return <Alert color="red">{errorText(query.error)}</Alert>;
   if (layoutError) return <Alert color="red">Layout failed: {layoutError}</Alert>;
@@ -393,6 +395,8 @@ export const LineageChart = ({
             nodesConnectable={false}
             nodesDraggable={false}
             elementsSelectable={false}
+            zoomOnDoubleClick={false}
+            onNodeDoubleClick={(_, n) => (n.data as NodeData).onToggle?.(n.id)}
             minZoom={0.05}
             maxZoom={3}
             fitView
