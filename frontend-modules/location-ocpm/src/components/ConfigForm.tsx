@@ -1423,7 +1423,6 @@ export const ConfigForm = ({
           )}
         </Section>
 
-
         <Section title="Movement events (required)" info={INFO.movements} hint="Events at which all their handling units are moved to the event's target location.">
           <EventSetFields
             value={draft.movement_events}
@@ -1437,41 +1436,6 @@ export const ConfigForm = ({
           />
         </Section>
 
-        <Section title="Transformation events (optional)" info={INFO.transformations} hint="Events in which handling units are consumed and/or produced.">
-          {DERIVES_T.includes(draft.transformation_roles.option) ? (
-            <Text size="xs" c="dimmed">
-              Determined by the consumed and produced handling units below.
-            </Text>
-          ) : (
-          <EventSetFields
-            value={draft.transformation_events}
-            onChange={set("transformation_events")}
-            ocelId={ocelId}
-            tables={tables}
-            activities={options?.activities}
-            qualifiers={options?.qualifiers}
-            eventAttributes={eventAttributes}
-            optional
-            valueLabel='Values meaning "transformation"'
-          />
-          )}
-          <Group gap={6} mt={4}>
-            <Text size="xs" fw={600}>
-              Consumed and produced handling units
-            </Text>
-            <Tooltip label={INFO.roles} multiline w={420} withArrow position="top-start">
-              <InfoIcon size={12} style={{ cursor: "help", opacity: 0.6 }} aria-label="About consumed and produced handling units" />
-            </Tooltip>
-          </Group>
-          <RolesFields
-            value={draft.transformation_roles}
-            onChange={set("transformation_roles")}
-            tables={tables}
-            qualifiers={options?.qualifiers}
-            o2oQualifiers={options?.o2o_qualifiers}
-            objectAttributes={options?.object_attributes ?? []}
-          />
-        </Section>
         <Section title="Target locations (required)" info={INFO.targets} hint="Empty values (null, NaN, empty, NA) count as not provided.">
           <LocationFields
             value={draft.target_locations}
@@ -1570,6 +1534,39 @@ export const ConfigForm = ({
             locations={locations}
             hasObjects={hasObjects}
             valueLabel='Values whose targets are storage units'
+          />
+        </Section>
+      </SimpleGrid>
+
+      <Text fw={600}>Transformations (optional)</Text>
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+        <Section title="Transformation events" info={INFO.transformations} hint="Events in which handling units are consumed and/or produced.">
+          {DERIVES_T.includes(draft.transformation_roles.option) ? (
+            <Text size="xs" c="dimmed">
+              Determined by the consumed and produced handling units.
+            </Text>
+          ) : (
+          <EventSetFields
+            value={draft.transformation_events}
+            onChange={set("transformation_events")}
+            ocelId={ocelId}
+            tables={tables}
+            activities={options?.activities}
+            qualifiers={options?.qualifiers}
+            eventAttributes={eventAttributes}
+            optional
+            valueLabel='Values meaning "transformation"'
+          />
+          )}
+        </Section>
+        <Section title="Consumed and produced handling units" info={INFO.roles} hint="Which handling units each transformation event consumes and produces.">
+          <RolesFields
+            value={draft.transformation_roles}
+            onChange={set("transformation_roles")}
+            tables={tables}
+            qualifiers={options?.qualifiers}
+            o2oQualifiers={options?.o2o_qualifiers}
+            objectAttributes={options?.object_attributes ?? []}
           />
         </Section>
       </SimpleGrid>

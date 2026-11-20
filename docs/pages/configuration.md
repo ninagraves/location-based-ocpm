@@ -1,6 +1,6 @@
 # Configuration (summary and form)
 
-Shown only on the Configuration page (before 2026-11-20 on top of every page; the other pages now show the settings bar, `settings-bar.md`, and point to the Configuration page while no configuration is applied). Concept: `overview/Deriving Locations.md`, sections "input data" and "shared header", and for the location context `overview/module/Module Overview.md`, "Update Overview Page", section 1 (outside this repo).
+Shown only on the Configuration page (before 2026-11-20 on top of every page; the other pages now show the settings bar, `settings-bar.md`). While no configuration is applied for the current log, opening Overview, Directly-follows graph or Instances opens the Configuration page instead (section 3). Concept: `overview/Deriving Locations.md`, sections "input data" and "shared header", and for the location context `overview/module/Module Overview.md`, "Update Overview Page", section 1 (outside this repo).
 How the inputs are resolved and checked: `docs/resources/location-derivation.md`, section 1 and 2. Storage and caching: `docs/hosting/state-and-caching.md`.
 
 ## 1. Configuration summary
@@ -17,19 +17,19 @@ More than five selected object types show the first five (in the order selected)
 
 ## 2. Configuration form
 **What it shows:** shown instead of the summary while no configuration is applied, and after "Edit configuration" (with "Cancel").
-One section per input, each with an option switch, the matching pickers and an ⓘ text:
+One section per input, each with an option switch, the matching pickers and an ⓘ text, in three groups (Nina, 2026-11-20): the required inputs (handling units, target locations below them; movement events, pickup locations on the right), then "Location context (optional)", then "Transformations (optional)":
 
 | Section | Options | Pickers |
 |---|---|---|
 | Handling units (required) | object types, table | object types with number of objects; table + object column |
-| Movement events (required) | activities, event attribute, table | activities with number of events; attribute + values with number of events; table + event column |
-| Transformation events (optional) | none, activities, event attribute, e2o qualifiers, table | as above; qualifiers with number of relations |
-| Consumed and produced handling units (optional, inside "Transformation events") | default (first/last timestamps), e2o qualifiers, table, parent relations (o2o), produced/consumed objects, first/last timestamps, frequency of first/last activities | consumed and produced qualifiers; table + event, object, role columns + role values; o2o qualifiers + direction; produced and consumed objects (object attribute values or table) + final/partial; threshold τ. Options deriving T replace the transformation-events pickers; details in `docs/resources/transformation-inputs.md` |
 | Target locations (required) | event attribute, e2o qualifier, table | attribute; qualifiers + location name (object id or a static object attribute); table + event and location columns |
+| Movement events (required) | activities, event attribute, table | activities with number of events; attribute + values with number of events; table + event column |
 | Pickup locations (optional) | none, event attribute, e2o qualifier, table | as for target locations |
 | High-level locations (optional, group "Location context") | none, table, event attributes, object attribute, o2o relation, naming pattern | table + location and high-level columns; low-level and high-level event attributes; attribute of the location objects; o2o qualifiers + name (id or attribute); regular expression with one group |
 | Processing operations (optional) | none, activities, event attribute, e2o qualifiers, table; whether the transformation events count too is set in the settings bar | as for transformation events; "none" with the switch on = P = T (default) |
 | Vehicles, storage units (optional) | none, locations, table, event attribute, object types | locations picked from L or typed in; table + location column + optional true/false column; attribute + values (their events' targets); object types of the location objects |
+| Transformation events (optional, group "Transformations") | none, activities, event attribute, e2o qualifiers, table | as for movement events; qualifiers with number of relations |
+| Consumed and produced handling units (optional, group "Transformations") | default (first/last timestamps), e2o qualifiers, table, parent relations (o2o), produced/consumed objects, first/last timestamps, frequency of first/last activities | consumed and produced qualifiers; table + event, object, role columns + role values; o2o qualifiers + direction; produced and consumed objects (object attribute values or table) + final/partial; threshold τ. Options deriving T replace the transformation-events pickers; details in `docs/resources/transformation-inputs.md` |
 
 The object-attribute, o2o and object-type options only appear if target or pickup locations use e2o qualifiers.
 **Location template** (button next to "Location context"): downloads `locations.csv` with one row per location of L and the empty columns `high_level`, `is_vehicle`, `is_storage`; fill it in, upload it once and pick it in the three location inputs. The locations come from `POST /{ocel_id}/locations` (`get_locations`), which resolves the current target and pickup inputs before "Apply" (only complete inputs are sent).
@@ -54,6 +54,7 @@ The object-attribute, o2o and object-type options only appear if target or picku
 **How to change:**
 - New option for an input: backend first (model in `derivation/config.py`, resolution in `inputs.py`, test), then `pnpm run build:modules` to regenerate the API client, then add the option to `EventSetDraft`/`LocationsDraft`, to `toConfig`/`fromConfig`, to `missingEntries` and to the section's switch.
 - Different defaults: `emptyDraft`.
+- Order of the sections: the JSX at the end of `ConfigForm` (three `SimpleGrid`s of two columns, filled row by row: the required inputs, "Location context", "Transformations").
 - Wording: `INFO`, `LEVELS`, the `hint` texts in `ConfigForm`.
 - More ids per error: `api_models.MAX_IDS` (backend) and the 20 in `MessageLine`.
 
@@ -64,3 +65,10 @@ The object-attribute, o2o and object-type options only appear if target or picku
 
 ## Loading files by drag and drop
 `components/DropTarget.tsx` (`DropTarget`) wraps a button or field: a file dropped on it is handled like one chosen in the file dialog (`onFile`); files not ending in one of `accept` go to `onReject`. While a file is dragged over, the area gets a dashed outline in the primary colour. Used for "Load configuration" (`accept=[".json"]`) and for each table option of the form (`TableColumns` in `ConfigForm.tsx`, `accept=[".csv"]`). To add it elsewhere, wrap the element in `<DropTarget accept={[...]} onFile={...}>`.
+
+## 3. Redirect while no configuration is applied
+**What it does:** while no configuration is applied for the current log, Overview, Directly-follows graph and Instances open the Configuration page instead (Nina, 2026-11-20). The sidebar still lists all four pages: Ocelescope 0.13 only greys out routes while no log is loaded (`requiresOcel`) and has no way for a module to hide or disable routes itself.
+**Example:** upload the running example, open "Directly-follows graph": the address changes to `/locationBasedOcpm/configuration` and the form shows. After "Apply", "Directly-follows graph" opens normally.
+**Code:** `ModulePage.tsx`: `unconfigured` (not the Configuration page, a log is selected, `getConfig` has answered without error and has no configuration) and a `useEffect` calling `router.replace(CONFIGURATION_ROUTE)` (`next/router`; `CONFIGURATION_ROUTE` from `getModuleRoute` of `@ocelescope/core`). `replace` instead of `push`, so "back" skips the page that could not be shown. `next` is a peer dependency of the module for this.
+**How to change:** another target page: `routeName` in `CONFIGURATION_ROUTE`. A page that should open without a configuration: render it without `ModulePage`, or pass `configuration`.
+**Alternatives considered:** hiding the entries in the sidebar needs a change in Ocelescope (`NavbarGroup` in `@ocelescope/core`, e.g. a per-route `isAvailable` hook); a module cannot do it. Showing a note with a link on each page instead of redirecting (the version before) leaves the pages reachable but empty.

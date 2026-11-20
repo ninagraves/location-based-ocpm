@@ -1,9 +1,10 @@
 // The frame of every page of the module: title, the configuration (Configuration page only), the settings bar
 // (every page), then the page's content. Documented in docs/pages/configuration.md and docs/pages/settings-bar.md.
 import { Alert, Button, Card, Group, Loader, Stack, Text, Title } from "@mantine/core";
-import { useCurrentOcel } from "@ocelescope/core";
+import { getModuleRoute, useCurrentOcel } from "@ocelescope/core";
 import { DownloadIcon, SettingsIcon } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { useRouter } from "next/router";
+import { type ReactNode, useEffect, useState } from "react";
 import { type DerivationConfig, useGetConfig, useGetStatus } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
 import { ConfigForm, downloadJson, Notices } from "./ConfigForm";
@@ -85,6 +86,9 @@ const contextParts = (config: DerivationConfig): string[] => {
   return parts;
 };
 
+/** Route of the Configuration page (module "locationBasedOcpm", route "configuration" in `index.ts`). */
+const CONFIGURATION_ROUTE = getModuleRoute({ moduleName: "locationBasedOcpm", routeName: "configuration" });
+
 /** Backend versions, as a small grey line (confirms the connection). */
 const Versions = () => {
   const { data: status, error } = useGetStatus();
@@ -104,8 +108,9 @@ const Versions = () => {
 /**
  * A page of the module: title; on the Configuration page (`configuration`) the configuration summary with "Edit
  * configuration", or the form while no configuration is applied or while editing; on every page the settings bar
- * (`SettingsBar`, once a configuration is applied); then the page's content. Other pages without an applied
- * configuration point to the Configuration page.
+ * (`SettingsBar`, once a configuration is applied); then the page's content. Other pages open the Configuration
+ * page instead while no configuration is applied for the log (Nina, 2026-11-20: Ocelescope 0.13 cannot hide
+ * sidebar entries, so the pages stay listed but redirect).
  */
 export const ModulePage = ({
   title,
@@ -121,15 +126,21 @@ export const ModulePage = ({
   const { data: state, isLoading, error } = useGetConfig(ocelId ?? "", { query: { enabled: !!ocelId } });
   const [editing, setEditing] = useState(false);
   const config = state?.config;
+  const router = useRouter();
+  const unconfigured = !configuration && !!ocelId && !isLoading && !error && !!state && !config;
+
+  useEffect(() => {
+    // `replace`, not `push`: "back" then skips the page that could not be shown.
+    if (unconfigured) void router.replace(CONFIGURATION_ROUTE);
+  }, [unconfigured, router]);
 
   let header: ReactNode;
   if (!ocelId) header = <Alert color="gray">Select an event log to start.</Alert>;
   else if (isLoading) header = <Loader size="sm" />;
   else if (error) header = <Alert color="red">{errorText(error)}</Alert>;
   else if (!configuration)
-    header = config ? null : (
-      <Alert color="gray">No configuration is applied for this log yet. Apply one on the Configuration page.</Alert>
-    );
+    // Shown only for the moment until the redirect to the Configuration page has happened.
+    header = config ? null : <Loader size="sm" />;
   else if (config && !editing)
     header = (
       <Stack gap="xs">

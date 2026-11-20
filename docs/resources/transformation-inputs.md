@@ -43,8 +43,8 @@ Tests: `tests/test_transformations.py`.
 Resolved once per configuration, before any page filter. Defaults: option 5 if only candidates are given, τ = 0.5, consumption `final`, role values `consumed`/`produced`.
 
 ## Configuration form
-`ConfigForm.tsx`: sub-section "Consumed and produced handling units" inside "Transformation events" (`RolesFields`, `ObjectSetFields`, draft `RolesDraft`, `rolesToConfig`, `INFO.roles`).
-If the option derives T (`DERIVES_T`), the transformation-events pickers are replaced by "Determined by the consumed and produced handling units below." and `toConfig` sends `transformation_events: null`.
+`ConfigForm.tsx`: section "Consumed and produced handling units" next to "Transformation events" in the group "Transformations (optional)", below "Location context" (`RolesFields`, `ObjectSetFields`, draft `RolesDraft`, `rolesToConfig`, `INFO.roles`).
+If the option derives T (`DERIVES_T`), the transformation-events pickers are replaced by "Determined by the consumed and produced handling units." and `toConfig` sends `transformation_events: null`.
 `NEEDS_T` options add "Transformation events" to the missing entries when no candidates are chosen.
 
 ## How to change
