@@ -86,6 +86,28 @@ def category_counts(categories: pl.DataFrame) -> dict[str, int]:
     return {k: int(v or 0) for k, v in row.items()}
 
 
+def removed_events(categories: pl.DataFrame, excluded: Collection[str]) -> pl.DataFrame:
+    """The events removed by deselecting categories: those in at least one category and in no selected one.
+
+    Example: with Movements and Move to vehicle deselected, a "load truck" event (movement to a vehicle) is removed,
+    a "roll" event (transformation, also processing) is kept, and an event in no category is kept.
+
+    Args:
+        categories: `event_categories`.
+        excluded: Deselected category keys (unknown keys are ignored).
+
+    Returns:
+        pl.DataFrame: Column event (empty if nothing is deselected).
+    """
+    excluded = [k for k in excluded if k in CATEGORIES]
+    if not excluded:
+        return categories.select(c.EVENT).clear()
+    selected = [k for k in CATEGORIES if k not in excluded]
+    in_any = pl.any_horizontal(pl.col(k) for k in CATEGORIES)
+    in_selected = pl.any_horizontal(pl.col(k) for k in selected) if selected else pl.lit(False)
+    return categories.filter(in_any & ~in_selected).select(c.EVENT)
+
+
 def remove_categories(traces: pl.DataFrame, categories: pl.DataFrame, excluded: Collection[str]) -> pl.DataFrame:
     """Remove the events whose categories are all deselected from the traces (projection).
 
@@ -97,13 +119,9 @@ def remove_categories(traces: pl.DataFrame, categories: pl.DataFrame, excluded: 
     Returns:
         pl.DataFrame: The kept rows, same columns and order, with `position` renumbered from 1 per object.
     """
-    excluded = [k for k in excluded if k in CATEGORIES]
-    if not excluded:
+    if not [k for k in excluded if k in CATEGORIES]:
         return traces
-    selected = [k for k in CATEGORIES if k not in excluded]
-    in_any = pl.any_horizontal(pl.col(k) for k in CATEGORIES)
-    in_selected = pl.any_horizontal(pl.col(k) for k in selected) if selected else pl.lit(False)
-    removed = categories.filter(in_any & ~in_selected).select(c.EVENT)
+    removed = removed_events(categories, excluded)
     return (
         traces.join(removed, on=c.EVENT, how="anti", maintain_order="left")
         .with_columns(pl.int_range(1, pl.len() + 1, dtype=pl.UInt32).over(d.OBJECT).alias(d.POSITION))

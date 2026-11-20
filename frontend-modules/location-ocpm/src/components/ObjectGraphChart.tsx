@@ -71,7 +71,13 @@ const MAX_HOVER_EVENTS = 25;
 /** Id of the node of an event box (prefixed, so that it cannot clash with an object id). */
 const eventNodeId = (event: string) => `\u0001event:${event}`;
 
-type ObjectData = { kind: "object" } & { [K in keyof ObjectGraphNode]: ObjectGraphNode[K] } & { width: number; height: number; colour: string };
+type ObjectData = { kind: "object" } & { [K in keyof ObjectGraphNode]: ObjectGraphNode[K] } & {
+  width: number;
+  height: number;
+  colour: string;
+  /** Set for handling units: called when their name is double-clicked. */
+  onToggle?: (hu: string) => void;
+};
 type EventData = { kind: "event" } & { [K in keyof FocalEvent]: FocalEvent[K] } & { width: number; height: number };
 type NodeData = ObjectData | EventData;
 /** An arc from an object to the box of an event it is involved in. */
@@ -87,7 +93,7 @@ const ObjectNode = memo(({ data }: NodeProps<Node<ObjectData>>) => {
   const focal = data.role === "focal";
   return (
     <Tooltip
-      label={`${data.node} (${data.object_type ?? "?"}) · ${data.n_events} events${data.n_shared != null ? `, ${data.n_shared} shared with the selection` : ""}${focal ? " · selected, double-click to unselect" : data.is_hu ? " · double-click to select" : ""} · drag to move`}
+      label={`${data.node} (${data.object_type ?? "?"}) · ${data.n_events} events${data.n_shared != null ? `, ${data.n_shared} shared with the selection` : ""}${focal ? " · selected, double-click the name to unselect" : data.is_hu ? " · double-click the name to select" : ""} · drag to move`}
       withinPortal
     >
       <Box
@@ -108,7 +114,18 @@ const ObjectNode = memo(({ data }: NodeProps<Node<ObjectData>>) => {
         {/* React Flow needs handles to draw an edge; the arcs are routed by `layoutGraph` and ignore them. */}
         <Handle type="target" position={Position.Left} style={{ opacity: 0, pointerEvents: "none" }} />
         <Handle type="source" position={Position.Right} style={{ opacity: 0, pointerEvents: "none" }} />
-        <Text fz={SIZE.font} fw={focal ? 700 : 500}>{data.node}</Text>
+        {/* Only the name reacts to a double click (Nina, 2026-11-20); the rest of the box drags the node. */}
+        <Text
+          fz={SIZE.font}
+          fw={focal ? 700 : 500}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            data.onToggle?.(data.node);
+          }}
+          style={data.onToggle ? { cursor: "pointer", textDecoration: "underline dotted", textUnderlineOffset: 2 } : undefined}
+        >
+          {data.node}
+        </Text>
         <Text fz={SIZE.small} c="dimmed">{data.object_type}</Text>
       </Box>
     </Tooltip>
@@ -272,8 +289,14 @@ export const visibleGraph = (graph: ObjectGraphResponse, settings: ObjectGraphSe
  * @param graph The visible part (`visibleGraph`).
  * @param colours Colour per object type.
  * @param scheme Colour scheme.
+ * @param onToggle Given to the handling units, called when their name is double-clicked.
  */
-const layoutGraph = async (graph: ReturnType<typeof visibleGraph>, colours: Map<string, string>, scheme: Scheme) => {
+const layoutGraph = async (
+  graph: ReturnType<typeof visibleGraph>,
+  colours: Map<string, string>,
+  scheme: Scheme,
+  onToggle?: (hu: string) => void,
+) => {
   const sizes = new Map([
     ...graph.nodes.map((n) => [n.node, nodeSize(n)] as const),
     ...graph.events.map((e) => [eventNodeId(e.event), eventSize(e)] as const),
@@ -309,7 +332,7 @@ const layoutGraph = async (graph: ReturnType<typeof visibleGraph>, colours: Map<
         id: n.node,
         type: "object",
         position,
-        data: { kind: "object", ...n, ...size, colour: colours.get(n.object_type ?? "") ?? OTHER[scheme] },
+        data: { kind: "object", ...n, ...size, colour: colours.get(n.object_type ?? "") ?? OTHER[scheme], onToggle: n.is_hu ? onToggle : undefined },
         connectable: false,
       };
     }),
@@ -392,7 +415,7 @@ const Legend = () => (
     Rounded box: handling unit, square box: other object, in the colour of its object type (thick border: selected) · solid
     line: shared events, labelled with their ids (thicker: more events) · dashed arrow: o2o relation, labelled with its
     qualifier · hover a label for the events (id, timestamp, activity) · with "Events as boxes": white box = event of a selected handling
-    unit, with a line to every object it involves · drag objects to move them · double-click a handling unit to select or unselect it
+    unit, with a line to every object it involves · drag objects to move them · double-click the name of a handling unit to select or unselect it
   </Text>
 );
 
@@ -486,7 +509,7 @@ export const useObjectGraph = (ocelId: string, handlingUnits: string[]) => {
  * @param colours Colour per object type of the handling units (other object types get the next palette colours).
  * @param settings The settings.
  * @param onChange Called with the changed settings.
- * @param onToggle Called with a handling unit double-clicked in the graph (selects or unselects it).
+ * @param onToggle Called with a handling unit whose name is double-clicked in the graph (selects or unselects it).
  * @param layoutKey Changing it lays the graph out again (drops dragged positions; "Reset settings").
  */
 export const ObjectGraphChart = ({
@@ -525,7 +548,7 @@ export const ObjectGraphChart = ({
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
-    layoutGraph(visible, allColours, scheme).then(
+    layoutGraph(visible, allColours, scheme, onToggle).then(
       (f) => {
         if (cancelled) return;
         setFlow(f);
@@ -537,7 +560,7 @@ export const ObjectGraphChart = ({
       cancelled = true;
     };
     // layoutKey only triggers a new layout.
-  }, [visible, allColours, scheme, setNodes, layoutKey]);
+  }, [visible, allColours, scheme, onToggle, setNodes, layoutKey]);
   const edges = useMemo(() => (flow ? routeArcs(flow.arcs, nodes, settings.labels, scheme) : []), [flow, nodes, settings.labels, scheme]);
   const o2oColour = UI[scheme].accent;
 
@@ -571,7 +594,6 @@ export const ObjectGraphChart = ({
                 nodes={nodes}
                 edges={edges}
                 onNodesChange={onNodesChange}
-                onNodeDoubleClick={(_, n) => n.data.kind === "object" && n.data.is_hu && onToggle(n.id)}
                 zoomOnDoubleClick={false}
                 nodeTypes={NODE_TYPES}
                 edgeTypes={EDGE_TYPES}

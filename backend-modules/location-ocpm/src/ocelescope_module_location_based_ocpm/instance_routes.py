@@ -19,7 +19,12 @@ from ocelescope_module_location_based_ocpm.configuration_routes import (
     CurrentDerivation,
     State,
 )
+from ocelescope_module_location_based_ocpm.derivation import columns as c
 from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation
+from ocelescope_module_location_based_ocpm.dfg.categories import (
+    CATEGORIES,
+    event_categories,
+)
 from ocelescope_module_location_based_ocpm.instances.charts import (
     processing_events,
     selection_lineage,
@@ -41,6 +46,7 @@ from ocelescope_module_location_based_ocpm.instances.profile import (
     query_rows,
     sort_rows,
 )
+from ocelescope_module_location_based_ocpm.instances.traces import object_traces
 from ocelescope_module_location_based_ocpm.lineage.lineage import Direction
 from ocelescope_module_location_based_ocpm.timeline.object_timeline import (
     MAX_HANDLING_UNITS,
@@ -565,4 +571,99 @@ def get_object_graph(ocel: ApiOcel, derivation: CurrentDerivation, request: Obje
         o2o_arcs=[O2oArc(**row) for row in graph.o2o_arcs.to_dicts()],
         events=[FocalEvent(**row) for row in graph.events.to_dicts()],
         notes=graph.notes,
+    )
+
+
+class ObjectTracesRequest(BaseModel):
+    """The selected handling units and the deselected event categories of the object traces.
+
+    Attributes:
+        handling_units: The selected handling units (one row each, in this order).
+        excluded_categories: Deselected event category keys (`dfg.categories.CATEGORIES`); default none.
+    """
+
+    handling_units: list[str]
+    excluded_categories: list[str] = Field(default_factory=list)
+
+
+class TraceObject(BaseModel):
+    """Another object of an event: id, object type, whether it is a handling unit and one of the selected ones."""
+
+    object: str
+    object_type: str | None = None
+    is_hu: bool
+    selected: bool
+
+
+class TraceEvent(BaseModel):
+    """An event of a trace (see `instances.traces.ObjectTraces`)."""
+
+    pos: int
+    event: str
+    time: datetime | None = None
+    activity: str | None = None
+    location: str | None = None
+    categories: list[str]
+    objects: list[TraceObject]
+
+
+class ObjectTrace(BaseModel):
+    """The trace of one selected handling unit after the projection."""
+
+    hu: str
+    object_type: str | None = None
+    n_events: int
+    events: list[TraceEvent]
+
+
+class TraceCategory(BaseModel):
+    """An event category for the chips: key, label, events of the selected handling units in it, selected or not."""
+
+    key: str
+    label: str
+    events: int
+    selected: bool
+
+
+class ObjectTracesResponse(BaseModel):
+    """The object traces of the selected handling units."""
+
+    traces: list[ObjectTrace]
+    categories: list[TraceCategory]
+    notes: list[str]
+
+
+@router.post("/{ocel_id}/instances/traces", operation_id="getObjectTraces")
+def get_object_traces(ocel: ApiOcel, derivation: CurrentDerivation, request: ObjectTracesRequest) -> ObjectTracesResponse:
+    """One trace per selected handling unit with the other objects of every event, projected on the event categories."""
+    events = derivation.events.select(c.EVENT, c.IS_MOVEMENT, c.IS_TRANSFORMATION, c.IS_PROCESSING, c.ULOC)
+    categories = event_categories(events, derivation.context.vehicles, derivation.context.storage_units)
+    result = object_traces(
+        derivation.relations,
+        object_frames(ocel),
+        categories,
+        request.handling_units,
+        derivation.handling_units,
+        derivation.loc,
+        derivation.hl,
+        processing_events(derivation),
+        request.excluded_categories,
+    )
+    by_hu = {hu: rows for (hu,), rows in result.events.partition_by("hu", as_dict=True, maintain_order=True).items()}
+    traces = [
+        ObjectTrace(
+            hu=total["hu"],
+            object_type=total["object_type"],
+            n_events=total["n_events"],
+            events=[TraceEvent(**row) for row in by_hu[total["hu"]].drop("hu", "object_type").to_dicts()] if total["hu"] in by_hu else [],
+        )
+        for total in result.totals.to_dicts()
+    ]
+    return ObjectTracesResponse(
+        traces=traces,
+        categories=[
+            TraceCategory(key=k, label=label, events=result.categories[k], selected=k not in request.excluded_categories)
+            for k, label in CATEGORIES.items()
+        ],
+        notes=result.notes,
     )

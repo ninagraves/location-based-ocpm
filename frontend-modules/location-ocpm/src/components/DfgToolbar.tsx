@@ -14,17 +14,22 @@ import { DEFAULT_STATE, type DfgState, INFO } from "./DfgSettings";
  * One chip per event category; clicking one (de)selects it. A category without events is disabled. An event is
  * removed only when all its categories are deselected (Nina, 2026-11-15).
  *
+ * Also used above the object traces of the instance page (`ObjectTracesChart.tsx`), with its own hover text.
+ *
  * @param categories The categories of the graph (key, label, events).
  * @param excluded The deselected keys; `onChange` gets the new list.
+ * @param info Hover text of the info icon (default: the DFG page's).
  */
-const CategoryChips = ({
+export const CategoryChips = ({
   categories,
   excluded,
   onChange,
+  info = INFO.categories,
 }: {
   categories: DfgEventCategory[];
   excluded: string[];
   onChange: (excluded: string[]) => void;
+  info?: string;
 }) => (
   <Group gap={4} wrap="wrap">
     {categories.map((c) => (
@@ -39,7 +44,7 @@ const CategoryChips = ({
         {c.label} ({num(c.events)})
       </Chip>
     ))}
-    <Tooltip label={INFO.categories} multiline w={340} withinPortal>
+    <Tooltip label={info} multiline w={340} withinPortal>
       <InfoIcon size={12} style={{ opacity: 0.6 }} aria-label="About the event categories" />
     </Tooltip>
   </Group>
