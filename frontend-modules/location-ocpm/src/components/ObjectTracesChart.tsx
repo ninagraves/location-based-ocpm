@@ -144,6 +144,7 @@ const Chevron = memo(
                     withinPortal
                   >
                     <Box
+                      data-object={o.object}
                       onDoubleClick={o.is_hu && onToggle ? () => onToggle(o.object) : undefined}
                       style={{
                         cursor: o.is_hu && onToggle ? "pointer" : undefined,
