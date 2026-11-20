@@ -2,6 +2,7 @@
 // and reloads. Documented in docs/pages/overview.md, section "Page filter bar".
 import { type GetKeyNumbersParams, useGetConfig } from "../api/locationBasedOcpm";
 import { usePageState } from "./pageState";
+import { useGlobalSettings } from "./settings";
 
 /** The filter bar's state; sent as query parameters to every filtered route. */
 export type PageFilter = {
@@ -12,8 +13,6 @@ export type PageFilter = {
   location_role: "either" | "before" | "after";
   object_types: string[];
   exclude_object_types: string[];
-  /** Locations: low | high; not a filter, it changes how locations are shown (only with high-level locations). */
-  location_mode?: "low" | "high";
 };
 
 /** Prefixes of high-level locations and single ids in the filter values (backend `overview/filters.py`). */
@@ -28,9 +27,6 @@ export const shown = (value: string) => {
   return prefix ? value.slice(prefix.length) : value;
 };
 
-/** True in high-level mode. */
-export const isHigh = (f: PageFilter) => f.location_mode === "high";
-
 /** No filter set. */
 export const emptyFilter: PageFilter = {
   activities: [],
@@ -40,30 +36,30 @@ export const emptyFilter: PageFilter = {
   location_role: "either",
   object_types: [],
   exclude_object_types: [],
-  location_mode: "low",
 };
 
-/** Clear every filter (also the role switch) but keep the location mode. */
-export const cleared = (f: PageFilter): PageFilter => ({ ...emptyFilter, location_mode: f.location_mode ?? "low" });
+/** Clear every filter (also the role switch). Locations: low | high is in the settings bar and stays. */
+export const cleared = (_f: PageFilter): PageFilter => emptyFilter;
 
-/** True if any filter value is set (the role switch and the location mode alone filter nothing). */
+/** True if any filter value is set (the role switch alone filters nothing). */
 export const isActive = (f: PageFilter) =>
   [f.activities, f.exclude_activities, f.locations, f.exclude_locations, f.object_types, f.exclude_object_types].some(
     (values) => values.length > 0,
   );
 
 /**
- * The location context of the applied configuration: high = high-level mode is on and high-level locations
- * are configured; withTypes = vehicles or storage units are configured (location-type options).
+ * The location context of the applied configuration: withHighLevel = high-level locations are configured;
+ * high = the settings bar is on Locations: high (only possible with high-level locations); withTypes = vehicles
+ * or storage units are configured (location-type options).
  */
 export const useLocationContext = (ocelId: string) => {
-  const [filter] = usePageFilter(ocelId);
   const { data } = useGetConfig(ocelId);
+  const { data: settings } = useGlobalSettings(ocelId);
   const config = data?.config;
   const withHighLevel = !!config?.high_level_locations;
   return {
     withHighLevel,
-    high: withHighLevel && isHigh(filter),
+    high: withHighLevel && settings?.location_mode === "high",
     withTypes: !!config?.vehicles || !!config?.storage_units,
   };
 };
@@ -71,8 +67,8 @@ export const useLocationContext = (ocelId: string) => {
 /** The filter of a log, shared by all pages. */
 export const usePageFilter = (ocelId: string) => usePageState<PageFilter>(`filter.${ocelId}`, emptyFilter);
 
-/** The filter lists, i.e. the filter's keys without the location role and the location mode. */
-export type FilterKey = Exclude<keyof PageFilter, "location_role" | "location_mode">;
+/** The filter lists, i.e. the filter's keys without the location role. */
+export type FilterKey = Exclude<keyof PageFilter, "location_role">;
 
 /** Include and exclude list of the same filter: a value can be in only one of them. */
 const OPPOSITE: Record<FilterKey, FilterKey> = {
@@ -115,8 +111,14 @@ export const withValue = (f: PageFilter, key: FilterKey, value: string): PageFil
   return withValues(f, key, [...kept, value]);
 };
 
-/** Query parameters of a filtered route. */
-export const filterParams = (f: PageFilter): GetKeyNumbersParams => ({ ...f, location_mode: f.location_mode ?? "low" });
+/**
+ * Query parameters of a filtered route. The location mode is not among them: the backend takes it from the settings
+ * bar. A filter stored before 2026-11-20 may still hold `location_mode`; it is dropped here.
+ */
+export const filterParams = (f: PageFilter): GetKeyNumbersParams => {
+  const { location_mode: _old, ...params } = f as PageFilter & { location_mode?: string };
+  return params;
+};
 
 /** Request option so that lists are sent as `a=x&a=y`, as FastAPI expects. */
 export const filterRequest = { paramsSerializer: { indexes: null } };

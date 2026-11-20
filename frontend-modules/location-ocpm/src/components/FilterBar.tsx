@@ -7,7 +7,6 @@ import {
   type FilterOption,
   type FilterOptions,
   type SearchIdsKind,
-  useGetConfig,
   useGetFilterOptions,
   useSearchIds,
 } from "../api/locationBasedOcpm";
@@ -17,10 +16,10 @@ import {
   EVENT_PREFIX,
   HU_PREFIX,
   isActive,
-  isHigh,
   type FilterKey,
   type PageFilter,
   shown,
+  useLocationContext,
   usePageFilter,
   withValues,
 } from "../lib/filters";
@@ -188,15 +187,13 @@ const IdPickers = ({
  * The page filter bar: sticks to the top while scrolling; one column per filter (Activity,
  * Location, Handling unit), each with an include and an exclude picker; each option shows its count
  * over the whole log. Filters act on hu-event relations at the selected level (see `overview/filters.py`).
- * With high-level locations, the switch "Locations: low | high" changes how the Overview section shows
- * locations; filters are always evaluated on low-level locations, so switching never changes them.
+ * Locations: low | high is set in the settings bar (`SettingsBar.tsx`); in high mode the location list shows
+ * "A1 (in A)". Filters are always evaluated on low-level locations, so switching never changes them.
  */
 export const FilterBar = ({ ocelId }: { ocelId: string }) => {
   const [filter, setFilter] = usePageFilter(ocelId);
   const { data: options, error } = useGetFilterOptions(ocelId);
-  const { data: state } = useGetConfig(ocelId);
-  const withHighLevel = !!state?.config?.high_level_locations;
-  const high = withHighLevel && isHigh(filter);
+  const { high } = useLocationContext(ocelId);
   const set = (key: FilterKey) => (values: string[]) => setFilter((f) => withValues(f, key, values));
   if (error) return <Alert color="red">{errorText(error)}</Alert>;
   const role = (
@@ -211,23 +208,6 @@ export const FilterBar = ({ ocelId }: { ocelId: string }) => {
       value={filter.location_role}
       onChange={(v) => setFilter((f) => ({ ...f, location_role: v as PageFilter["location_role"] }))}
     />
-  );
-  const mode = withHighLevel && (
-    <Group gap={4} wrap="nowrap">
-      <Text size="xs" c="dimmed">
-        Locations:
-      </Text>
-      <SegmentedControl
-        size="xs"
-        title="Show low-level locations or high-level locations in the Overview section; filters are unchanged"
-        data={[
-          { value: "low", label: "low" },
-          { value: "high", label: "high" },
-        ]}
-        value={high ? "high" : "low"}
-        onChange={(v) => setFilter((f) => ({ ...f, location_mode: v as "low" | "high" }))}
-      />
-    </Group>
   );
   // Always shown; disabled while no filter is set.
   const clear = (
@@ -270,7 +250,6 @@ export const FilterBar = ({ ocelId }: { ocelId: string }) => {
           title="Handling unit"
           extra={
             <Group gap="xs" wrap="nowrap">
-              {mode}
               {clear}
             </Group>
           }

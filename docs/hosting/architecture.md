@@ -4,17 +4,17 @@
 - **Ocelescope instance** (this repo's root): the published `ocelescope-backend` host (Python, uv workspace) and the Next.js app in `app/` (pnpm workspace). Both come from the Ocelescope instance template.
 - **Backend module** `backend-modules/location-ocpm/`: a FastAPI app. `ocelescope-backend` discovers it through the entry point `ocelescope_backend.modules` in its `pyproject.toml` and serves it under `/modules/locationBasedOcpm/v1`.
   - `module.py`: module class `LocationBasedOcpm` (key, version, app creation).
-  - `routes.py`: API routes: `GET /status`, plus the configuration routes of `configuration_routes.py` (tables, options, apply; see `state-and-caching.md`), the overview routes of `overview_routes.py` the route of the directly-follows graph page (`dfg_routes.py`, with a small LRU cache of the log's frames and the traces of a selection) and the routes of the instance page (`instance_routes.py`, with a small LRU cache of the HU profile per derivation).
-  - `overview/`: content of the overview page, one module per section (documented in `docs/pages/overview.md`).
+  - `routes.py`: API routes: `GET /status`, plus the configuration routes of `configuration_routes.py` (tables, options, apply; see `state-and-caching.md`), the settings bar routes of `settings_routes.py` (`global_settings.py`; documented in `docs/pages/settings-bar.md`), the overview routes of `overview_routes.py` the route of the directly-follows graph page (`dfg_routes.py`, with a small LRU cache of the log's frames and the traces of a selection) and the routes of the instance page (`instance_routes.py`, with a small LRU cache of the HU profile per derivation).
+  - `overview/`: content of the Configuration and Overview pages, one module per section (documented in `docs/pages/overview.md`).
   - `dfg/`: content of the directly-follows graph page, one module per step (documented in `docs/pages/directly-follows-graph.md`).
   - `instances/`: content of the instance page: `profile.py` (HU profile, one function per step) and `charts.py` (lineage of a selection, HU timeline as Plotly JSON); documented in `docs/pages/instances.md`.
-  - `state.py`: per-session state (uploaded tables, applied configuration per log, cache).
+  - `state.py`: per-session state (uploaded tables, applied configuration and settings per log, cache).
   - `api_models.py`: response models of the configuration routes.
   - `derivation/`: location derivation (content; documented in `docs/resources/location-derivation.md`).
 - **Frontend module** `frontend-modules/location-ocpm/`: React (Mantine UI), registered in `app/ocelescope.config.ts`.
   - `src/index.ts`: module definition and pages.
   - `src/routes/`: one file per page.
-  - `src/components/ModulePage.tsx`: frame of every page (title, shared header with the configuration summary, content).
+  - `src/components/ModulePage.tsx`: frame of every page (title; configuration summary and form on the Configuration page only; settings bar `SettingsBar.tsx` on every page; content).
   - `src/components/ConfigForm.tsx`: the configuration form (content; documented in `docs/pages/configuration.md`).
   - `src/lib/errors.ts`: error text of a failed request; `src/lib/format.ts`: number formatting.
   - `src/components/plots.tsx`: theme-aware Plotly chart (`ThemedPlot`) and the chart toolbar (`plotConfig`: download PNG, download SVG, reset axes).

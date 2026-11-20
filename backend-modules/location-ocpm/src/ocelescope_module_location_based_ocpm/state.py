@@ -17,7 +17,11 @@ import polars as pl
 
 from ocelescope_module_location_based_ocpm.derivation.config import DerivationConfig
 from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation
+from ocelescope_module_location_based_ocpm.global_settings import GlobalSettings
 
+#: Derivations kept per log (the current one and the one before), so that switching a setting of the settings bar
+#: back (e.g. Locations: high -> low -> high) does not derive again. Each one holds all level columns of the log.
+RECENT_PER_LOG = 2
 
 
 @dataclass
@@ -55,12 +59,45 @@ class ModuleState:
     Attributes:
         tables: Uploaded tables by file name; uploading a file with the same name replaces it.
         configs: Applied configuration per log id.
-        cache: Latest derivation per log id (one entry per log, replaced when its key changes).
+        settings: Settings of the settings bar per log id that are not part of the configuration
+            (`global_settings.GlobalSettings`); a log without an entry uses the defaults.
+        cache: Current derivation per log id, i.e. the one of the effective configuration
+            (`global_settings.effective_config`).
+        recent: Per log id the last `RECENT_PER_LOG` derivations, newest first (including the current one).
     """
 
     tables: dict[str, UploadedTable] = field(default_factory=dict)
     configs: dict[str, DerivationConfig] = field(default_factory=dict)
+    settings: dict[str, GlobalSettings] = field(default_factory=dict)
     cache: dict[str, CachedDerivation] = field(default_factory=dict)
+    recent: dict[str, list[CachedDerivation]] = field(default_factory=dict)
+
+    def remember(self, ocel_id: str, cached: CachedDerivation) -> None:
+        """Make a derivation the current one of a log and keep it among its recent ones.
+
+        Args:
+            ocel_id: Id of the log.
+            cached: The derivation and its cache key.
+        """
+        self.cache[ocel_id] = cached
+        others = [entry for entry in self.recent.get(ocel_id, []) if entry.key != cached.key]
+        self.recent[ocel_id] = [cached, *others][:RECENT_PER_LOG]
+
+    def recall(self, ocel_id: str, key: str) -> CachedDerivation | None:
+        """A recent derivation of a log with the given key, made the current one again.
+
+        Args:
+            ocel_id: Id of the log.
+            key: Cache key (see `fingerprint`).
+
+        Returns:
+            CachedDerivation | None: The derivation, or None if none of the recent ones has this key.
+        """
+        for entry in self.recent.get(ocel_id, []):
+            if entry.key == key:
+                self.remember(ocel_id, entry)
+                return entry
+        return None
 
     def add_table(self, name: str, content: bytes) -> UploadedTable:
         """Read a CSV upload, every column as text, and store it under its file name.
