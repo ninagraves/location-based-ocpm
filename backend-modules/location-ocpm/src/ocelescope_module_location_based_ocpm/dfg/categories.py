@@ -1,22 +1,23 @@
-"""Step 1a: the event categories of the page's toolbar (Nina, 2026-11-15).
+"""Step 1a: the event categories of the page's toolbar (Nina, 2026-11-15; "Other movements" since 2026-11-20).
 
 Five categories of events, all selected by default; deselecting one removes the events of that category from the
 traces (projection, as the activity selection in `projection.py`), before anything else:
 
 | Key | Label | Events |
 |---|---|---|
-| `movement` | Movements | $M$ |
 | `to_vehicle` | Move to vehicle | $e \\in M$ with target location $uloc(e) \\in V$ |
 | `to_storage` | Move to storage | $e \\in M$ with $uloc(e) \\in W$ |
+| `other_movement` | Other movements | $e \\in M$ with $uloc(e) \\notin V \\cup W$ (or not provided) |
 | `processing` | Processing | $P$ |
 | `transformation` | Transforming | $T$ |
 
-The categories overlap ("Move to vehicle" and "Move to storage" are movements; $P$ may contain transformation events):
-an event is removed only if **all** its categories are deselected (Nina, 2026-11-15). Events in no category are
-always kept.
-Example: a "load truck" event (uloc = truck, a vehicle) is in Movements and Move to vehicle. Deselecting only one of
-them keeps it; deselecting both removes it. A "crane move" to a gate is only in Movements: deselecting Movements
-removes it.
+The three movement categories split $M$ (Nina, 2026-11-20: the button "Movements" for all of $M$ was dropped). The
+categories can still overlap (a movement may be a processing operation; $P$ may contain transformation events): an
+event is removed only if **all** its categories are deselected (Nina, 2026-11-15). Events in no category are always
+kept.
+Example: a "load truck" event (uloc = truck, a vehicle) is only in Move to vehicle: deselecting it removes the event.
+A "crane move" to a gate is only in Other movements: deselecting Other movements removes it, Move to vehicle and Move
+to storage leave it.
 """
 
 from __future__ import annotations
@@ -28,23 +29,23 @@ import polars as pl
 from ..derivation import columns as c
 from . import columns as d
 
-MOVEMENT = "movement"
 TO_VEHICLE = "to_vehicle"
 TO_STORAGE = "to_storage"
+OTHER_MOVEMENT = "other_movement"
 PROCESSING = "processing"
 TRANSFORMATION = "transformation"
 #: Category key -> label, in the order of the toolbar.
 CATEGORIES: dict[str, str] = {
-    MOVEMENT: "Movements",
     TO_VEHICLE: "Move to vehicle",
     TO_STORAGE: "Move to storage",
+    OTHER_MOVEMENT: "Other movements",
     PROCESSING: "Processing",
     TRANSFORMATION: "Transforming",
 }
-#: Categories deselected by default (Nina, 2026-11-16: Move to vehicle / storage; 2026-11-19: all movements). As an
-#: event stays while any of its categories is selected, this removes the movements that are not also processing
-#: operations or transformations.
-DEFAULT_EXCLUDED: tuple[str, ...] = (MOVEMENT, TO_VEHICLE, TO_STORAGE)
+#: Categories deselected by default (Nina, 2026-11-16: Move to vehicle / storage; 2026-11-19: all movements, since
+#: 2026-11-20 as the three movement categories). As an event stays while any of its categories is selected, this
+#: removes the movements that are not also processing operations or transformations.
+DEFAULT_EXCLUDED: tuple[str, ...] = (TO_VEHICLE, TO_STORAGE, OTHER_MOVEMENT)
 
 
 def event_categories(events: pl.DataFrame, vehicles: Collection[str], storage_units: Collection[str]) -> pl.DataFrame:
@@ -60,11 +61,13 @@ def event_categories(events: pl.DataFrame, vehicles: Collection[str], storage_un
         pl.DataFrame: Column event and one boolean column per key of `CATEGORIES`.
     """
     movement = pl.col(c.IS_MOVEMENT).fill_null(False)
+    to_vehicle = movement & pl.col(c.ULOC).is_in(list(vehicles)).fill_null(False)
+    to_storage = movement & pl.col(c.ULOC).is_in(list(storage_units)).fill_null(False)
     return events.select(
         c.EVENT,
-        movement.alias(MOVEMENT),
-        (movement & pl.col(c.ULOC).is_in(list(vehicles)).fill_null(False)).alias(TO_VEHICLE),
-        (movement & pl.col(c.ULOC).is_in(list(storage_units)).fill_null(False)).alias(TO_STORAGE),
+        to_vehicle.alias(TO_VEHICLE),
+        to_storage.alias(TO_STORAGE),
+        (movement & ~to_vehicle & ~to_storage).alias(OTHER_MOVEMENT),
         pl.col(c.IS_PROCESSING).fill_null(False).alias(PROCESSING),
         pl.col(c.IS_TRANSFORMATION).fill_null(False).alias(TRANSFORMATION),
     )
@@ -155,7 +158,7 @@ def counts_by_group(counts: pl.DataFrame, by: Collection[str]) -> dict[tuple, di
         by: Its group columns.
 
     Returns:
-        dict[tuple, dict[str, int]]: Group values -> category key -> events, e.g. {("load",): {"movement": 9}}.
+        dict[tuple, dict[str, int]]: Group values -> category key -> events, e.g. {("load",): {"to_vehicle": 9}}.
     """
     return {
         tuple(row[b] for b in by): {k: row[k] for k in CATEGORIES if row[k]} for row in counts.iter_rows(named=True)

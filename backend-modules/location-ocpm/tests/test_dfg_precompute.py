@@ -8,7 +8,7 @@ from ocelescope_module_location_based_ocpm.state import CachedDerivation
 
 def test_page_default_request_has_the_key_of_the_precomputed_graph():
     """The page's default request (empty lists, arc settings that only the browser uses) hits the precomputed answer."""
-    page_default = DfgRequest(object_types=None, variant_threshold=None, type_thresholds=[], activities={}, excluded_categories=["movement", "to_vehicle", "to_storage"])
+    page_default = DfgRequest(object_types=None, variant_threshold=None, type_thresholds=[], activities={}, excluded_categories=["to_vehicle", "to_storage", "other_movement"])
     assert dfg_routes.request_key(page_default) == dfg_routes.request_key(DfgRequest())
     assert dfg_routes.request_key(DfgRequest(arc_threshold=10, stay_connected=False)) == dfg_routes.request_key(DfgRequest())
     own = DfgRequest(type_thresholds=[TypeThresholds(object_type="coil", variant_threshold=50)])
