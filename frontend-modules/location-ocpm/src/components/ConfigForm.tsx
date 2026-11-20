@@ -13,7 +13,6 @@ import {
   Select,
   SimpleGrid,
   Stack,
-  Switch,
   Table,
   TagsInput,
   Text,
@@ -47,7 +46,6 @@ import { errorText } from "../lib/errors";
 // The form keeps the entries of every option of an input, so switching the option and back
 // loses nothing. `toConfig` turns it into the configuration the backend expects.
 
-type Level = 0 | 1 | 2 | 3;
 
 type TableEntries = { table: string | null; event_column: string | null };
 
@@ -120,8 +118,9 @@ type RolesDraft = {
   threshold: number;
 };
 
-/** Processing operations: a selection like the transformation events ("none" = no further events), plus T. */
-type ProcessingDraft = EventSetDraft & { include_transformations: boolean };
+/** Processing operations: a selection like the transformation events ("none" = no further events). Whether T is
+ * added is set in the settings bar (`SettingsBar.tsx`), not here. */
+type ProcessingDraft = EventSetDraft;
 
 /** Everything the form holds. */
 export type ConfigDraft = {
@@ -136,7 +135,6 @@ export type ConfigDraft = {
   transformation_roles: RolesDraft;
   target_locations: LocationsDraft;
   pickup_locations: LocationsDraft;
-  level: Level;
   high_level_locations: HighLevelDraft;
   vehicles: LocationSetDraft;
   storage_units: LocationSetDraft;
@@ -212,7 +210,7 @@ const DERIVES_T = ["qualifiers", "frequency"];
 /** Options that need the transformation events. */
 const NEEDS_T = ["parents", "object_sets", "first_last"];
 
-/** The empty form: no choices yet, Level 3 (the default of the concept). */
+/** The empty form: no choices yet (level and transformations as processing are in the settings bar). */
 export const emptyDraft = (): ConfigDraft => ({
   handling_units: { option: "object_types", object_types: [], table: null, object_column: null },
   movement_events: emptyEvents("activities"),
@@ -220,11 +218,10 @@ export const emptyDraft = (): ConfigDraft => ({
   transformation_roles: emptyRoles(),
   target_locations: emptyLocations("attribute"),
   pickup_locations: emptyLocations("none"),
-  level: 3,
   high_level_locations: emptyHighLevel(),
   vehicles: emptyLocationSet(),
   storage_units: emptyLocationSet(),
-  processing_operations: { ...emptyEvents("none"), include_transformations: true },
+  processing_operations: emptyEvents("none"),
 });
 
 const highLevelToConfig = (d: HighLevelDraft): DerivationConfig["high_level_locations"] => {
@@ -302,11 +299,10 @@ const rolesToConfig = (d: RolesDraft): DerivationConfig["transformation_roles"] 
   }
 };
 
-/** null (P = T) unless the user selected events or switched the transformation events off. */
+/** null unless the user selected events; whether T counts too is the settings bar's choice. */
 const processingToConfig = (d: ProcessingDraft): DerivationConfig["processing_operations"] => {
   const selection = eventsToConfig(d);
-  if (!selection && d.include_transformations) return null;
-  return { selection, include_transformations: d.include_transformations };
+  return selection ? { selection } : null;
 };
 
 const eventsToConfig = (d: EventSetDraft) => {
@@ -353,7 +349,6 @@ export const toConfig = (d: ConfigDraft): DerivationConfig => ({
   transformation_roles: rolesToConfig(d.transformation_roles),
   target_locations: locationsToConfig(d.target_locations) as DerivationConfig["target_locations"],
   pickup_locations: locationsToConfig(d.pickup_locations),
-  level: d.level,
   high_level_locations: highLevelToConfig(d.high_level_locations),
   vehicles: locationSetToConfig(d.vehicles),
   storage_units: locationSetToConfig(d.storage_units),
@@ -383,17 +378,12 @@ export const fromConfig = (config: DerivationConfig): ConfigDraft => {
   draft.pickup_locations = config.pickup_locations
     ? ({ ...emptyLocations("attribute"), ...config.pickup_locations } as LocationsDraft)
     : emptyLocations("none");
-  draft.level = (config.level ?? 3) as Level;
   if (config.high_level_locations) draft.high_level_locations = { ...emptyHighLevel(), ...config.high_level_locations } as HighLevelDraft;
   if (config.vehicles) draft.vehicles = { ...emptyLocationSet(), ...config.vehicles } as LocationSetDraft;
   if (config.storage_units) draft.storage_units = { ...emptyLocationSet(), ...config.storage_units } as LocationSetDraft;
   const processing = config.processing_operations;
-  if (processing)
-    draft.processing_operations = {
-      ...emptyEvents("none"),
-      ...(processing.selection ?? {}),
-      include_transformations: processing.include_transformations ?? true,
-    } as ProcessingDraft;
+  if (processing?.selection)
+    draft.processing_operations = { ...emptyEvents("none"), ...processing.selection } as ProcessingDraft;
   return draft;
 };
 
@@ -477,7 +467,8 @@ const Lines = ({ lines }: { lines: ReactNode[] }) => (
 );
 
 /** What each input means, shown when hovering over the ⓘ of its section. */
-const INFO: Record<string, ReactNode> = {
+/** The ⓘ texts of the form (`level` is shown by the settings bar). */
+export const INFO: Record<string, ReactNode> = {
   handlingUnits: (
     <Lines
       lines={[
@@ -610,7 +601,7 @@ const INFO: Record<string, ReactNode> = {
     <Lines
       lines={[
         "Events at which a handling unit is actually processed (P), e.g. roll, cut, label. Optional.",
-        "Default: the transformation events (none if there are none). Tick the box to add the transformation events to a selection.",
+        "Whether the transformation events count as processing operations too is set in the settings bar on every page (default: they do).",
         "Events with the same timestamp are ordered movements first, then processing operations, then the rest (AS4); Level 3 uses this order.",
       ]}
     />
@@ -1432,15 +1423,6 @@ export const ConfigForm = ({
           )}
         </Section>
 
-        <Section title="Location level" info={INFO.level} hint="Which current and previous locations all pages and flags use; also in the settings bar on every page.">
-          <Select
-            size="xs"
-            data={LEVELS}
-            value={String(draft.level)}
-            onChange={(v) => set("level")(Number(v ?? 3) as Level)}
-            allowDeselect={false}
-          />
-        </Section>
 
         <Section title="Movement events (required)" info={INFO.movements} hint="Events at which all their handling units are moved to the event's target location.">
           <EventSetFields
@@ -1553,7 +1535,7 @@ export const ConfigForm = ({
             hasObjects={hasObjects}
           />
         </Section>
-        <Section title="Processing operations" info={INFO.processing} hint="Default: the transformation events.">
+        <Section title="Processing operations" info={INFO.processing} hint="Further events that count as processing operations.">
           <EventSetFields
             value={draft.processing_operations}
             onChange={(v) => set("processing_operations")({ ...draft.processing_operations, ...v })}
@@ -1564,12 +1546,6 @@ export const ConfigForm = ({
             eventAttributes={eventAttributes}
             optional
             valueLabel='Values meaning "processing"'
-          />
-          <Switch
-            size="xs"
-            label="and all transformation events (also in the settings bar on every page)"
-            checked={draft.processing_operations.include_transformations}
-            onChange={(e) => set("processing_operations")({ ...draft.processing_operations, include_transformations: e.currentTarget.checked })}
           />
         </Section>
         <Section title="Vehicles" info={INFO.vehicles} hint="Locations that are vehicles.">

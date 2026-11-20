@@ -4,8 +4,8 @@
 - Backend: `state.py`, class `ModuleState`, one per backend session, kept in memory in `configuration_routes.STATES` (`SessionStates`, keyed by the session id). States of sessions the backend no longer knows ("Reset session") are dropped on the next access.
   Ocelescope's own module state (`session.module_states`, since 0.13) is not used: it only holds JSON-serialisable pydantic models and serialises them on every update, which does not fit polars frames and cached derivations.
   - `tables`: uploaded CSV tables by file name (every column read as text). Uploading a file with the same name replaces the table.
-  - `configs`: the applied `DerivationConfig` per log id (also holds the settings bar's level and "transformation events are processing operations").
-  - `settings`: the settings bar's other values per log id (`global_settings.GlobalSettings`, so far Locations: low | high).
+  - `configs`: the applied `DerivationConfig` per log id (its `level` and `include_transformations` are ignored; the settings bar's values apply).
+  - `settings`: the settings bar per log id (`global_settings.GlobalSettings`: level, transformations as processing operations, Locations: low | high); a log without an entry uses the defaults.
   - `cache`: the current derivation per log id (`CachedDerivation(key, derivation)`), i.e. the one of the effective configuration (`global_settings.effective_config`).
   - `recent`: per log id the last `RECENT_PER_LOG` (2) derivations, newest first (`remember`, `recall`), so that switching a setting back does not derive again.
 - Lifetime: survives page switches and browser reloads; lost with "Reset session" in Ocelescope or a backend restart.
