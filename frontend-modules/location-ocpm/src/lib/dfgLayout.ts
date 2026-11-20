@@ -166,7 +166,7 @@ const activitySize = (lines: string[], nameWeight: number, events: number, circl
 };
 
 /** SVG path of an ELK edge section; with spline routing, ELK's bend points are cubic Bézier control points. */
-const sectionPath = (section: NonNullable<ElkExtendedEdge["sections"]>[number]): string => {
+export const sectionPath = (section: NonNullable<ElkExtendedEdge["sections"]>[number]): string => {
   const points: Point[] = [section.startPoint, ...(section.bendPoints ?? []), section.endPoint];
   const control = [section.startPoint, ...(section.bendPoints ?? [])];
   if ((control.length - 1) % 3 === 2) control.push(section.endPoint);

@@ -6,6 +6,7 @@ from pathlib import Path
 import plotly.graph_objects as go
 import polars as pl
 import pytest
+
 from ocelescope_module_location_based_ocpm.derivation.level_files import (
     load_level_mapping,
 )
@@ -253,3 +254,15 @@ def test_figure_draws_bands_markers_and_tie_boxes(edge, axis):
     )
     without = object_timeline(rel, show_high_level=False, mark_ties=False)
     assert "Y" not in {t.name for t in without.data} and not without.layout.shapes
+
+
+def test_short_label():
+    """Long activity names are cut to MAX_LABEL_CHARS with "…"; short ones stay."""
+    from ocelescope_module_location_based_ocpm.timeline.object_timeline import (
+        MAX_LABEL_CHARS,
+        short_label,
+    )
+
+    assert short_label("crane move") == "crane move"
+    cut = short_label("discharge furnace and inspect")
+    assert len(cut) <= MAX_LABEL_CHARS and cut.endswith("…") and cut.startswith("discharge")
