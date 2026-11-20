@@ -506,19 +506,21 @@ def _with_categories(frames: LogFrames) -> LogFrames:
 
 
 def test_deselected_event_categories_are_projected_out_first():
-    """An event is removed only if all its categories are deselected: "load" (Movements, Move to vehicle) needs both."""
+    """Deselecting a category removes its events unless they are in another selected category: "load" is only in Move to
+    vehicle, "ship" (to the yard, neither vehicle nor storage unit) only in Other movements."""
     frames = _with_categories(_pallet_example())
     setting = [TypeSetting(object_type="pallet", variant_threshold=100)]
     every = every_activity(frames, "pallet")
     graph = directly_follows_graph(frames, setting, activities=every, excluded_categories=["to_vehicle"])
     categories = {c.key: c for c in graph.event_categories}
-    assert (categories["movement"].events, categories["to_vehicle"].events, categories["to_storage"].events) == (18, 9, 0)
-    assert not categories["to_vehicle"].selected and categories["movement"].selected
-    assert {"load", "ship"} <= {a.activity for a in graph.activities}
-    graph = directly_follows_graph(frames, setting, activities=every, excluded_categories=["movement"])
+    events = (categories["to_vehicle"].events, categories["to_storage"].events, categories["other_movement"].events)
+    assert events == (9, 0, 9)
+    assert not categories["to_vehicle"].selected and categories["other_movement"].selected
+    assert "load" not in {a.activity for a in graph.activities} and "ship" in {a.activity for a in graph.activities}
+    graph = directly_follows_graph(frames, setting, activities=every, excluded_categories=["other_movement"])
     assert ("pack", "load") in arcs_of(graph, "pallet") and ("load", None) in arcs_of(graph, "pallet")
     assert "ship" not in {a.activity for a in graph.activities}
-    graph = directly_follows_graph(frames, setting, activities=every, excluded_categories=["movement", "to_vehicle"])
+    graph = directly_follows_graph(frames, setting, activities=every, excluded_categories=["other_movement", "to_vehicle"])
     assert ("pack", None) in arcs_of(graph, "pallet")
     assert not {"load", "ship"} & {a.activity for a in graph.activities}
     assert {o.activity: o for o in graph.activity_options}["load"].variant_threshold_needed is None
@@ -529,9 +531,9 @@ def test_activity_badges_count_the_events_per_category():
     frames = _with_categories(_pallet_example())
     graph = directly_follows_graph(frames, [TypeSetting(object_type="pallet")], activities=every_activity(frames, "pallet"))
     options = {o.activity: o for o in graph.activity_options}
-    assert options["load"].categories == {"movement": 9, "to_vehicle": 9}
-    assert options["ship"].categories == {"movement": 9}
+    assert options["load"].categories == {"to_vehicle": 9}
+    assert options["ship"].categories == {"other_movement": 9}
     assert options["produce"].categories == {"transformation": 10}
     assert options["pick"].categories == {}
     per_type = {t.object_type: t.categories for t in options["load"].object_types}
-    assert per_type == {"pallet": {"movement": 9, "to_vehicle": 9}, "truck": {"movement": 9, "to_vehicle": 9}}
+    assert per_type == {"pallet": {"to_vehicle": 9}, "truck": {"to_vehicle": 9}}
