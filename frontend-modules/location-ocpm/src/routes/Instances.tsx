@@ -1,5 +1,6 @@
 // The instance page: the HU profile (one row per handling unit; rows can be selected), then, for the selected
-// handling units, the lineage chart, the object graph and the HU timeline, each with its own settings row.
+// handling units, the lineage chart, the object graph, the object traces and the HU timeline, each with its own
+// settings row.
 // Documented in docs/pages/instances.md.
 import { Box, Button, Card, Group, Pill, Stack, Text, Title } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
@@ -16,6 +17,7 @@ import {
 } from "../components/LineageChart";
 import { DEFAULT_OBJECT_GRAPH, ObjectGraphChart, type ObjectGraphSettings, useObjectGraph } from "../components/ObjectGraphChart";
 import { ModulePage } from "../components/ModulePage";
+import { DEFAULT_OBJECT_TRACES, ObjectTracesChart, type ObjectTracesSettings } from "../components/ObjectTracesChart";
 import { useScheme } from "../components/plots";
 import { usePageState } from "../lib/pageState";
 import { colourMap } from "../lib/palette";
@@ -86,6 +88,8 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
   const [objectGraphLayout, setObjectGraphLayout] = useState(0);
   const objectGraphSettings = useMemo(() => ({ ...DEFAULT_OBJECT_GRAPH, ...objectGraphStored }), [objectGraphStored]);
   const timelineSettings = { ...DEFAULT_TIMELINE, ...timelineStored };
+  const [tracesStored, setTraces] = usePageState<ObjectTracesSettings>(`instances.traces.${ocelId}`, DEFAULT_OBJECT_TRACES);
+  const tracesSettings = useMemo(() => ({ ...DEFAULT_OBJECT_TRACES, ...tracesStored }), [tracesStored]);
   const lineage = useSelectionLineage(ocelId, selected, lineageSettings);
   // Object types of the log (most handling units first) for fixed colours; the first profile page carries them.
   const { data: profile } = useQuery({
@@ -151,6 +155,9 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
               onChange={setObjectGraph}
               onToggle={toggle}
             />
+          </ChartCard>
+          <ChartCard title="Object traces" onReset={() => setTraces(DEFAULT_OBJECT_TRACES)}>
+            <ObjectTracesChart ocelId={ocelId} handlingUnits={selected} colours={colours} settings={tracesSettings} onChange={setTraces} />
           </ChartCard>
           <ChartCard title="HU timeline" onReset={() => setTimeline(DEFAULT_TIMELINE)}>
             <TimelineUnitsBar

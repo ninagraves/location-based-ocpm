@@ -4,7 +4,7 @@ Status: suggestion (Nina 2026-11-14: "an instance page with HU overviews on the 
 User-facing description with a step-by-step example: `overview/module/Instance Page.md` (outside this repo).
 Demo: `notebooks/instances.ipynb`.
 
-The page has no sidebar: four cards one below the other (HU profile, Lineage, Object graph, HU timeline), every chart with its own settings row above it.
+The page has no sidebar: five cards one below the other (HU profile, Lineage, Object graph, Object traces, HU timeline), every chart with its own settings row above it.
 It ignores the filter bar of the overview page.
 Between the HU profile and the charts, the selection bar ("Selected (n):", one removable pill per selected handling unit, "Clear") sticks to the top of the window once scrolled to (CSS `position: sticky` below the app header; Nina 2026-11-20), so the selection stays visible and editable while looking at the charts.
 In the lineage and the object graph, double-clicking a handling unit selects it, or unselects it if it is selected; double-clicking an event or another object does nothing (Nina 2026-11-20; `toggle` in `routes/Instances.tsx`). A single click does nothing, and double-clicking does not zoom.
@@ -149,6 +149,42 @@ Kept per log in the page state (`instances.objectGraph.<ocel>`).
 - Arcs only between a selected handling unit and its related objects: available as a setting ("Arcs between related objects" off), not the default, since arcs between related objects show who works together (operator and crane, coils on the same truck).
 - One arc per shared event: unreadable for objects sharing many events; one arc per pair with the list in the hover instead.
 - Filtering in the backend per object type: every change would need a request; the graph of a selection is small, so it is sent whole.
+
+## Object traces
+
+### What it shows
+Requested by Nina 2026-11-20.
+One row per selected handling unit (in the order of the selection; at most `MAX_TRACES` = 50), left its id, object type and "n of m events" (when the categories removed some).
+Its events from left to right in trace order, each as a chevron with its activity: $seq$ order as in the HU profile (time, then the AS4 tie order, then event id).
+On every chevron one small circle per other object of the event (all objects of the log, the row's handling unit itself left out), in the colour of its object type (handling-unit types as in the rest of the page, other types continue the palette alphabetically), sorted by object type and id; at most `MAX_CIRCLES` = 10, then "+ n".
+If another selected handling unit takes part in the event, the chevron's border is a bit thicker (2.2 instead of 1 px, same grey); there is no other mark.
+Hover on a chevron: event id, activity, timestamp, location $loc^k$ of the relation (⊥ if unlocated), position, categories, the selected handling units involved, and the other objects (id, type; at most 20). Hover on a circle: the object, its type, and "selected" if it is a selected handling unit.
+
+### Event categories (projection)
+Above the chart the event category chips of the directly-follows graph page (`CategoryChips` of `DfgToolbar.tsx`, categories of `dfg/categories.py`): Movements, Move to vehicle, Move to storage, Processing, Transforming, each with the number of distinct events of the selected handling units in it.
+Same rule as on the DFG page: an event leaves the traces only when **all** its categories are deselected (`categories.removed_events`); events in no category always stay; the following events move up (projection, positions renumbered).
+Default here: all selected (Nina 2026-11-20), so the traces are complete (unlike the DFG page, where the movements are off by default).
+Kept per log in the page state (`instances.traces.<ocel>`); "Reset settings" selects all again.
+
+### Example
+Running example (Level 3), c2 and c1 selected: c2 has e3 roll (other objects c1, selected, so a thick border, and s1), e4 label (c1), e6 move, e8 load truck, e9 unload truck, e11 move, e12 move, e15 cut (c4).
+Movements off: c2 keeps e3, e4, e8 (also Move to vehicle), e12 (also Move to storage), e15, "5 of 8 events"; c1 keeps its quality checks e7 and e14 (no category).
+Tests: `test_object_traces` in `tests/test_instances.py`.
+
+### Where it lives in the code
+- `instances/traces.py`: `trace_events(relations, handling_units, loc, hl, processing)` (`profile.ordered_traces` of the selection), `involved_objects(frames, events)` (e2o with object types), `object_traces(relations, frames, categories, handling_units, units, loc, hl, processing, excluded, max_traces) -> ObjectTraces(events, totals, categories, notes)`.
+- `dfg/categories.py`: `removed_events(categories, excluded)` (also used by `remove_categories`).
+- Route `POST /{ocel_id}/instances/traces` (`getObjectTraces`, body `ObjectTracesRequest`: handling_units, excluded_categories), answer `ObjectTracesResponse` (traces with events and their objects, categories, notes).
+- `components/ObjectTracesChart.tsx`: `Chevron` (SVG outline `chevronPath`, width `chevronWidth`), `TraceRow`, `useObjectTraces`, `traceColours`; sizes `SIZE`.
+
+### How to change it
+- Circles per chevron: `MAX_CIRCLES`; objects in the hover: `MAX_HOVER_OBJECTS`; rows: `MAX_TRACES` (backend).
+- Border for events with another selected handling unit: `strokeWidth` in `Chevron`.
+- Default categories: `DEFAULT_OBJECT_TRACES`.
+
+### Alternatives
+- Aligning the rows by time (a column per timestamp): shows simultaneity, but long gaps; the HU timeline already does this.
+- Marking selected objects by colour: Nina wanted only the thicker border.
 
 ## HU timeline
 

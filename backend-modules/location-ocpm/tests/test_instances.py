@@ -13,7 +13,9 @@ from conftest import EXAMPLE
 
 from ocelescope_module_location_based_ocpm.derivation.config import DerivationConfig
 from ocelescope_module_location_based_ocpm.derivation.pipeline import derive
+from ocelescope_module_location_based_ocpm.dfg.categories import event_categories
 from ocelescope_module_location_based_ocpm.instances.charts import (
+    processing_events,
     selection_lineage,
     timeline_figure,
 )
@@ -32,6 +34,7 @@ from ocelescope_module_location_based_ocpm.instances.profile import (
     query_rows,
     sort_rows,
 )
+from ocelescope_module_location_based_ocpm.instances.traces import object_traces
 
 HOUR = 3600.0
 
@@ -257,3 +260,30 @@ def test_object_graph(object_example):
     assert list(events) == ["e3", "e4", "e6", "e8", "e9", "e11", "e12", "e15"]
     assert events["e3"] == ["c1", "c2", "s1"] and events["e6"] == ["c2", "crane1", "op1"]
     assert dict(cut.events.select("event", "objects").iter_rows())["e8"] == ["c1", "c2", "c3"]
+
+
+def test_object_traces(ocel, full):
+    """Traces of the selection in seq order with the other objects; the categories project them (DFG rule)."""
+    events = full.events.select("event", "is_movement", "is_transformation", "is_processing", "uloc")
+    categories = event_categories(events, full.context.vehicles, full.context.storage_units)
+    frames = object_frames(ocel)
+
+    def traces(excluded=()):
+        return object_traces(
+            full.relations, frames, categories, ["c2", "c1", "zz"], full.handling_units, full.loc, full.hl, processing_events(full), excluded
+        )
+
+    t = traces()
+    c2 = t.events.filter(pl.col("hu") == "c2")
+    assert c2["event"].to_list() == ["e3", "e4", "e6", "e8", "e9", "e11", "e12", "e15"]
+    e3 = c2.row(0, named=True)
+    assert (e3["activity"], e3["categories"]) == ("roll", ["processing", "transformation"])
+    assert {o["object"]: o["selected"] for o in e3["objects"]} == {"c1": True, "s1": False}  # c2 itself left out
+    assert t.totals.select("hu", "n_events", "n_shown").rows() == [("c2", 8, 8), ("c1", 9, 9)]
+    assert t.notes == ["Not handling units of this log: zz."]
+    # Movements off: the movement-only events go, e8 stays (also Move to vehicle), events in no category stay (c1's e7).
+    projected = traces(["movement"])
+    c2 = projected.events.filter(pl.col("hu") == "c2")
+    assert c2["event"].to_list() == ["e3", "e4", "e8", "e12", "e15"] and c2["pos"].to_list() == [1, 2, 3, 4, 5]
+    assert "e7" in projected.events.filter(pl.col("hu") == "c1")["event"].to_list()
+    assert projected.categories == t.categories  # counts before the projection
