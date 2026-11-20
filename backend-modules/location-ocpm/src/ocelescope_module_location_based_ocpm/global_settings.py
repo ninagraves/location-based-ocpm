@@ -1,19 +1,20 @@
 """The global settings of the settings bar (Nina, 2026-11-20): choices that apply to every page of the module.
 
-Initial version, three settings:
-- **Location function** loc^k: the selected level k (0..3). Stored in the applied configuration
-  (`DerivationConfig.level`), so the configuration form, the downloaded configuration and the bar always agree.
-- **Transformation events count as processing operations**: P = selection ∪ T or P = selection. Also stored in
-  the applied configuration (`ProcessingOperations.include_transformations`).
+Initial version, three settings, all stored per log in `GlobalSettings` (Nina, 2026-11-20: level and
+"transformation events are processing operations" are not part of the configuration; a new log starts with the
+defaults):
+- **Location function** loc^k: the selected level k (0..3), default 3.
+- **Transformation events count as processing operations**: P = selection ∪ T (default) or P = selection.
 - **Locations: low | high**: high uses the provided high-level locations (agg); low uses the identity as the
-  high-level function (every location is its own high-level location). Stored per log in `GlobalSettings`, since it
-  is not an input of the derivation. Default: high if high-level locations are provided; without them, low is
-  forced and high cannot be chosen.
+  high-level function (every location is its own high-level location). Default: high if high-level locations are
+  provided; without them, low is forced and high cannot be chosen.
 
 Every content route reads the derivation of the *effective* configuration (`effective_config`): the applied
-configuration, without high-level locations in low mode. So all pages follow the bar without further parameters.
-A new setting adds a field to `GlobalSettings` (if it is not an input of the derivation) or writes into the
-configuration (`with_update`), plus a field in `SettingsState` and `SettingsUpdate`.
+configuration with the bar's level and processing choice, and without high-level locations in low mode. So all
+pages follow the bar without further parameters. The `level` and `include_transformations` fields of a stored or
+uploaded `DerivationConfig` are ignored by the module (the package functions still take them).
+A new setting adds a field to `GlobalSettings`, `SettingsState` and `SettingsUpdate`, and is applied in
+`effective_config` (or read from `ModuleState.settings` by the routes that need it).
 Documented in docs/pages/settings-bar.md.
 """
 
@@ -28,13 +29,17 @@ LocationMode = Literal["low", "high"]
 
 
 class GlobalSettings(BaseModel):
-    """The settings of a log that are not part of its configuration.
+    """The settings bar of a log (not part of its configuration).
 
     Attributes:
+        level: Selected level k of the location function loc^k.
+        include_transformations: True if the transformation events count as processing operations (P ⊇ T).
         location_mode: The user's choice of Locations: low | high. It only takes effect while high-level locations
             are configured (see `effective_location_mode`).
     """
 
+    level: Literal[0, 1, 2, 3] = 3
+    include_transformations: bool = True
     location_mode: LocationMode = "high"
 
 
@@ -70,21 +75,6 @@ class SettingsUpdate(BaseModel):
     location_mode: LocationMode | None = None
 
 
-def includes_transformations(config: DerivationConfig) -> bool:
-    """Whether the transformation events count as processing operations under a configuration.
-
-    Example: without a processing-operations input, P = T, so the result is True.
-
-    Args:
-        config: The applied configuration.
-
-    Returns:
-        bool: `ProcessingOperations.include_transformations`, True if processing operations are not configured.
-    """
-    processing = config.processing_operations
-    return processing is None or processing.include_transformations
-
-
 def effective_location_mode(config: DerivationConfig, settings: GlobalSettings | None) -> LocationMode:
     """The Locations: low | high mode that is in effect.
 
@@ -104,46 +94,48 @@ def effective_location_mode(config: DerivationConfig, settings: GlobalSettings |
 
 
 def effective_config(config: DerivationConfig, settings: GlobalSettings | None) -> DerivationConfig:
-    """The configuration every page derives with: in low mode without high-level locations (agg = identity).
+    """The configuration every page derives with: the bar's level and processing choice, and in low mode no
+    high-level locations (agg = identity).
 
-    Example: the running example configuration with high-level locations from "locations.csv" in low mode gives the
-    same configuration with `high_level_locations=None`, so hl^k = loc^k and A1, A2 stay apart on every page.
+    Example: the running example configuration with high-level locations from "locations.csv" and processing
+    operations "label", under `GlobalSettings(level=1, include_transformations=False, location_mode="low")`, gives
+    the same configuration with `level=1`, `processing_operations=ProcessingOperations(selection=label,
+    include_transformations=False)` (P = events of label) and `high_level_locations=None` (hl^k = loc^k).
 
     Args:
         config: The applied configuration.
         settings: The log's settings; None means the defaults.
 
     Returns:
-        DerivationConfig: `config` itself in high mode (or without high-level locations), else a copy without them.
+        DerivationConfig: A copy of `config` with the settings applied.
     """
-    if effective_location_mode(config, settings) == "low" and config.high_level_locations is not None:
-        return config.model_copy(update={"high_level_locations": None})
-    return config
+    settings = settings or GlobalSettings()
+    changes: dict = {"level": settings.level}
+    processing = config.processing_operations
+    if processing is not None or not settings.include_transformations:
+        # Without a processing input and with the default (P = T), None stays None ("default" in the key numbers).
+        changes["processing_operations"] = (processing or ProcessingOperations()).model_copy(
+            update={"include_transformations": settings.include_transformations}
+        )
+    if effective_location_mode(config, settings) == "low":
+        changes["high_level_locations"] = None
+    return config.model_copy(update=changes)
 
 
-def with_update(config: DerivationConfig, update: SettingsUpdate) -> DerivationConfig:
-    """Write the configuration-stored settings (level, transformations as processing) into a configuration.
+def updated(settings: GlobalSettings | None, update: SettingsUpdate) -> GlobalSettings:
+    """The settings after a change in the bar.
 
-    Example: `with_update(config, SettingsUpdate(include_transformations=False))` on a configuration without
-    processing operations gives `processing_operations=ProcessingOperations(include_transformations=False)`, i.e.
-    P = ∅; with a selection "label" it keeps the selection, so P = {events of label}.
+    Example: `updated(None, SettingsUpdate(level=1))` gives Level 1 with the other defaults.
 
     Args:
-        config: The applied configuration.
-        update: The change; `location_mode` is ignored here (see `GlobalSettings`).
+        settings: The log's settings; None means the defaults.
+        update: The change; fields left out keep their value.
 
     Returns:
-        DerivationConfig: A copy of `config` with the new values; `config` itself if nothing it stores changes.
+        GlobalSettings: A new settings object.
     """
-    changes: dict = {}
-    if update.level is not None and update.level != config.level:
-        changes["level"] = update.level
-    if update.include_transformations is not None and update.include_transformations != includes_transformations(config):
-        processing = config.processing_operations or ProcessingOperations()
-        changes["processing_operations"] = processing.model_copy(
-            update={"include_transformations": update.include_transformations}
-        )
-    return config.model_copy(update=changes) if changes else config
+    changes = {key: value for key, value in update.model_dump().items() if value is not None}
+    return (settings or GlobalSettings()).model_copy(update=changes)
 
 
 def settings_state(config: DerivationConfig | None, settings: GlobalSettings | None) -> SettingsState:
@@ -158,10 +150,11 @@ def settings_state(config: DerivationConfig | None, settings: GlobalSettings | N
     """
     if config is None:
         return SettingsState(configured=False)
+    settings = settings or GlobalSettings()
     return SettingsState(
         configured=True,
-        level=config.level,
-        include_transformations=includes_transformations(config),
+        level=settings.level,
+        include_transformations=settings.include_transformations,
         location_mode=effective_location_mode(config, settings),
         high_level_available=config.high_level_locations is not None,
     )

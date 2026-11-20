@@ -1,22 +1,22 @@
-// The settings bar, on top of every page (Nina, 2026-11-20). Every change applies to all pages.
+// The settings bar, on top of every page (Nina, 2026-11-20). Every change applies to all pages. Level and
+// "transformation events are processing operations" are only set here (not in the configuration form).
 // Documented in docs/pages/settings-bar.md.
 import { Alert, Card, Group, Loader, SegmentedControl, Select, Stack, Switch, Text, Tooltip } from "@mantine/core";
 import { type ReactNode, useState } from "react";
 import type { SettingsResult } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
 import { useChangeSettings, useGlobalSettings } from "../lib/settings";
-import { LEVELS, MessageLine } from "./ConfigForm";
+import { INFO as FORM_INFO, LEVELS, MessageLine } from "./ConfigForm";
 
 /** Hover texts of the settings. */
 const INFO = {
-  level: "The low-level location function loc^k every page uses: current location loc^k and previous location ploc^k at Level k.",
   processing: "On: the processing operations P are the selected processing events and all transformation events. Off: only the selected ones.",
   high: "High: the provided high-level locations agg. Low: every location is its own high-level location (identity), on every page.",
   noHigh: "No high-level locations are configured, so every location is its own high-level location (low).",
 };
 
 /** A labelled control of the bar, with its hover text. */
-const Setting = ({ label, info, children }: { label: string; info: string; children: ReactNode }) => (
+const Setting = ({ label, info, children }: { label: string; info: ReactNode; children: ReactNode }) => (
   <Group gap={6} wrap="nowrap">
     <Tooltip label={info} multiline w={320} withArrow>
       <Text size="xs" c="dimmed" style={{ cursor: "help" }}>
@@ -59,7 +59,7 @@ export const SettingsBar = ({ ocelId }: { ocelId: string }) => {
           <Text size="sm" fw={600}>
             Settings
           </Text>
-          <Setting label="Location function" info={INFO.level}>
+          <Setting label="Location function" info={FORM_INFO.level}>
             <Select
               size="xs"
               w={300}

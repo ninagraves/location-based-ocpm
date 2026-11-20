@@ -4,10 +4,10 @@ Shown only on the Configuration page (before 2026-11-20 on top of every page; th
 How the inputs are resolved and checked: `docs/resources/location-derivation.md`, section 1 and 2. Storage and caching: `docs/hosting/state-and-caching.md`.
 
 ## 1. Configuration summary
-**What it shows:** one line, e.g. `Configuration: handling units slab, coil; locations from "to_loc"; Level 3.`, and the buttons "Download configuration" (saves the applied configuration as JSON, like the button in the form) and "Edit configuration". The notices of the current derivation appear right below this card (`overview.md`, section 2), then the settings bar.
-The level and the processing operations follow the settings bar, which writes them into the applied configuration (`settings-bar.md`).
+**What it shows:** one line, e.g. `Configuration: handling units slab, coil; locations from "to_loc".`, and the buttons "Download configuration" (saves the applied configuration as JSON, like the button in the form) and "Edit configuration". The notices of the current derivation appear right below this card (`overview.md`, section 2), then the settings bar.
+The level and whether the transformation events are processing operations are not part of the configuration; they are set in the settings bar (`settings-bar.md`).
 Locations read `from qualifier "to"` for the e2o-qualifier option and `from table "target_locations.csv"` for a table.
-Configured location-context inputs are appended, e.g. `; high-level locations from table "locations.csv"; vehicles from table "locations.csv"; storage units from table "locations.csv"; processing operations: transformation events and label` (`contextParts`, `sourceOf`).
+Configured location-context inputs are appended, e.g. `; high-level locations from table "locations.csv"; vehicles from table "locations.csv"; storage units from table "locations.csv"; processing operations label` (only the selection; `contextParts`, `sourceOf`).
 More than five selected object types show the first five (in the order selected) and "(+n)", n being the number of further types; hovering it lists all (`components/ShortList.tsx`).
 **Example:** running example configuration (see `data/running_example/README.md`) gives the line above.
 **Filtering:** not affected by filters.
@@ -22,14 +22,13 @@ One section per input, each with an option switch, the matching pickers and an �
 | Section | Options | Pickers |
 |---|---|---|
 | Handling units (required) | object types, table | object types with number of objects; table + object column |
-| Location level | Level 0-3 (default 3); also "Location function" in the settings bar | one line per level in the ⓘ text |
 | Movement events (required) | activities, event attribute, table | activities with number of events; attribute + values with number of events; table + event column |
 | Transformation events (optional) | none, activities, event attribute, e2o qualifiers, table | as above; qualifiers with number of relations |
 | Consumed and produced handling units (optional, inside "Transformation events") | default (first/last timestamps), e2o qualifiers, table, parent relations (o2o), produced/consumed objects, first/last timestamps, frequency of first/last activities | consumed and produced qualifiers; table + event, object, role columns + role values; o2o qualifiers + direction; produced and consumed objects (object attribute values or table) + final/partial; threshold τ. Options deriving T replace the transformation-events pickers; details in `docs/resources/transformation-inputs.md` |
 | Target locations (required) | event attribute, e2o qualifier, table | attribute; qualifiers + location name (object id or a static object attribute); table + event and location columns |
 | Pickup locations (optional) | none, event attribute, e2o qualifier, table | as for target locations |
 | High-level locations (optional, group "Location context") | none, table, event attributes, object attribute, o2o relation, naming pattern | table + location and high-level columns; low-level and high-level event attributes; attribute of the location objects; o2o qualifiers + name (id or attribute); regular expression with one group |
-| Processing operations (optional) | none, activities, event attribute, e2o qualifiers, table; switch "and all transformation events" (on; also in the settings bar) | as for transformation events; "none" with the switch on = P = T (default) |
+| Processing operations (optional) | none, activities, event attribute, e2o qualifiers, table; whether the transformation events count too is set in the settings bar | as for transformation events; "none" with the switch on = P = T (default) |
 | Vehicles, storage units (optional) | none, locations, table, event attribute, object types | locations picked from L or typed in; table + location column + optional true/false column; attribute + values (their events' targets); object types of the location objects |
 
 The object-attribute, o2o and object-type options only appear if target or pickup locations use e2o qualifiers.
@@ -42,7 +41,7 @@ The object-attribute, o2o and object-type options only appear if target or picku
 
 **Example:** loading the running example configuration and applying it gives the summary line of section 1. Replacing the target locations by a table with the rows (e5, A2), (e5, B1) gives the blocking error "Target locations: events with different locations in the table." with id e5.
 **Filtering:** the pickers count over the log as Ocelescope currently shows it (with Ocelescope's own filters); the module's page filters do not apply.
-**Settings:** level default 3; new forms start with object types, activities and event attribute selected as options, transformation and pickup locations "none".
+**Settings:** new forms start with object types, activities and event attribute selected as options, transformation and pickup locations "none".
 
 **Code** (`frontend-modules/location-ocpm/src/components/ConfigForm.tsx`):
 - Form state `ConfigDraft`: keeps the entries of every option of an input, so switching the option and back loses nothing. `emptyDraft()` is the empty form.
