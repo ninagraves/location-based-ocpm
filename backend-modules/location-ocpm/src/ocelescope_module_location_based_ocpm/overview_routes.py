@@ -4,14 +4,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from ocelescope_module_location_based_ocpm.configuration_routes import CurrentDerivation
+from ocelescope_module_location_based_ocpm.configuration_routes import CurrentDerivation, State
+from ocelescope_module_location_based_ocpm.global_settings import effective_location_mode
 from ocelescope_module_location_based_ocpm.overview.activity_profile import ActivityProfile, activity_profile
 from ocelescope_module_location_based_ocpm.overview.data_charts import DataCharts, data_charts
 from ocelescope_module_location_based_ocpm.overview.filters import (
     FilterOption,
     FilterOptions,
     IdKind,
-    LocationMode,
     LocationRole,
     PageFilter,
     filter_options,
@@ -36,6 +36,8 @@ router = APIRouter()
 
 
 def get_page_filter(
+    ocel_id: str,
+    state: State,
     activities: Annotated[list[str] | None, Query()] = None,
     exclude_activities: Annotated[list[str] | None, Query()] = None,
     locations: Annotated[list[str] | None, Query()] = None,
@@ -43,9 +45,14 @@ def get_page_filter(
     location_role: LocationRole = "either",
     object_types: Annotated[list[str] | None, Query()] = None,
     exclude_object_types: Annotated[list[str] | None, Query()] = None,
-    location_mode: LocationMode = "low",
 ) -> PageFilter:
-    """The filter bar's state from query parameters (repeat a parameter for several values)."""
+    """The filter bar's state from query parameters (repeat a parameter for several values).
+
+    The location mode is not a query parameter: it comes from the settings bar (`global_settings`), so it is the
+    same on every page.
+    """
+    config = state.configs.get(ocel_id)
+    location_mode = effective_location_mode(config, state.settings.get(ocel_id)) if config is not None else "low"
     return PageFilter(
         activities=activities or [],
         exclude_activities=exclude_activities or [],

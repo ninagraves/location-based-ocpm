@@ -34,6 +34,7 @@ from ocelescope_module_location_based_ocpm.derivation.inputs import (
     provided,
 )
 from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation, derive
+from ocelescope_module_location_based_ocpm.global_settings import GlobalSettings, effective_config
 from ocelescope_module_location_based_ocpm.state import (
     CachedDerivation,
     ModuleState,
@@ -95,7 +96,8 @@ def _cache_derivation(
     ocel_version: OcelVersion = "filtered",
     view_id: str | None = None,
 ) -> None:
-    """Store a derivation in the session's cache and start the `ON_DERIVED` hooks in the background.
+    """Make a derivation the current one of a log (`ModuleState.remember`) and start the `ON_DERIVED` hooks in the
+    background.
 
     Args:
         state: The module state.
@@ -105,7 +107,7 @@ def _cache_derivation(
         ocel_version: Which log the derivation was computed on (see `log_version`).
         view_id: A specific Ocelescope view (see `log_version`).
     """
-    state.cache[ocel_id] = cached
+    state.remember(ocel_id, cached)
 
     def opener() -> OCEL:
         """Open the same log version as the request (in the hook's thread)."""
@@ -219,11 +221,13 @@ def current_derivation(
     ocel_version: OcelVersion = "filtered",
     view_id: str | None = None,
 ) -> Derivation:
-    """The derivation of a log under its applied configuration, from the cache if still valid.
+    """The derivation of a log under its effective configuration, from the cache if still valid.
 
-    Content routes use this as a dependency. The cache holds one derivation per log; it is reused
-    while configuration, log version (Ocelescope view) and used tables are unchanged, and
-    recomputed otherwise.
+    Content routes use this as a dependency. The effective configuration is the applied one with the settings
+    bar applied (`global_settings.effective_config`: without high-level locations in low mode), so every page
+    follows the bar. The cache keeps the current and the previous derivation per log (`ModuleState.recent`); one
+    is reused while configuration, settings, log version (Ocelescope view) and used tables are unchanged, else the
+    log is derived again.
 
     Args:
         ocel_id: Id of the log.
@@ -243,10 +247,14 @@ def current_derivation(
     config = state.configs.get(ocel_id)
     if config is None:
         raise HTTPException(status_code=409, detail="No configuration applied for this log yet.")
+    config = effective_config(config, state.settings.get(ocel_id))
     key = fingerprint(config, log_version(session, ocel_id, ocel_version, view_id), state.tables)
     cached = state.cache.get(ocel_id)
     if cached is not None and cached.key == key:
         return cached.derivation
+    recalled = state.recall(ocel_id, key)
+    if recalled is not None:
+        return recalled.derivation
     result = run_derivation(ocel, config, state)
     if isinstance(result, list) or result.errors:
         errors = result if isinstance(result, list) else [Message.of(e) for e in result.errors]
@@ -362,7 +370,8 @@ def apply_config(
 ) -> ApplyResult:
     """Derive with a configuration; store and cache it only if there is no blocking error.
 
-    A configuration that cannot be applied leaves the previously applied one in place.
+    A configuration that cannot be applied leaves the previously applied one in place. If it adds high-level
+    locations to a configuration without them, the settings bar switches to Locations: high (the default).
     """
     result = run_derivation(ocel, body, state)
     if isinstance(result, list):
@@ -370,6 +379,9 @@ def apply_config(
     notices = [Message.of(n) for n in result.notices]
     if result.errors:
         return ApplyResult(applied=False, errors=[Message.of(e) for e in result.errors], notices=notices)
+    previous = state.configs.get(ocel_id)
+    if body.high_level_locations is not None and (previous is None or previous.high_level_locations is None):
+        state.settings[ocel_id] = GlobalSettings(location_mode="high")
     state.configs[ocel_id] = body
     key = fingerprint(body, log_version(session, ocel_id, ocel_version, view_id), state.tables)
     _cache_derivation(state, session, ocel_id, CachedDerivation(key=key, derivation=result), ocel_version, view_id)

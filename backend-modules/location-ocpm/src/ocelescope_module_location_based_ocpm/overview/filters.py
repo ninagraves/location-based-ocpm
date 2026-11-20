@@ -6,7 +6,8 @@ filter removes the matching relations). Events and handling units are kept if at
 their relations passes; their properties (locatedness, agreement) always come from the whole
 event or trace. Filters never change loc or ploc.
 
-Locations: low | high (`PageFilter.location_mode`, concept "Update Overview Page", section 6): filters are always
+Locations: low | high (`PageFilter.location_mode`, concept "Update Overview Page", section 6; since 2026-11-20 set
+in the settings bar for all pages, `global_settings.py`, and filled in by `overview_routes.get_page_filter`): filters are always
 evaluated on low-level locations; a high-level value ("[high-level] A") stands for its preimage agg⁻¹(A), which is
 the same as matching hat-hl (hl, phl). The mode only changes how values are shown and aggregated, and which
 agreement "[agreeing / disagreeing events]" use (under hat-hl in high-level mode).
@@ -18,6 +19,7 @@ import polars as pl
 from pydantic import BaseModel
 
 from ocelescope_module_location_based_ocpm.derivation import columns as c
+from ocelescope_module_location_based_ocpm.global_settings import LocationMode
 from ocelescope_module_location_based_ocpm.derivation.locatedness import FULLY, PARTIALLY, UNLOCATED, hu_locatedness
 from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation
 
@@ -51,7 +53,6 @@ MAX_SEARCH = 20
 HU_LOCATEDNESS = {FULLY_LOCATED_HUS: FULLY, PARTIALLY_LOCATED_HUS: PARTIALLY, UNLOCATED_HUS: UNLOCATED}
 
 LocationRole = Literal["either", "before", "after"]
-LocationMode = Literal["low", "high"]
 
 
 def prefixed(values: list[str], prefix: str) -> list[str]:
@@ -74,8 +75,8 @@ class PageFilter(BaseModel):
         object_types: Keep relations of handling units with one of these object types, special values or
             single handling units ("[hu] s1").
         exclude_object_types: Remove relations of handling units with one of these.
-        location_mode: "low" or "high" (Locations: low | high); not a filter, it only changes the display and
-            the agreement of "[agreeing / disagreeing events]".
+        location_mode: "low" or "high" (Locations: low | high, from the settings bar); not a filter, it only changes
+            the display and the agreement of "[agreeing / disagreeing events]".
     """
 
     activities: list[str] = []

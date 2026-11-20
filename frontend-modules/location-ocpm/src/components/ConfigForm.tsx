@@ -457,7 +457,8 @@ export const missingEntries = (d: ConfigDraft): string[] => {
 // region Texts
 
 /** The location levels; loc is the selected one (overview/Deriving Locations.md, "Deriving current locations"). */
-const LEVELS = [
+/** Labels of the levels k of the location function loc^k (also used by the settings bar). */
+export const LEVELS = [
   { value: "0", label: "Level 0: provided locations only" },
   { value: "1", label: "Level 1: + forward fill" },
   { value: "2", label: "Level 2: + backward fill" },
@@ -807,7 +808,7 @@ const TableColumns = ({
 };
 
 /** One blocking error or notice, with its ids (first 20, "show all" for the rest that was sent). */
-const MessageLine = ({ message, colour }: { message: Message; colour?: string }) => {
+export const MessageLine = ({ message, colour }: { message: Message; colour?: string }) => {
   const [all, setAll] = useState(false);
   const shown = all ? message.ids : message.ids.slice(0, 20);
   return (
@@ -1431,7 +1432,7 @@ export const ConfigForm = ({
           )}
         </Section>
 
-        <Section title="Location level" info={INFO.level} hint="Which current and previous locations all pages and flags use.">
+        <Section title="Location level" info={INFO.level} hint="Which current and previous locations all pages and flags use; also in the settings bar on every page.">
           <Select
             size="xs"
             data={LEVELS}
@@ -1566,7 +1567,7 @@ export const ConfigForm = ({
           />
           <Switch
             size="xs"
-            label="and all transformation events"
+            label="and all transformation events (also in the settings bar on every page)"
             checked={draft.processing_operations.include_transformations}
             onChange={(e) => set("processing_operations")({ ...draft.processing_operations, include_transformations: e.currentTarget.checked })}
           />

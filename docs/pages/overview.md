@@ -1,22 +1,25 @@
-# Overview page
+# Configuration page
+
+Called "Overview" until 2026-11-20 (Nina renamed it to "Configuration"; route `configuration`).
 
 Concept: `overview/Deriving Locations.md`, section "overview", and for the location context (high-level locations, vehicles, storage units, processing operations) `overview/module/Module Overview.md`, "Update Overview Page", sections 6-10 (outside this repo).
 Content elements are added one at a time; built so far: page filter bar, key numbers (with filtered values), configuration notices, flag badges, data overview charts, activity profile, overview charts.
 Still to come: flag explore sections.
 
-## Page structure (Nina, 2026-10-29)
+## Page structure (Nina, 2026-10-29; 2026-11-20)
+The only page with the configuration summary and form (`configuration.md`). Like every page it has the settings bar (`settings-bar.md`) below it; all content follows the settings bar (level, processing operations, Locations: low | high).
 Two sections, so that it is clear what the filters act on:
-- **Configuration** (page title): the configuration bar (`configuration.md`), configuration notices (section 2), input flags (section 3) and the data overview charts (section 4). Never filtered; always the whole log.
-- **Overview** (heading): the filter bar (section 0), key numbers (section 1), activity profile (section 5) and overview charts (section 6). Everything here follows the filters and uses the selected level, which the configuration bar shows; the section itself does not repeat the level.
+- **Configuration** (page title): the configuration summary (`configuration.md`), configuration notices (section 2), the settings bar, input flags (section 3) and the data overview charts (section 4). Never filtered; always the whole log.
+- **Overview** (heading): the filter bar (section 0), key numbers (section 1), activity profile (section 5) and overview charts (section 6). Everything here follows the filters and uses the selected level, which the settings bar shows; the section itself does not repeat the level.
 
 ## Code
-- Page: `frontend-modules/location-ocpm/src/routes/Overview.tsx`
-- Frame and shared header: `frontend-modules/location-ocpm/src/components/ModulePage.tsx`; the shared header (configuration summary and form) is documented in `configuration.md`.
+- Page: `frontend-modules/location-ocpm/src/routes/Configuration.tsx` (`ModulePage` with `configuration`)
+- Frame: `frontend-modules/location-ocpm/src/components/ModulePage.tsx`: title, the configuration summary and form plus notices (this page only, `configuration.md`), the settings bar (every page, `settings-bar.md`).
 - Backend: one module per section in `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/overview/`, routes in `overview_routes.py`. Every route reads the cached derivation (`configuration_routes.current_derivation`, see `docs/hosting/state-and-caching.md`).
 - Number formatting: `frontend-modules/location-ocpm/src/lib/format.ts` (`num`, `pct`).
 
 ## 0. Page filter bar
-**What it shows:** a bar that sticks to the top while scrolling, with three columns: Activity, Location and Handling unit. Each column has an "include" picker and below it an "exclude" picker. Next to the Location heading, the switch "either / pre / post" decides whether a location filter matches ploc (pre, the pickup or previous location), loc (post, the target or current location) or either. "Clear filters" sits next to the Handling unit heading; it is always shown and disabled while no filter is set; it keeps the location mode. With high-level locations, the switch **Locations: low | high** sits left of it (section 0a). Each option shows its count over the whole log in brackets.
+**What it shows:** a bar that sticks to the top while scrolling, with three columns: Activity, Location and Handling unit. Each column has an "include" picker and below it an "exclude" picker. Next to the Location heading, the switch "either / pre / post" decides whether a location filter matches ploc (pre, the pickup or previous location), loc (post, the target or current location) or either. "Clear filters" sits next to the Handling unit heading; it is always shown and disabled while no filter is set. Locations: low | high is in the settings bar (section 0a). Each option shows its count over the whole log in brackets.
 A value is never included and excluded at the same time: choosing it in one picker removes it from the other (`lib/filters.ts`, `withValues`).
 - Activity lists: "[movement events]", "[transformation events]", "[processing operations]", "[fully / partially / unlocated events]", "[agreeing / disagreeing events]", then the activities; counts are events. Single events are found by typing (below).
 - Location lists: "[unknown]" (⊥), "[vehicles]" and "[storage units]" (only if configured; a location in V or W), then the locations; counts are relations whose loc or ploc is that location ("[unknown]": loc or ploc is ⊥). With high-level locations, the list is **grouped**: each high-level location as an entry "A, all locations (17)" with its locations indented below it ("A1 (10)"; in high-level mode "A1 (in A) (10)"), then the locations that are their own only member (e.g. the unmapped T) once. Picking the entry ("[high-level] A") picks all of its locations.
@@ -31,7 +34,7 @@ A value is never included and excluded at the same time: choosing it in one pick
 **Alternatives:** filtering events (instead of relations) would make location filters ambiguous for events whose handling units are at different locations; the concept chose relations.
 
 ## 0a. Locations: low | high
-**What it shows:** a switch "Locations: low | high" in the filter bar (left of "Clear filters"), only if high-level locations are configured. Default low. It applies to the whole Overview section (key numbers, activity profile, overview charts); the Configuration section shows both levels where it matters and is not affected. Kept per log with the filters (`PageFilter.location_mode`, sent as the query parameter `location_mode` to every filtered route).
+**What it shows:** since 2026-11-20 the switch is in the settings bar and applies to every page (`settings-bar.md`); default high if high-level locations are configured. Low uses the identity as high-level function on every page, so the table below only applies in high mode, and the Configuration section (flags, data charts) follows it too. The overview routes fill `PageFilter.location_mode` from the settings (`overview_routes.get_page_filter`); it is no longer a query parameter or part of the stored filter.
 **Principle:** filters are always evaluated on low-level locations, a high-level value stands for its preimage; switching never changes which relations pass and never changes or clears a filter. Only the display and aggregation change: the location dimension becomes ĥl = agg(loc) (hl^k, phl^k in the derivation), and agreement and eloc are taken under ĥl (`derivation.hl_event_locations`), also for "[agreeing / disagreeing events]".
 
 | Part | In high-level mode |
@@ -41,7 +44,7 @@ A value is never included and excluded at the same time: choosing it in one pick
 | Overview charts | bars, segments and heatmap rows are ĥl; events: agreeing under ĥl, under eloc_ĥl; "# locations" counts high-level locations; Handling unit types by location: single high-level location over the trace; Locations chart: new "by low-level location" |
 
 **Example** (running example with the location context, `data/running_example/inputs/locations.csv`): Locations chart, relations by low-level location: A 13 (A1 7, A2 6), B 8 (B1 8), T 5, – 2; events: A 8, B 5, T 2, – 1 (e14 left out, it still disagrees: c1 at T, c3 at B). crane move: typical high-level location A (4/6 = 67 %, hover "A2 4"), unfolded A 4, B 2.
-**Code:** backend `overview/filters.py` (`LocationMode`, `PageFilter.high`, `event_table(derivation, high)`); each section reads `page_filter.high` and falls back to low-level without high-level locations. Frontend `FilterBar.tsx` (the switch) and `lib/filters.ts` (`useLocationContext`, `isHigh`). Tests: `tests/test_overview_high_level.py`.
+**Code:** backend `overview/filters.py` (`LocationMode`, `PageFilter.high`, `event_table(derivation, high)`); each section reads `page_filter.high` and falls back to low-level without high-level locations. Frontend `components/SettingsBar.tsx` (the switch) and `lib/filters.ts` (`useLocationContext`, reading `lib/settings.ts`). Tests: `tests/test_overview_high_level.py`.
 **Alternatives:** filtering on ĥl directly would give the same relations (ĥl ∈ X ⟺ loc ∈ agg⁻¹(X)) but would lose single low-level locations in high-level mode; the label avoids "level", which already means the derivation level.
 
 ## 1. Key numbers
@@ -71,8 +74,8 @@ Implementation choice: the concept's filter line names "kept events with a locat
 **Alternatives:** counting located events by locatedness (fully located) instead of eloc ≠ ⊥; the concept chose agreed located events.
 
 ## 2. Configuration notices
-**What it shows:** grey lines right below the configuration bar (configuration section) with the notices of the applied configuration, e.g. ignored pickup locations or dropped table rows, each with its ids (first 20, "show all").
-**Code:** `Overview.tsx`, `ConfigNotices` (reads `getConfig`), rendering `Notices` from `ConfigForm.tsx`.
+**What it shows:** grey lines right below the configuration summary (configuration section) with the notices of the applied configuration, e.g. ignored pickup locations or dropped table rows, each with its ids (first 20, "show all").
+**Code:** `ModulePage.tsx` (below the summary card; reads `getConfig`), rendering `Notices` from `ConfigForm.tsx`. The notices are those of the current derivation, so they follow the settings bar (e.g. "1 location is not mapped" only in high mode).
 **Example:** none for the running example.
 
 ## 3. Input flags

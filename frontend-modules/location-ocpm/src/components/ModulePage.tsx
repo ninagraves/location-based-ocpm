@@ -1,12 +1,13 @@
-// The frame of every page of the module: title, shared header, then the page's content.
-// The shared header is documented in docs/pages/configuration.md.
+// The frame of every page of the module: title, the configuration (Configuration page only), the settings bar
+// (every page), then the page's content. Documented in docs/pages/configuration.md and docs/pages/settings-bar.md.
 import { Alert, Button, Card, Group, Loader, Stack, Text, Title } from "@mantine/core";
 import { useCurrentOcel } from "@ocelescope/core";
 import { DownloadIcon, SettingsIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { type DerivationConfig, useGetConfig, useGetStatus } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
-import { ConfigForm, downloadJson } from "./ConfigForm";
+import { ConfigForm, downloadJson, Notices } from "./ConfigForm";
+import { SettingsBar } from "./SettingsBar";
 import { ShortList } from "./ShortList";
 
 export { errorText };
@@ -106,11 +107,21 @@ const Versions = () => {
 };
 
 /**
- * A page of the module: title, the shared header (configuration summary with "Edit
- * configuration", or the form while no configuration is applied or while editing), then
- * the page's content once a configuration is applied.
+ * A page of the module: title; on the Configuration page (`configuration`) the configuration summary with "Edit
+ * configuration", or the form while no configuration is applied or while editing; on every page the settings bar
+ * (`SettingsBar`, once a configuration is applied); then the page's content. Other pages without an applied
+ * configuration point to the Configuration page.
  */
-export const ModulePage = ({ title, children }: { title: string; children: (context: PageContext) => ReactNode }) => {
+export const ModulePage = ({
+  title,
+  configuration = false,
+  children,
+}: {
+  title: string;
+  /** True on the Configuration page: show the configuration summary and form. */
+  configuration?: boolean;
+  children: (context: PageContext) => ReactNode;
+}) => {
   const { id: ocelId } = useCurrentOcel();
   const { data: state, isLoading, error } = useGetConfig(ocelId ?? "", { query: { enabled: !!ocelId } });
   const [editing, setEditing] = useState(false);
@@ -120,21 +131,29 @@ export const ModulePage = ({ title, children }: { title: string; children: (cont
   if (!ocelId) header = <Alert color="gray">Select an event log to start.</Alert>;
   else if (isLoading) header = <Loader size="sm" />;
   else if (error) header = <Alert color="red">{errorText(error)}</Alert>;
+  else if (!configuration)
+    header = config ? null : (
+      <Alert color="gray">No configuration is applied for this log yet. Apply one on the Configuration page.</Alert>
+    );
   else if (config && !editing)
     header = (
-      <Card withBorder padding="xs">
-        <Group justify="space-between">
-          <Text size="sm">Configuration: <SummaryLine config={config} />.</Text>
-          <Group gap="xs">
-            <Button size="xs" variant="default" leftSection={<DownloadIcon size={14} />} onClick={() => downloadJson(config)}>
-              Download configuration
-            </Button>
-            <Button size="xs" variant="default" leftSection={<SettingsIcon size={14} />} onClick={() => setEditing(true)}>
-              Edit configuration
-            </Button>
+      <Stack gap="xs">
+        <Card withBorder padding="xs">
+          <Group justify="space-between">
+            <Text size="sm">Configuration: <SummaryLine config={config} />.</Text>
+            <Group gap="xs">
+              <Button size="xs" variant="default" leftSection={<DownloadIcon size={14} />} onClick={() => downloadJson(config)}>
+                Download configuration
+              </Button>
+              <Button size="xs" variant="default" leftSection={<SettingsIcon size={14} />} onClick={() => setEditing(true)}>
+                Edit configuration
+              </Button>
+            </Group>
           </Group>
-        </Group>
-      </Card>
+        </Card>
+        {/* Notices of the current derivation (e.g. unmapped locations), as grey lines below the summary. */}
+        <Notices notices={state?.notices} />
+      </Stack>
     );
   else
     header = (
@@ -156,6 +175,7 @@ export const ModulePage = ({ title, children }: { title: string; children: (cont
         <Versions />
       </Group>
       {header}
+      {ocelId && config && !editing && <SettingsBar ocelId={ocelId} />}
       {ocelId && config && !editing && children({ ocelId, config })}
     </Stack>
   );

@@ -1,10 +1,11 @@
-# Configuration (shared header)
+# Configuration (summary and form)
 
-Shown on top of every page. Concept: `overview/Deriving Locations.md`, sections "input data" and "shared header", and for the location context `overview/module/Module Overview.md`, "Update Overview Page", section 1 (outside this repo).
+Shown only on the Configuration page (before 2026-11-20 on top of every page; the other pages now show the settings bar, `settings-bar.md`, and point to the Configuration page while no configuration is applied). Concept: `overview/Deriving Locations.md`, sections "input data" and "shared header", and for the location context `overview/module/Module Overview.md`, "Update Overview Page", section 1 (outside this repo).
 How the inputs are resolved and checked: `docs/resources/location-derivation.md`, section 1 and 2. Storage and caching: `docs/hosting/state-and-caching.md`.
 
 ## 1. Configuration summary
-**What it shows:** one line, e.g. `Configuration: handling units slab, coil; locations from "to_loc"; Level 3.`, and the buttons "Download configuration" (saves the applied configuration as JSON, like the button in the form) and "Edit configuration". The notices of the applied configuration appear right below this line (`overview.md`, section 2).
+**What it shows:** one line, e.g. `Configuration: handling units slab, coil; locations from "to_loc"; Level 3.`, and the buttons "Download configuration" (saves the applied configuration as JSON, like the button in the form) and "Edit configuration". The notices of the current derivation appear right below this card (`overview.md`, section 2), then the settings bar.
+The level and the processing operations follow the settings bar, which writes them into the applied configuration (`settings-bar.md`).
 Locations read `from qualifier "to"` for the e2o-qualifier option and `from table "target_locations.csv"` for a table.
 Configured location-context inputs are appended, e.g. `; high-level locations from table "locations.csv"; vehicles from table "locations.csv"; storage units from table "locations.csv"; processing operations: transformation events and label` (`contextParts`, `sourceOf`).
 More than five selected object types show the first five (in the order selected) and "(+n)", n being the number of further types; hovering it lists all (`components/ShortList.tsx`).
@@ -21,14 +22,14 @@ One section per input, each with an option switch, the matching pickers and an �
 | Section | Options | Pickers |
 |---|---|---|
 | Handling units (required) | object types, table | object types with number of objects; table + object column |
-| Location level | Level 0-3 (default 3) | one line per level in the ⓘ text |
+| Location level | Level 0-3 (default 3); also "Location function" in the settings bar | one line per level in the ⓘ text |
 | Movement events (required) | activities, event attribute, table | activities with number of events; attribute + values with number of events; table + event column |
 | Transformation events (optional) | none, activities, event attribute, e2o qualifiers, table | as above; qualifiers with number of relations |
 | Consumed and produced handling units (optional, inside "Transformation events") | default (first/last timestamps), e2o qualifiers, table, parent relations (o2o), produced/consumed objects, first/last timestamps, frequency of first/last activities | consumed and produced qualifiers; table + event, object, role columns + role values; o2o qualifiers + direction; produced and consumed objects (object attribute values or table) + final/partial; threshold τ. Options deriving T replace the transformation-events pickers; details in `docs/resources/transformation-inputs.md` |
 | Target locations (required) | event attribute, e2o qualifier, table | attribute; qualifiers + location name (object id or a static object attribute); table + event and location columns |
 | Pickup locations (optional) | none, event attribute, e2o qualifier, table | as for target locations |
 | High-level locations (optional, group "Location context") | none, table, event attributes, object attribute, o2o relation, naming pattern | table + location and high-level columns; low-level and high-level event attributes; attribute of the location objects; o2o qualifiers + name (id or attribute); regular expression with one group |
-| Processing operations (optional) | none, activities, event attribute, e2o qualifiers, table; switch "and all transformation events" (on) | as for transformation events; "none" with the switch on = P = T (default) |
+| Processing operations (optional) | none, activities, event attribute, e2o qualifiers, table; switch "and all transformation events" (on; also in the settings bar) | as for transformation events; "none" with the switch on = P = T (default) |
 | Vehicles, storage units (optional) | none, locations, table, event attribute, object types | locations picked from L or typed in; table + location column + optional true/false column; attribute + values (their events' targets); object types of the location objects |
 
 The object-attribute, o2o and object-type options only appear if target or pickup locations use e2o qualifiers.
@@ -48,7 +49,7 @@ The object-attribute, o2o and object-type options only appear if target or picku
 - `toConfig(draft)` → `DerivationConfig` sent to the backend; `fromConfig(config)` the reverse (applied or loaded configuration).
 - Sections: `EventSetFields` (movement, transformation events, processing operations), `RolesFields` and `ObjectSetFields` (consumed and produced handling units), `LocationFields` (target and pickup locations), `HighLevelFields`, `LocationSetFields` (vehicles, storage units), `TableColumns` (table, columns, upload, preview), `CountPicker`, `AttributeValuePicker`; `useFormLocations` (L for pickers and template), `downloadTemplate`.
 - Texts: `INFO` (ⓘ texts) and `LEVELS` (level labels).
-- Errors and notices: `MessageLine`, `Notices` (also used for the configuration notices on the overview page).
+- Errors and notices: `MessageLine`, `Notices` (also used for the notices below the summary, in `ModulePage`, and for errors of the settings bar). `LEVELS` is also used by the settings bar.
 - Backend: `configuration_routes.py` (`get_options`, `get_attribute_values`, `get_locations`, `apply_config`, `upload_table`), resolution in `derivation/inputs.py` and `derivation/location_context.py`.
 
 **How to change:**
