@@ -34,7 +34,7 @@ from ocelescope_module_location_based_ocpm.instances.profile import (
     query_rows,
     sort_rows,
 )
-from ocelescope_module_location_based_ocpm.instances.traces import object_traces
+from ocelescope_module_location_based_ocpm.instances.traces import align_columns, object_traces, traces_figure
 
 HOUR = 3600.0
 
@@ -279,6 +279,7 @@ def test_object_traces(ocel, full):
     e3 = c2.row(0, named=True)
     assert (e3["activity"], e3["categories"]) == ("roll", ["processing", "transformation"])
     assert {o["object"]: o["selected"] for o in e3["objects"]} == {"c1": True, "s1": False}  # c2 itself left out
+    assert all(o["is_hu"] for o in e3["objects"])
     assert t.totals.select("hu", "n_events", "n_shown").rows() == [("c2", 8, 8), ("c1", 9, 9)]
     assert t.notes == ["Not handling units of this log: zz."]
     # Movements off: the movement-only events go, e8 stays (also Move to vehicle), events in no category stay (c1's e7).
@@ -287,3 +288,7 @@ def test_object_traces(ocel, full):
     assert c2["event"].to_list() == ["e3", "e4", "e8", "e12", "e15"] and c2["pos"].to_list() == [1, 2, 3, 4, 5]
     assert "e7" in projected.events.filter(pl.col("hu") == "c1")["event"].to_list()
     assert projected.categories == t.categories  # counts before the projection
+    # Aligned columns: shared events in one column, each row keeps its order (c2 skips c1's e5, e7).
+    columns = align_columns(t.events)
+    assert [columns[e] for e in ["e3", "e4", "e5", "e6", "e7", "e8"]] == [0, 1, 2, 2, 3, 4]
+    assert len(traces_figure(t, align=True).data) > 1

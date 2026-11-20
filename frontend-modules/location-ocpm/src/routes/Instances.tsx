@@ -1,5 +1,5 @@
 // The instance page: the HU profile (one row per handling unit; rows can be selected), then, for the selected
-// handling units, the lineage chart, the object graph, the object traces and the HU timeline, each with its own
+// handling units, the object traces, the lineage chart, the object graph and the HU timeline, each with its own
 // settings row.
 // Documented in docs/pages/instances.md.
 import { Box, Button, Card, Group, Pill, Stack, Text, Title } from "@mantine/core";
@@ -135,6 +135,9 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
       ) : (
         <>
           <SelectionBar selected={selected} onChange={setSelected} />
+          <ChartCard title="Object traces" onReset={() => setTraces(DEFAULT_OBJECT_TRACES)}>
+            <ObjectTracesChart ocelId={ocelId} handlingUnits={selected} colours={colours} settings={tracesSettings} onChange={setTraces} onToggle={toggle} />
+          </ChartCard>
           <ChartCard title="Lineage" onReset={() => {
               setLineage(DEFAULT_LINEAGE);
               setLineageLayout((k) => k + 1);
@@ -155,9 +158,6 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
               onChange={setObjectGraph}
               onToggle={toggle}
             />
-          </ChartCard>
-          <ChartCard title="Object traces" onReset={() => setTraces(DEFAULT_OBJECT_TRACES)}>
-            <ObjectTracesChart ocelId={ocelId} handlingUnits={selected} colours={colours} settings={tracesSettings} onChange={setTraces} />
           </ChartCard>
           <ChartCard title="HU timeline" onReset={() => setTimeline(DEFAULT_TIMELINE)}>
             <TimelineUnitsBar

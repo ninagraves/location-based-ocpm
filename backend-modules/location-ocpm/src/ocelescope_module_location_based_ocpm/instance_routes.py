@@ -587,10 +587,11 @@ class ObjectTracesRequest(BaseModel):
 
 
 class TraceObject(BaseModel):
-    """Another object of an event: id, object type, and whether it is one of the selected handling units."""
+    """Another object of an event: id, object type, whether it is a handling unit and one of the selected ones."""
 
     object: str
     object_type: str | None = None
+    is_hu: bool
     selected: bool
 
 
