@@ -60,7 +60,7 @@ export type DfgState = {
 /**
  * Defaults (Nina, 2026-11-15/16): handling-unit types; per type its most frequent 40 % of activities (3 to 10), shared
  * between the handling-unit types; variants 80 % (backend default); Arcs (projection) 50 %; Arcs (display) all, general;
- * Stay connected on; Movements, Move to vehicle and Move to storage deselected (Nina, 2026-11-19).
+ * Stay connected on; Move to vehicle, Move to storage and Other movements deselected (Nina, 2026-11-19/20).
  */
 export const DEFAULT_STATE: DfgState = {
   objectTypes: null,
@@ -73,7 +73,7 @@ export const DEFAULT_STATE: DfgState = {
   stayConnected: true,
   removed: [],
   // All movements off by default (Nina, 2026-11-19; `categories.DEFAULT_EXCLUDED`).
-  excludedCategories: ["movement", "to_vehicle", "to_storage"],
+  excludedCategories: ["to_vehicle", "to_storage", "other_movement"],
   arcLabel: "count",
   direction: "RIGHT",
   compact: false,
@@ -129,11 +129,11 @@ export const INFO = {
   objectTypes:
     "Checked object types are drawn with their directly-follows arcs, start and end nodes. Unchecked object types that are involved in the shown events appear only as circles on the activity nodes. Default: the object types of the handling units. Unfold a type for its own values.",
   categories:
-    "Event categories: an event is removed from the traces (before anything else, like deselecting an activity) only when all categories it belongs to are deselected. Move to vehicle / storage: movements whose target location is a vehicle / storage unit; such an event is also a movement, so it stays until both Movements and its Move to chip are off. Events in no category are not affected by the chips (the activity selection still applies).",
+    "Event categories: an event is removed from the traces (before anything else, like deselecting an activity) only when all categories it belongs to are deselected. Move to vehicle / storage: movements whose target location is a vehicle / storage unit. Other movements: all other movements (target location neither, or not given). Every movement is in exactly one of these three; it stays while a processing or transforming chip it also belongs to is on. Events in no category are not affected by the chips (the activity selection still applies).",
   activities:
     "Activities by number of events that involve a handling unit (in brackets). The events of an unchecked activity are removed from the traces before anything else (as in Ocelescope): a trace a, b, c without b becomes a, c. Unfold an activity for its events per object type and to (de)select it for single selected types. Default per type: its most frequent 40 % of activities (at least 3, at most 10) among those with events left after the event categories, plus every activity preselected for another selected handling-unit type. Upper part: the activities in the graph. Lower part: the others, each with the value it needs: in blue the smallest Arcs (projection) that would show it (it is on an included trace, but none of its arcs is kept), in grey the smallest variant threshold that would put it on an included trace. Unfold for the values per type. Search for movements, vehicles, storage, processing or transformation to find the activities with these events too.",
   outside:
-    "Activities not in the graph. Blue: on an included trace, but none of its arcs is kept; the number is the smallest Arcs (projection) (of any selected type) that keeps one, \"display\" if Arcs (projection) keeps one but Arcs (display) or a removal by hand hides it. Grey: on no included trace; the number is the smallest variant threshold (of any selected type) that would put it on one (for an unchecked activity: if it were checked). Without a number, no threshold helps: “removed by an event category” means all its events were removed by the event category chips above the graph (each of them is only in categories that are switched off), checked or not, e.g. “unload truck” with Movements and Move to storage off; “type not selected” means only unselected types have it. Unfold for each selected type.",
+    "Activities not in the graph. Blue: on an included trace, but none of its arcs is kept; the number is the smallest Arcs (projection) (of any selected type) that keeps one, \"display\" if Arcs (projection) keeps one but Arcs (display) or a removal by hand hides it. Grey: on no included trace; the number is the smallest variant threshold (of any selected type) that would put it on one (for an unchecked activity: if it were checked). Without a number, no threshold helps: “removed by an event category” means all its events were removed by the event category chips above the graph (each of them is only in categories that are switched off), checked or not, e.g. “load truck” with Move to vehicle off; “type not selected” means only unselected types have it. Unfold for each selected type.",
   withoutHu:
     "Activities with no event that involves a handling unit (not in the graph). The value names the object type for which the activity is easiest to include: the type with the smallest variant threshold that puts it on an included trace, if that type were selected with its default activities (and the activity checked), e.g. “operator · ≥ 67 %”. Blue as above: on an included trace of a selected type, but none of its arcs is kept. Unfold for the value of every type, selected or not.",
   arcLabel: "What the number on an arc counts: traversals (an object repeating the arc counts each time) or distinct objects.",
@@ -441,12 +441,13 @@ const TypeRow = ({
 
 /**
  * Badge letter of each event category, as in the notation of the concept: M movements, V to a vehicle, W to a storage
- * unit, P processing operations, T transformations (Nina, 2026-11-15: small, single letters).
+ * unit, P processing operations, T transformations (Nina, 2026-11-15: small, single letters). M marks the other
+ * movements (to neither a vehicle nor a storage unit; Nina, 2026-11-20, replacing all movements).
  */
 const CATEGORY_BADGE: Record<string, { letter: string; long: string }> = {
-  movement: { letter: "M", long: "movements" },
   to_vehicle: { letter: "V", long: "movements to a vehicle" },
   to_storage: { letter: "W", long: "movements to a storage unit" },
+  other_movement: { letter: "M", long: "other movements" },
   processing: { letter: "P", long: "processing operations" },
   transformation: { letter: "T", long: "transformations" },
 };
@@ -537,9 +538,9 @@ const ACTIVITY_LIST_MIN_HEIGHT = 360;
 
 /** Words that find the activities with events of a category in the activity search (Nina, 2026-11-16). */
 const CATEGORY_WORDS: Record<string, string[]> = {
-  movement: ["movements", "movement", "move"],
-  to_vehicle: ["vehicles", "vehicle"],
-  to_storage: ["storage"],
+  to_vehicle: ["vehicles", "vehicle", "movements", "movement", "move"],
+  to_storage: ["storage", "movements", "movement", "move"],
+  other_movement: ["other", "movements", "movement", "move"],
   processing: ["processing", "process"],
   transformation: ["transformations", "transformation", "transforming", "transform"],
 };

@@ -141,7 +141,7 @@ export const deselectActivity = (state: DfgState, options: DfgActivityOption[], 
 
 /** Sidebar and graph of one log. */
 const DfgContent = ({ ocelId }: { ocelId: string }) => {
-  const [stored, setStored] = usePageState<DfgState>(`dfg.v5.${ocelId}`, DEFAULT_STATE);
+  const [stored, setStored] = usePageState<DfgState>(`dfg.v6.${ocelId}`, DEFAULT_STATE);
   // Settings saved by an older version may lack fields: fill them with the defaults.
   const state = useMemo(() => ({ ...DEFAULT_STATE, ...stored }), [stored]);
   const setState = useCallback(
