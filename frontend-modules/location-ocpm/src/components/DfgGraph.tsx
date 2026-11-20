@@ -56,7 +56,7 @@ const activityTooltip = (d: ActivityNodeData) => (
         {t.objectType}{t.selected ? "" : " (not selected)"}: {num(t.events)} events, {num(t.objects)} objects
       </Text>
     ))}
-    <Text size="xs" c="dimmed">Right click: copy the name</Text>
+    <Text size="xs" c="dimmed">Right click: copy the name · double click: deselect it for every object type</Text>
   </Stack>
 );
 
@@ -147,12 +147,13 @@ const TerminalNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
 /**
  * Arc: ELK's route in the object type's colour, with a small plain label (count or objects) that interrupts the line.
  * Hovering the line or the label shows its numbers and, for an arc shown only because of "Stay connected", says so
- * (drawn like every other arc; Nina, 2026-11-17). A right click on the arc or its label removes it.
+ * (drawn like every other arc; Nina, 2026-11-17). A double click on the arc or its label removes it (Nina, 2026-11-20;
+ * before: right click).
  */
 const ArcEdge = memo(({ id, data, markerEnd }: EdgeProps<Edge<ArcData>>) => {
   if (!data?.path) return null;
   const position = data.labelPosition;
-  const hint = `${data.objectType}: ${num(data.count)} traversals, ${num(data.objects)} objects${data.connecting ? " · only kept to stay connected (Arcs (projection) or Arcs (display) would hide it)" : ""} · right click to remove`;
+  const hint = `${data.objectType}: ${num(data.count)} traversals, ${num(data.objects)} objects${data.connecting ? " · only kept to stay connected (Arcs (projection) or Arcs (display) would hide it)" : ""} · double click to remove`;
   return (
     <>
       <BaseEdge
@@ -171,8 +172,9 @@ const ArcEdge = memo(({ id, data, markerEnd }: EdgeProps<Edge<ArcData>>) => {
           <Tooltip label={hint} withinPortal>
             <Box
               className="nodrag nopan"
-              onContextMenu={(e) => {
+              onDoubleClick={(e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 data.onRemove?.(data);
               }}
               style={{
@@ -204,8 +206,8 @@ const Legend = () => (
     ▶ / ■ in a circle: start / end of an object type (named below; arcs from and to them are grey) · coloured line:
     directly-follows arc of a selected object type (thicker = more traversals) · number on an arc: traversals or objects ·
     hover an arc: its numbers, and whether it is only kept to stay connected · number in an activity: its events on the included traces · small circle on an
-    activity: an unselected object type involved in these events · right click on an arc: remove it · right click on an
-    activity: copy its name · drag a node to
+    activity: an unselected object type involved in these events · double click on an arc: remove it · double click on an
+    activity: deselect it · right click on an activity: copy its name · drag a node to
     move it (the arcs follow; positions reset when a setting changes)
   </Text>
 );
@@ -308,7 +310,7 @@ const FitOnChange = ({ generation }: { generation: number | null }) => {
  * @param arcLabel What the arc labels show: traversals (`count`) or distinct objects.
  * @param compact Compact layout (little white space, `COMPACT_OPTIONS`).
  * @param height Height of the drawing area in pixels.
- * @param onRemoveArc Called when the user right-clicks an arc (to remove it).
+ * @param onRemoveArc Called when the user double-clicks an arc (to remove it).
  * @param onDeselectActivity Called when the user double-clicks an activity node (to deselect it for all types).
  * @param keepLayout Reuse the current layout if the new graph only lacks arcs (`reduceLayout`; set when only arcs were
  *   removed by hand, Nina 2026-11-17): nodes and arcs stay where they are, dragged nodes too.
@@ -436,8 +438,8 @@ export const DfgGraph = ({
           maxZoom={3}
           fitView
           fitViewOptions={{ padding: 0.08, maxZoom: 1 }}
-          // Right click removes an arc (a left click is reserved for later interactions; Nina, 2026-11-15).
-          onEdgeContextMenu={(event, edge) => {
+          // Double click removes an arc (Nina, 2026-11-20; before: right click); a single click stays free.
+          onEdgeDoubleClick={(event, edge) => {
             event.preventDefault();
             const data = edge.data as ArcData | undefined;
             if (data) onRemoveArc?.(data);
