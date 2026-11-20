@@ -1,6 +1,6 @@
 // The drawing of the directly-follows graph: ELK layout (lib/dfgLayout.ts), rendered with React Flow so that
 // it can be panned and zoomed, and its nodes dragged (the arcs follow; Nina, 2026-11-15). Documented in docs/pages/directly-follows-graph.md.
-import { Alert, Box, Group, Loader, Stack, Text, Tooltip } from "@mantine/core";
+import { ActionIcon, Alert, Box, Group, Loader, Menu, Stack, Text, Tooltip } from "@mantine/core";
 import {
   applyNodeChanges,
   BaseEdge,
@@ -10,6 +10,7 @@ import {
   EdgeLabelRenderer,
   Handle,
   MarkerType,
+  Panel,
   type Node,
   type NodeChange,
   type NodeProps,
@@ -18,7 +19,8 @@ import {
   ReactFlowProvider,
   useReactFlow,
 } from "@xyflow/react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DownloadIcon } from "lucide-react";
+import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DirectlyFollowsGraph } from "../api/locationBasedOcpm";
 import {
   type ActivityNodeData,
@@ -31,6 +33,7 @@ import {
   SIZES,
   type TerminalNodeData,
 } from "../lib/dfgLayout";
+import { downloadGraph, IMAGE_FORMATS, type ImageFormat } from "../lib/dfgDownload";
 import { num } from "../lib/format";
 
 type NodeData = (ActivityNodeData | TerminalNodeData) & { colours: Map<string, string> };
@@ -302,6 +305,59 @@ const FitOnChange = ({ generation }: { generation: number | null }) => {
 };
 
 /**
+ * The download button at the top right of the graph (Nina, 2026-11-20): a menu with SVG, PDF and PNG; the file shows
+ * the whole graph as drawn (dragged nodes and removed arcs included), not just the part zoomed in on
+ * (`lib/dfgDownload.ts`). React Flow's panels (this button, the zoom controls) are not in the image.
+ *
+ * @param container The element around the graph.
+ * @param fileName File name without extension.
+ */
+const DownloadMenu = ({ container, fileName }: { container: RefObject<HTMLDivElement | null>; fileName: string }) => {
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const download = async (format: ImageFormat) => {
+    if (!container.current) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await downloadGraph(container.current, format, fileName);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Panel position="top-right">
+      <Group gap={6} wrap="nowrap">
+        {error && (
+          <Text size="xs" c="red">
+            {error}
+          </Text>
+        )}
+        <Menu position="bottom-end" withinPortal shadow="sm">
+          <Menu.Target>
+            <Tooltip label="Download the graph as an image" withinPortal>
+              <ActionIcon size="sm" variant="default" loading={busy} aria-label="Download the graph as an image">
+                <DownloadIcon size={13} />
+              </ActionIcon>
+            </Tooltip>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Label>Download as</Menu.Label>
+            {IMAGE_FORMATS.map(({ format, label }) => (
+              <Menu.Item key={format} onClick={() => download(format)}>
+                {label}
+              </Menu.Item>
+            ))}
+          </Menu.Dropdown>
+        </Menu>
+      </Group>
+    </Panel>
+  );
+};
+
+/**
  * The directly-follows graph, laid out with ELK and drawn with React Flow (pan, zoom, fit).
  *
  * @param graph The graph from the backend.
@@ -312,6 +368,7 @@ const FitOnChange = ({ generation }: { generation: number | null }) => {
  * @param height Height of the drawing area in pixels.
  * @param onRemoveArc Called when the user double-clicks an arc (to remove it).
  * @param onDeselectActivity Called when the user double-clicks an activity node (to deselect it for all types).
+ * @param fileName Name of a downloaded image, without extension.
  * @param keepLayout Reuse the current layout if the new graph only lacks arcs (`reduceLayout`; set when only arcs were
  *   removed by hand, Nina 2026-11-17): nodes and arcs stay where they are, dragged nodes too.
  */
@@ -324,6 +381,7 @@ export const DfgGraph = ({
   height,
   onRemoveArc,
   onDeselectActivity,
+  fileName = "directly-follows-graph",
   keepLayout = false,
 }: {
   graph: DirectlyFollowsGraph;
@@ -334,8 +392,10 @@ export const DfgGraph = ({
   height: number;
   onRemoveArc?: (arc: LaidOutArc) => void;
   onDeselectActivity?: (activity: string) => void;
+  fileName?: string;
   keepLayout?: boolean;
 }) => {
+  const container = useRef<HTMLDivElement>(null);
   const [layout, setLayout] = useState<Layout | null>(null);
   const [error, setError] = useState<string | null>(null);
   const current = useRef<{ layout: Layout | null; direction: Direction; arcLabel: ArcLabel; compact: boolean } | null>(null);
@@ -413,7 +473,7 @@ export const DfgGraph = ({
   return (
     <Stack gap={4}>
       <Legend />
-    <Box style={{ height, border: "1px solid var(--mantine-color-default-border)", borderRadius: 8, position: "relative" }}>
+    <Box ref={container} style={{ height, border: "1px solid var(--mantine-color-default-border)", borderRadius: 8, position: "relative" }}>
       {copied && (
         <Text
           size="xs"
@@ -463,6 +523,7 @@ export const DfgGraph = ({
           }}
         >
           <Controls showInteractive={false} />
+          <DownloadMenu container={container} fileName={fileName} />
           <FitOnChange generation={generation} />
         </ReactFlow>
       </ReactFlowProvider>
