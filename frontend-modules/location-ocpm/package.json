@@ -33,6 +33,7 @@
 		"elkjs": "catalog:",
 		"lucide-react": "catalog:",
 		"mantine-datatable": "catalog:",
+		"next": "catalog:",
 		"react": "catalog:",
 		"react-dom": "catalog:"
 	},
@@ -51,6 +52,7 @@
 		"elkjs": "catalog:",
 		"lucide-react": "catalog:",
 		"mantine-datatable": "catalog:",
+		"next": "catalog:",
 		"orval": "catalog:",
 		"react": "catalog:",
 		"tsdown": "catalog:",
