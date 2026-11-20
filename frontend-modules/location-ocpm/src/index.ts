@@ -2,6 +2,7 @@
 import { defineModule, defineModuleRoute } from "@ocelescope/core";
 import { MapPinnedIcon } from "lucide-react";
 import DirectlyFollowsGraph from "./routes/DirectlyFollowsGraph";
+import Instances from "./routes/Instances";
 import Overview from "./routes/Overview";
 
 const overviewRoute = defineModuleRoute({
@@ -18,11 +19,18 @@ const dfgRoute = defineModuleRoute({
   component: DirectlyFollowsGraph,
 });
 
+const instancesRoute = defineModuleRoute({
+  name: "instances",
+  label: "Instances",
+  requiresOcel: true,
+  component: Instances,
+});
+
 export default defineModule({
   name: "locationBasedOcpm",
   label: "Location-based OCPM",
   description: "Location-based object-centric process mining for production and logistics",
   authors: [{ name: "Nina Graves" }],
   icon: MapPinnedIcon,
-  routes: [overviewRoute, dfgRoute],
+  routes: [overviewRoute, dfgRoute, instancesRoute],
 });

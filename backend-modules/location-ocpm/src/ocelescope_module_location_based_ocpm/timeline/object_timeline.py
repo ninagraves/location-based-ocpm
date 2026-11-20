@@ -97,6 +97,11 @@ SIZE = {"processing": 17, "other": 10, "movement": 16}
 #: dominant; details in the hover): a small open diamond instead of the tick.
 PICKUP_DIFFERS_SYMBOL = "diamond-tall-open"
 PICKUP_DIFFERS_SIZE = 13
+#: Offset in pixels of an activity label from its marker: events above the band start a bit to the right of and
+#: above their marker; a movement label is moved left so that the lower end of the angled text sits exactly above
+#: its line on the band (about font height x sin(35°)), and up for a gap to the band (Nina 2026-11-19).
+LABEL_SHIFT = (2, 7)
+MOVEMENT_LABEL_SHIFT = (-6, 6)
 #: Most handling units shown in one timeline (Nina 2026-10-31).
 MAX_HANDLING_UNITS = 50
 
@@ -115,6 +120,22 @@ LABELLED_ROW_GAP = 1.4
 LABEL_ROOM = 0.45
 #: Angle of the activity names.
 LABEL_ANGLE = -35
+#: Activity names longer than this are cut with "…" (full name in the hover), so that they do not run into the row
+#: above (Nina 2026-11-15).
+MAX_LABEL_CHARS = 16
+
+
+def short_label(text: str, max_chars: int = MAX_LABEL_CHARS) -> str:
+    """Cut a label to at most `max_chars` characters, ending with "…" if it was cut.
+
+    Args:
+        text: The label.
+        max_chars: Characters kept at most (including "…").
+
+    Returns:
+        str: The label, or its first `max_chars - 1` characters and "…".
+    """
+    return text if len(text) <= max_chars else text[: max_chars - 1].rstrip() + "…"
 #: Pixels per y unit.
 PX_PER_UNIT = 90
 #: Default figure width in pixels.
@@ -674,6 +695,7 @@ def object_timeline(
     show_activity_labels: bool = True,
     mark_ties: bool = True,
     link_shared_events: bool = True,
+    label_movements: bool = False,
     reach=None,
     title: str | None = None,
     width: int = WIDTH,
@@ -692,6 +714,8 @@ def object_timeline(
       colour by role: produced green, consumed pink, consumed and produced amber, none dark grey.
     Dotted lines join the markers of an event shared by several handling units (`link_shared_events`), and
     events with the same timestamp get a light grey box over the whole height (`mark_ties`).
+    With `label_movements`, every movement that is not a processing operation also gets its activity name,
+    starting exactly above its line on the band (if `show_activity_labels`).
 
     Args:
         relations: Output of `timeline_relations`.
@@ -699,6 +723,7 @@ def object_timeline(
         show_activity_labels: Write the activity name above every marker that is not on the band.
         mark_ties: Grey boxes behind events with the same timestamp.
         link_shared_events: Dotted lines joining shared events.
+        label_movements: Write the activity names of the movements too (above the band, `MOVEMENT_LABEL_SHIFT`).
         reach: Length of band lead-ins and continuations (see `band_segments`); None = default.
         title: Figure title.
         width: Figure width in pixels.
@@ -710,7 +735,8 @@ def object_timeline(
     if reach is None:
         reach = continuation(relations)
     lives = lifespans(relations)
-    labelled = show_activity_labels and (relations[MARKER] != "movement").any()
+    label_movements = label_movements and bool((relations[MARKER] == "movement").any())
+    labelled = show_activity_labels and ((relations[MARKER] != "movement").any() or label_movements)
     gap = LABELLED_ROW_GAP if labelled else ROW_GAP
     n = lives.height
     row_y = {
@@ -918,22 +944,27 @@ def object_timeline(
             )
         )
     if labelled:
-        for x, y, activity in (
-            rel.filter(~pl.col(c.IS_MOVEMENT).fill_null(False))
-            .select(X, "_y", c.ACTIVITY)
+        # Movements on the band are labelled from the band's top (only with `label_movements`).
+        written = ~pl.col(c.IS_MOVEMENT).fill_null(False)
+        if label_movements:
+            written = written | (pl.col(MARKER) == "movement")
+        for x, y, activity, on_band in (
+            rel.filter(written)
+            .select(X, "_y", c.ACTIVITY, pl.col(MARKER) == "movement")
             .iter_rows()
         ):
             annotations.append(
                 {
                     "x": x,
-                    "y": y,
-                    "text": activity,
+                    "y": y - on_band_y + BAND_TOP if on_band else y,
+                    "text": short_label(activity or ""),
+                    "hovertext": activity if len(activity or "") > MAX_LABEL_CHARS else None,
                     "textangle": LABEL_ANGLE,
                     "showarrow": False,
                     "xanchor": "left",
                     "yanchor": "bottom",
-                    "xshift": 2,
-                    "yshift": 7,
+                    "xshift": (MOVEMENT_LABEL_SHIFT if on_band else LABEL_SHIFT)[0],
+                    "yshift": (MOVEMENT_LABEL_SHIFT if on_band else LABEL_SHIFT)[1],
                     "font": {"size": 9, "color": "#495057"},
                 }
             )

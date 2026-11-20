@@ -1,6 +1,6 @@
 # Instance lineage (concept only)
 
-Status: package `lineage/`, not used by any page yet (Nina 2026-11-09: implement as a concept, no module integration).
+Status: package `lineage/`; used by the instance page (suggestion, `docs/pages/instances.md`).
 Concept: `overview/concepts/Transformations.md`, sections "Instance Lineage" and "Instance Visualisation" (outside this repo).
 Demo: `notebooks/lineage.ipynb`.
 
