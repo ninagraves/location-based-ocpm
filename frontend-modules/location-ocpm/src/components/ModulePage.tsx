@@ -29,7 +29,7 @@ const locationSource = (locations: DerivationConfig["target_locations"]) => {
 
 /**
  * The configuration summary in one line (overview/Deriving Locations.md, "shared header"),
- * e.g. 'handling units coil, slab; locations from "to_loc"; Level 3'. More than five
+ * e.g. 'handling units coil, slab; locations from "to_loc"'. The level is in the settings bar. More than five
  * object types are shortened to the first five (in the order selected) and "+ n more".
  */
 export const SummaryLine = ({ config }: { config: DerivationConfig }) => {
@@ -38,7 +38,7 @@ export const SummaryLine = ({ config }: { config: DerivationConfig }) => {
   return (
     <>
       handling units {"table" in hu ? `from table "${hu.table}"` : <ShortList items={hu.object_types} separator=", " />};
-      locations {locationSource(config.target_locations)}; Level {config.level ?? 3}
+      locations {locationSource(config.target_locations)}
       {context.map((part) => `; ${part}`).join("")}
     </>
   );
@@ -80,13 +80,8 @@ const contextParts = (config: DerivationConfig): string[] => {
   if (config.vehicles) parts.push(`vehicles ${sourceOf(config.vehicles)}`);
   if (config.storage_units) parts.push(`storage units ${sourceOf(config.storage_units)}`);
   const processing = config.processing_operations;
-  if (processing) {
-    const selected = processing.selection ? sourceOf(processing.selection) : "";
-    const withT = processing.include_transformations !== false;
-    parts.push(
-      `processing operations: ${[withT ? "transformation events" : "", selected].filter(Boolean).join(" and ") || "none"}`,
-    );
-  }
+  // Whether the transformation events count too is the settings bar's choice, so only the selection is named.
+  if (processing?.selection) parts.push(`processing operations ${sourceOf(processing.selection)}`);
   return parts;
 };
 

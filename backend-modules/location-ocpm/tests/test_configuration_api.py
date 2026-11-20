@@ -78,7 +78,7 @@ def test_cache_invalidated_by_level_filters_and_tables(ocel, session, state):
     upload(state, EXAMPLE / "inputs" / "target_locations.csv")  # same content: same key
     assert routes.current_derivation("log", ocel, session, state) is second
 
-    assert routes.apply_config("log", config.model_copy(update={"level": 1}), ocel, session, state).applied
+    state.settings["log"] = state.settings["log"].model_copy(update={"level": 1})  # the settings bar
     assert routes.current_derivation("log", ocel, session, state).level == 1
 
 

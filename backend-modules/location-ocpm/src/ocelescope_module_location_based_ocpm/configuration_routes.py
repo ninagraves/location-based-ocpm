@@ -224,7 +224,8 @@ def current_derivation(
     """The derivation of a log under its effective configuration, from the cache if still valid.
 
     Content routes use this as a dependency. The effective configuration is the applied one with the settings
-    bar applied (`global_settings.effective_config`: without high-level locations in low mode), so every page
+    bar applied (`global_settings.effective_config`: its level and processing choice, and without high-level locations
+    in low mode), so every page
     follows the bar. The cache keeps the current and the previous derivation per log (`ModuleState.recent`); one
     is reused while configuration, settings, log version (Ocelescope view) and used tables are unchanged, else the
     log is derived again.
@@ -368,22 +369,28 @@ def apply_config(
     ocel_version: OcelVersion = "filtered",
     view_id: str | None = None,
 ) -> ApplyResult:
-    """Derive with a configuration; store and cache it only if there is no blocking error.
+    """Derive with a configuration under the log's settings bar; store and cache it only if there is no blocking
+    error.
 
-    A configuration that cannot be applied leaves the previously applied one in place. If it adds high-level
-    locations to a configuration without them, the settings bar switches to Locations: high (the default).
+    The derivation uses the bar's level and processing choice (defaults for a new log: Level 3, transformation
+    events are processing operations), not the `level` and `include_transformations` of the body
+    (`global_settings.effective_config`). A configuration that cannot be applied leaves the previously applied one in
+    place. If it adds high-level locations to a configuration without them, the bar switches to Locations: high.
     """
-    result = run_derivation(ocel, body, state)
+    previous = state.configs.get(ocel_id)
+    settings = state.settings.get(ocel_id) or GlobalSettings()
+    if body.high_level_locations is not None and (previous is None or previous.high_level_locations is None):
+        settings = settings.model_copy(update={"location_mode": "high"})
+    effective = effective_config(body, settings)
+    result = run_derivation(ocel, effective, state)
     if isinstance(result, list):
         return ApplyResult(applied=False, errors=result)
     notices = [Message.of(n) for n in result.notices]
     if result.errors:
         return ApplyResult(applied=False, errors=[Message.of(e) for e in result.errors], notices=notices)
-    previous = state.configs.get(ocel_id)
-    if body.high_level_locations is not None and (previous is None or previous.high_level_locations is None):
-        state.settings[ocel_id] = GlobalSettings(location_mode="high")
     state.configs[ocel_id] = body
-    key = fingerprint(body, log_version(session, ocel_id, ocel_version, view_id), state.tables)
+    state.settings[ocel_id] = settings
+    key = fingerprint(effective, log_version(session, ocel_id, ocel_version, view_id), state.tables)
     _cache_derivation(state, session, ocel_id, CachedDerivation(key=key, derivation=result), ocel_version, view_id)
     return ApplyResult(applied=True, notices=notices)
 
