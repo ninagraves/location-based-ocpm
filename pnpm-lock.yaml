@@ -63,9 +63,15 @@ catalogs:
     '@types/react-dom':
       specifier: ^19.3.0
       version: 19.3.0
+    '@xyflow/react':
+      specifier: ^12.12.0
+      version: 12.12.0
     axios:
       specifier: ^1.21.0
       version: 1.21.0
+    elkjs:
+      specifier: ^0.12.0
+      version: 0.12.0
     lucide-react:
       specifier: ^1.63.0
       version: 1.73.0
@@ -164,9 +170,15 @@ importers:
       '@types/react':
         specifier: 'catalog:'
         version: 19.3.0
+      '@xyflow/react':
+        specifier: 'catalog:'
+        version: 12.12.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       axios:
         specifier: 'catalog:'
         version: 1.21.0(debug@4.4.3)
+      elkjs:
+        specifier: 'catalog:'
+        version: 0.12.0
       lucide-react:
         specifier: 'catalog:'
         version: 1.73.0(@types/react@19.3.0)(react@19.3.1)

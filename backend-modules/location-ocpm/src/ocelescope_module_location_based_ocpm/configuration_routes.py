@@ -6,6 +6,8 @@ log with Ocelescope's own filters applied), unless the request names another vie
 the original log (`ocel_version=original`).
 """
 
+import threading
+from collections.abc import Callable
 from typing import Annotated, Literal
 
 import polars as pl
@@ -51,6 +53,66 @@ OcelVersion = Literal["original", "filtered"]
 
 #: Module states of all backend sessions.
 STATES = SessionStates()
+
+
+#: Called in a background thread whenever a new derivation is cached, e.g. to precompute the directly-follows graph
+#: before the user opens its page (`dfg_routes`; Nina, 2026-11-16). Arguments: log id, a function that opens the log
+#: (the request's log is closed when the request ends, so a hook opens and closes its own), the cached derivation.
+ON_DERIVED: list[Callable[[str, Callable[[], OCEL], CachedDerivation], None]] = []
+
+
+def open_log(session: Session, ocel_id: str, ocel_version: OcelVersion = "filtered", view_id: str | None = None) -> OCEL:
+    """Open the log a request reads, outside the request (as Ocelescope's `ApiOcel` does; the caller closes it).
+
+    Example: `open_log(session, ocel_id)` opens the active view, i.e. the log with Ocelescope's filters.
+
+    Args:
+        session: The backend session.
+        ocel_id: Id of the log.
+        ocel_version: "original" for the unfiltered log, "filtered" for the active view.
+        view_id: A specific view instead of the active one.
+
+    Returns:
+        OCEL: The opened log.
+
+    Raises:
+        HTTPException: 404 if the log or the view does not exist (any more).
+    """
+    handle = session.get_ocel(ocel_id)
+    if view_id is None:
+        return handle.open(use_original=ocel_version == "original")
+    view = handle.get_view(view_id)
+    if view is None:
+        raise HTTPException(status_code=404, detail=f"View {view_id} not found")
+    return view.open()
+
+
+def _cache_derivation(
+    state: ModuleState,
+    session: Session,
+    ocel_id: str,
+    cached: CachedDerivation,
+    ocel_version: OcelVersion = "filtered",
+    view_id: str | None = None,
+) -> None:
+    """Store a derivation in the session's cache and start the `ON_DERIVED` hooks in the background.
+
+    Args:
+        state: The module state.
+        session: The backend session (to open the log again in the background).
+        ocel_id: Id of the log.
+        cached: The derivation and its cache key.
+        ocel_version: Which log the derivation was computed on (see `log_version`).
+        view_id: A specific Ocelescope view (see `log_version`).
+    """
+    state.cache[ocel_id] = cached
+
+    def opener() -> OCEL:
+        """Open the same log version as the request (in the hook's thread)."""
+        return open_log(session, ocel_id, ocel_version, view_id)
+
+    for hook in ON_DERIVED:
+        threading.Thread(target=hook, args=(ocel_id, opener, cached), daemon=True).start()
 
 
 def get_state(session: ApiSession) -> ModuleState:
@@ -193,7 +255,7 @@ def current_derivation(
             detail="The applied configuration does not work on the current log: "
             + " ".join(e.message for e in errors),
         )
-    state.cache[ocel_id] = CachedDerivation(key=key, derivation=result)
+    _cache_derivation(state, session, ocel_id, CachedDerivation(key=key, derivation=result), ocel_version, view_id)
     return result
 
 
@@ -309,10 +371,8 @@ def apply_config(
     if result.errors:
         return ApplyResult(applied=False, errors=[Message.of(e) for e in result.errors], notices=notices)
     state.configs[ocel_id] = body
-    state.cache[ocel_id] = CachedDerivation(
-        key=fingerprint(body, log_version(session, ocel_id, ocel_version, view_id), state.tables),
-        derivation=result,
-    )
+    key = fingerprint(body, log_version(session, ocel_id, ocel_version, view_id), state.tables)
+    _cache_derivation(state, session, ocel_id, CachedDerivation(key=key, derivation=result), ocel_version, view_id)
     return ApplyResult(applied=True, notices=notices)
 
 
