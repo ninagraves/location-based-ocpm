@@ -36,7 +36,7 @@ def _role_combinations() -> list[str]:
 EVENT_TYPES = _role_combinations()
 #: Agreement of an event; "agreeing at high level only" only occurs if high-level locations are configured.
 AGREEING_HIGH_ONLY = "agreeing at high level only"
-AGREEMENT = ["agreeing", AGREEING_HIGH_ONLY, "not agreeing", "not tested"]
+AGREEMENT = ["agreeing", AGREEING_HIGH_ONLY, "not agreeing"]
 #: Location types (a property of a low-level location) in display order.
 VEHICLE, STORAGE, BOTH, OTHER_LOCATION = "vehicle", "storage unit", "vehicle and storage unit", "other"
 LOCATION_TYPES = [VEHICLE, STORAGE, BOTH, OTHER_LOCATION]
@@ -145,8 +145,8 @@ def event_categories(derivation: Derivation, high: bool = False) -> pl.DataFrame
         high: True for the agreement under hat-hl (high-level mode of the Overview section).
 
     Returns:
-        pl.DataFrame: Columns event, located, type, agreement. Agreement is "not tested" if
-        fewer than two handling units of the event are located (agreeing by definition); with high-level
+        pl.DataFrame: Columns event, located, type, agreement. Agreement is "agreeing" or "not agreeing" by
+        the definition, so an event with fewer than two located handling units is "agreeing"; with high-level
         locations, an event that only agrees under hat-hl is "agreeing at high level only" (low-level mode only;
         in high-level mode it is "agreeing").
     """
@@ -155,9 +155,7 @@ def event_categories(derivation: Derivation, high: bool = False) -> pl.DataFrame
         c.EVENT, pl.col("agreeing").alias("hl_agreeing")
     )
     agreement = (
-        pl.when(pl.col("n_located") < 2)
-        .then(pl.lit("not tested"))
-        .when(pl.col("agreeing"))
+        pl.when(pl.col("agreeing"))
         .then(pl.lit("agreeing"))
         .when(pl.col("hl_agreeing"))
         .then(pl.lit(AGREEING_HIGH_ONLY))

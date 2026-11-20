@@ -12,16 +12,14 @@ def counts(segments, depth=None):
 def test_events_sunburst(derivation):
     outer = counts(data_charts(derivation).events, depth=3)
     assert outer == {
-        "movement/fully located/agreeing": 4,
-        "movement/fully located/not tested": 4,
+        # Events with fewer than two located handling units are agreeing by the definition.
+        "movement/fully located/agreeing": 8,
         # Without the processing input, P = T: transformation events are processing operations too.
-        "transformation · processing/fully located/agreeing": 2,
-        "transformation · processing/fully located/not tested": 1,
-        "other/fully located/agreeing": 1,
+        "transformation · processing/fully located/agreeing": 3,
+        "other/fully located/agreeing": 3,
         "other/fully located/not agreeing": 1,
-        "other/fully located/not tested": 2,
-        "other/partially located/not tested": 1,
-        "other/unlocated/not tested": 1,
+        "other/partially located/agreeing": 1,
+        "other/unlocated/agreeing": 1,
     }
     inner = counts(data_charts(derivation).events, depth=1)
     assert inner == {"movement": 8, "transformation · processing": 3, "other": 6}
@@ -33,7 +31,8 @@ def test_click_filters(derivation):
     segments = {s.id: s for s in data_charts(derivation).events}
     assert segments["other/partially located"].filter.value == "[partially located events]"
     assert segments["other"].filter is None
-    assert segments["other/fully located/not tested"].filter is None
+    assert segments["other/unlocated/agreeing"].filter.value == "[agreeing events]"
+    assert not any("not tested" in s.id for s in segments.values())
     assert data_charts(derivation).handling_units[0].filter.filter == "object_types"
 
 
