@@ -7,7 +7,7 @@ Demo: `notebooks/instances.ipynb`.
 The page has no sidebar: five cards one below the other (HU profile, Lineage, Object graph, Object traces, HU timeline), every chart with its own settings row above it.
 It ignores the filter bar of the overview page.
 Between the HU profile and the charts, the selection bar ("Selected (n):", one removable pill per selected handling unit, "Clear") sticks to the top of the window once scrolled to (CSS `position: sticky` below the app header; Nina 2026-11-20), so the selection stays visible and editable while looking at the charts.
-In the lineage and the object graph, double-clicking a handling unit selects it, or unselects it if it is selected; double-clicking an event or another object does nothing (Nina 2026-11-20; `toggle` in `routes/Instances.tsx`). A single click does nothing, and double-clicking does not zoom.
+In the lineage and the object graph, double-clicking the **name** of a handling unit (its id, dotted underline) selects it, or unselects it if it is selected; double-clicking an event, another object or the rest of a box does nothing, so the object graph's boxes are dragged by any point as before (Nina 2026-11-20; `onDoubleClick` on the name, `toggle` in `routes/Instances.tsx`). A single click does nothing, and double-clicking does not zoom.
 The graph canvases (lineage, object graph) can be made taller by dragging their bottom-right corner (CSS `resize: vertical`; Nina 2026-11-15).
 All values use the low-level location $loc = loc^k$ of the level chosen in the settings bar (and $\widehat{hl} = agg(loc)$, the identity in Locations: low, so the high-level columns and band then repeat the locations); visits are not used (`settings-bar.md`).
 
@@ -93,7 +93,7 @@ Direction `both`, generations 2 (1–10 or all), transformation events off, sibl
 ### Where it lives in the code
 - `instances/charts.py`: `selection_lineage(derivation, handling_units, direction, gen, with_events, with_siblings, max_nodes) -> SelectionLineage(nodes, edges, notes)`.
 - Route `POST /{ocel_id}/instances/lineage` (`getSelectionLineage`).
-- `components/LineageChart.tsx`: ELK layout (options of `lib/dfgLayout.ts`) and React Flow drawing; double-clicking a handling unit selects or unselects it (`onNodeDoubleClick`; handling-unit nodes get `pointerEvents: "all"`, since React Flow gives none to nodes that can be neither dragged nor selected).
+- `components/LineageChart.tsx`: ELK layout (options of `lib/dfgLayout.ts`) and React Flow drawing; double-clicking a handling unit's name selects or unselects it (`onDoubleClick` on the name; handling-unit nodes get `pointerEvents: "all"`, since React Flow gives none to nodes that can be neither dragged nor selected).
 
 ### Alternatives
 - Ocelescope's graph viewer (as in the playground): its first fit zooms in too far; React Flow + ELK as on the DFG page instead.
@@ -106,7 +106,7 @@ Requested by Nina 2026-11-15.
 Nodes: the selected handling units (`focal`, thick border) and every object related to one of them by a shared event or by an o2o relation in either direction (`related`), handling units and other objects alike (handling units rounded, other objects square, in the colour of their object type).
 Arcs: one undirected arc per pair of nodes sharing at least one event, labelled with the event ids (at most three, then "+ n"; thicker for more events), and one dashed arrow per o2o relation (source → target), labelled with its qualifier.
 The arcs are all arcs between the nodes, also between two related objects.
-Hovering an arc's label lists its events (id, timestamp, activity) or the o2o relation; hovering a node gives its number of events and of events shared with the selection; double-clicking a handling unit selects or unselects it.
+Hovering an arc's label lists its events (id, timestamp, activity) or the o2o relation; hovering a node gives its number of events and of events shared with the selection; double-clicking a handling unit's name selects or unselects it (the rest of the box drags it).
 Option *Events as boxes* (Nina 2026-11-20, default off): every event of a selected handling unit becomes a white box (event id, activity; hover: timestamp and number of objects), with a thin line to every shown object it involves; these events then leave the event arcs, so an event arc only remains for events between related objects that involve no selected handling unit (e.g. c1–c3 with e14). Hidden object types get no line.
 Objects (and event boxes) can be dragged (Nina 2026-11-15); the arcs follow, and positions are kept until the graph is laid out again (other selection or other visible part).
 

@@ -72,7 +72,7 @@ const ObjectNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
   const focal = data.role === "focal";
   return (
     <Tooltip
-      label={`${data.node} (${data.object_type ?? "?"})${focal ? ", selected · double-click to unselect" : `${sibling ? ", sibling" : ""}${data.onToggle ? " · double-click to select" : ""}`}`}
+      label={`${data.node} (${data.object_type ?? "?"})${focal ? ", selected · double-click the name to unselect" : `${sibling ? ", sibling" : ""}${data.onToggle ? " · double-click the name to select" : ""}`}`}
       withinPortal
     >
       <Box
@@ -87,12 +87,22 @@ const ObjectNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
           alignItems: "center",
           justifyContent: "center",
           lineHeight: 1.1,
-          cursor: data.onToggle ? "pointer" : "default",
           opacity: sibling ? 0.7 : 1,
         }}
       >
         <Handles />
-        <Text fz={SIZE.font} fw={focal ? 700 : 500}>{data.node}</Text>
+        {/* Only the name reacts to a double click (Nina, 2026-11-20). */}
+        <Text
+          fz={SIZE.font}
+          fw={focal ? 700 : 500}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            data.onToggle?.(data.node);
+          }}
+          style={data.onToggle ? { cursor: "pointer", textDecoration: "underline dotted", textUnderlineOffset: 2 } : undefined}
+        >
+          {data.node}
+        </Text>
         <Text fz={SIZE.small} c="dimmed">{data.object_type}</Text>
       </Box>
     </Tooltip>
@@ -178,7 +188,7 @@ const edgeLabel = (e: LineageEdge, withEvents: boolean) =>
  * @param direction Layout direction.
  * @param edgeColour Colour of the edges.
  * @param grey Colour of siblings and sibling edges.
- * @param onToggle Called with a handling unit when its node is double-clicked (selects or unselects it).
+ * @param onToggle Called with a handling unit when its name is double-clicked (selects or unselects it).
  */
 const layoutLineage = async (
   lineage: LineageResponse,
@@ -217,7 +227,7 @@ const layoutLineage = async (
       draggable: false,
       connectable: false,
       // Handling units take pointer events (React Flow gives none to nodes that cannot be dragged, selected or clicked),
-      // so that a double click reaches `onNodeDoubleClick` and the hover shows.
+      // so that a double click reaches the name and the hover shows.
       style: n.kind === "object" ? { pointerEvents: "all" } : undefined,
     };
   });
@@ -261,7 +271,7 @@ const Legend = ({ withEvents }: { withEvents: boolean }) => (
     Rounded box: handling unit in the colour of its object type (thick border: selected; grey and dashed: sibling, i.e. produced
     together with a handling unit of the lineage) · arrow: component → product
     {withEvents ? " via the transformation event (white box)" : ", labelled with the transformation event"}
-    {withEvents ? "" : " · dashed line: siblings"} · double-click a handling unit to select or unselect it
+    {withEvents ? "" : " · dashed line: siblings"} · double-click the name of a handling unit to select or unselect it
   </Text>
 );
 
@@ -338,7 +348,7 @@ export const useSelectionLineage = (ocelId: string, handlingUnits: string[], set
  * @param query The query of the lineage (`useSelectionLineage`).
  * @param colours Colour per object type (all object types of the log, so colours stay fixed).
  * @param settings The settings (for the shape of the graph).
- * @param onToggle Called with a handling unit double-clicked in the graph (selects or unselects it).
+ * @param onToggle Called with a handling unit whose name is double-clicked in the graph (selects or unselects it).
  * @param layoutKey Changing it lays the graph out again and fits it (drops zoom and pan; "Reset settings").
  */
 export const LineageChart = ({
@@ -396,7 +406,6 @@ export const LineageChart = ({
             nodesDraggable={false}
             elementsSelectable={false}
             zoomOnDoubleClick={false}
-            onNodeDoubleClick={(_, n) => (n.data as NodeData).onToggle?.(n.id)}
             minZoom={0.05}
             maxZoom={3}
             fitView
