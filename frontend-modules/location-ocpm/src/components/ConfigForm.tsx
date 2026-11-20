@@ -41,6 +41,8 @@ import {
   useUploadTable,
 } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
+import { usePageState } from "../lib/pageState";
+import { ofLog } from "../lib/queries";
 
 // region Form state
 // The form keeps the entries of every option of an input, so switching the option and back
@@ -123,6 +125,9 @@ type RolesDraft = {
 type ProcessingDraft = EventSetDraft;
 
 /** Everything the form holds. */
+/** The form's unapplied state: the draft and the last Apply result, for the applied configuration `base` (JSON). */
+type KeptForm = { base: string; draft: ConfigDraft; result: ApplyResult | null };
+
 export type ConfigDraft = {
   handling_units: {
     option: "object_types" | "table";
@@ -1326,8 +1331,19 @@ export const ConfigForm = ({
   onCancel?: () => void;
 }) => {
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<ConfigDraft>(initial ? fromConfig(initial) : emptyDraft());
-  const [result, setResult] = useState<ApplyResult | null>(null);
+  // The form keeps its unapplied changes and the last result across page switches and reloads, as long as the applied
+  // configuration they started from is still the applied one (`base`); Apply and Cancel drop them.
+  const base = JSON.stringify(initial ?? null);
+  const [kept, setKept] = usePageState<KeptForm | null>(`config.form.${ocelId}`, null);
+  const current = kept?.base === base ? kept : null;
+  const draft = current?.draft ?? (initial ? fromConfig(initial) : emptyDraft());
+  const result = current?.result ?? null;
+  const setDraft = (update: ConfigDraft | ((d: ConfigDraft) => ConfigDraft)) =>
+    setKept((k) => {
+      const previous = k?.base === base ? k : { base, draft, result: null };
+      return { ...previous, draft: typeof update === "function" ? update(previous.draft) : update };
+    });
+  const setResult = (res: ApplyResult | null) => setKept((k) => ({ ...(k?.base === base ? k : { base, draft }), result: res }));
   const [loadError, setLoadError] = useState<string | null>(null);
   const { data: options, error: optionsError } = useGetOptions(ocelId);
   const { data: tables = [] } = useListTables();
@@ -1336,11 +1352,10 @@ export const ConfigForm = ({
       onSuccess: async (res) => {
         setResult(res);
         if (res.applied) {
+          setKept(null);
           // Everything the module shows depends on the configuration.
           await queryClient.invalidateQueries({ queryKey: getGetConfigQueryKey(ocelId) });
-          await queryClient.invalidateQueries({
-            predicate: (q) => String(q.queryKey[0]).includes(`/locationBasedOcpm/v1/${ocelId}/`),
-          });
+          await queryClient.invalidateQueries({ predicate: ofLog(ocelId) });
           onApplied();
         }
       },
@@ -1589,7 +1604,13 @@ export const ConfigForm = ({
           </Button>
         </Tooltip>
         {onCancel && (
-          <Button variant="default" onClick={onCancel}>
+          <Button
+            variant="default"
+            onClick={() => {
+              setKept(null);
+              onCancel();
+            }}
+          >
             Cancel
           </Button>
         )}

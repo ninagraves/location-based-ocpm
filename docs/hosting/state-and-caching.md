@@ -9,7 +9,7 @@
   - `cache`: the current derivation per log id (`CachedDerivation(key, derivation)`), i.e. the one of the effective configuration (`global_settings.effective_config`).
   - `recent`: per log id the last `RECENT_PER_LOG` (2) derivations, newest first (`remember`, `recall`), so that switching a setting back does not derive again.
 - Lifetime: survives page switches and browser reloads; lost with "Reset session" in Ocelescope or a backend restart.
-  The frontend keeps the page filter per log (since 2026-11-20 without the location mode, which moved to the settings bar) (`lib/pageState.ts`, `usePageState`: in memory, shared by all components with the same key, and in the tab's sessionStorage, so it survives page switches and reloads), plus React Query's request cache.
+  The frontend keeps what each page looks like in the browser (section "Page state" below).
 - Configuration files: "Download configuration" writes the form as JSON (the `DerivationConfig` schema, tables by file name, not their contents); "Load configuration" fills the form from such a file. Only the form changes; "Apply" is still needed.
 
 ## Cache
@@ -20,6 +20,31 @@
 - `PUT /{ocel_id}/settings` derives with the changed settings right away and caches the result, so pages open without waiting.
 - If the applied configuration fails on a changed log (e.g. a filter removed every movement event's target), `current_derivation` answers 409 with the errors; the applied configuration stays until the user changes it.
 - Memory: one `Derivation` per log (relation frame with all level columns plus per-level event frames). For a log with n hu-event relations this is roughly 20 columns × n rows.
+
+## Page state
+Every page opens again as it was left (Nina, 2026-11-20): switching to another page of the module (or to another Ocelescope page) and back shows the same selections, settings, searches, unfolded rows, graphs (layout, dragged nodes, zoom and pan) and scroll position.
+Ocelescope unmounts a page when another one opens, so nothing stays in the React tree; what a page needs is kept outside it, in the browser tab, per log (the log id is part of every key).
+
+| What | Where | Survives a reload? |
+|---|---|---|
+| Settings, filters, selections, searches, sort, page and page size of tables, unfolded rows, the configuration form's unapplied changes, the editing state of the Configuration page | `usePageState(key, initial)` (`lib/pageState.ts`): like `useState`, shared by all components using the key, in memory and in the tab's sessionStorage (JSON) | yes |
+| Graph layouts (ELK) of the DFG, the lineage and the object graph; dragged node positions; zoom and pan | `useKeptLayout`, `useKeptViewport` (`lib/keptView.ts`) and `keep`/`recall` (`lib/pageState.ts`), memory only (layouts hold functions and maps) | no: the graph is laid out and fitted again |
+| Scroll position of the page and of the DFG sidebar's lists | `useKeptScroll` (in `ModulePage`), `useKeptScrollOf` (`lib/keptView.ts`), memory and sessionStorage | yes |
+| Answers of the backend's requests | React Query's cache in Ocelescope's query client; the module keeps its own answers `KEEP_ANSWERS_MS` (30 min) after no page shows them instead of React Query's 5 min (`useKeptAnswers`, `lib/queries.ts`) | no |
+
+Keys used by the pages (all with the log id, except settings that hold for every log): `filter.<log>`, `profile.*`, `charts.*`, `dfg.v6.<log>` (DFG settings), `dfg.sidebar` (width, hidden), `dfg.height`, `dfg.sidebar.<log>.*` (searches, unfolded rows, scroll positions), `dfg.save.*.<log>`, `dfg.view.<log>.*` (layout, dragged nodes, zoom and pan), `instances.*.<log>` (selection, table, unfolded rows, chart settings), `instances.lineage.view.<log>.*`, `instances.objectGraph.view.<log>.*`, `config.form.<log>`, `config.editing.<log>`, `scroll.<log>.<path>`.
+
+**No stale state.**
+- A kept layout is only used for the same inputs (`sameInputs`: identical, or equal maps or JSON; callbacks are not compared), e.g. the same graph and look settings; otherwise the graph is laid out and fitted again and the new layout is kept instead. Dragged positions and zoom and pan belong to one layout (its object or ELK generation) and are dropped with it.
+- Answers: React Query refetches a page's requests when the page opens (as before), so a kept answer is shown at once and replaced if the log (e.g. an Ocelescope filter, i.e. a new view), the configuration or the settings changed since. Applying a configuration or changing the settings refetches every request of the log (`ofLog` in `lib/queries.ts`; since 2026-11-20 also the hand-written keys `["locationBasedOcpm", …, <log>, …]` of the DFG and Instances pages, which the old URL-only test missed).
+- The configuration form keeps its unapplied changes only for the configuration they started from (`base` in `ConfigForm`); Apply and Cancel drop them.
+- Settings, selections and filters are kept as they are when the configuration changes (as before); handling units no longer in the log stay selected until unselected.
+
+**Changing it.**
+- Keep a new piece of a page: replace its `useState` by `usePageState` with a key containing the log id (or `useMemoryState` for values that are not JSON); for a layout computed in the browser use `useKeptLayout` with every input it depends on.
+- Keep answers longer or shorter: `KEEP_ANSWERS_MS` (memory of the tab grows with every distinct request kept).
+- Keep layouts across reloads: they would have to be JSON (positions only) and stored with a content hash of their inputs; not done, since ELK recomputes them in well under a second for typical graphs.
+- Not kept: zoom of the Plotly charts (they reset on every redraw, also without a page switch), open popovers and dropdown searches, the save dialogs' messages.
 
 ## API (all under `/modules/locationBasedOcpm/v1`)
 | Route | Operation id | Purpose |

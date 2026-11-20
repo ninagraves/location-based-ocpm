@@ -235,6 +235,7 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
             onRemoveArc={onRemoveArc}
             onDeselectActivity={onDeselectActivity}
             keepLayout={keepLayout}
+            stateKey={`dfg.view.${ocelId}`}
           />
           <HeightHandle height={height} onChange={setHeight} />
         </Box>
@@ -252,6 +253,7 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
                 state={state}
                 setState={setState}
                 footer={base && <DfgSave ocelId={ocelId} base={base} applied={applied} pending={pending} />}
+                stateKey={`dfg.sidebar.${ocelId}`}
               />
             </Box>
           </Box>

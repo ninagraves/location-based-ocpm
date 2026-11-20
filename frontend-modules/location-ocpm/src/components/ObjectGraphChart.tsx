@@ -6,21 +6,22 @@
 import { Alert, Box, Checkbox, Chip, Group, Loader, Stack, Text, Tooltip } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
+  applyNodeChanges,
   Controls,
   type Edge,
   type EdgeProps,
   EdgeLabelRenderer,
   Handle,
   type Node,
+  type NodeChange,
   type NodeProps,
   Position,
   ReactFlow,
   ReactFlowProvider,
-  useNodesState,
   useReactFlow,
 } from "@xyflow/react";
 import ELK, { type ElkNode } from "elkjs/lib/elk.bundled.js";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   type EventArc,
   type FocalEvent,
@@ -31,6 +32,8 @@ import {
 } from "../api/locationBasedOcpm";
 import { textWidth } from "../lib/dfgLayout";
 import { errorText } from "../lib/errors";
+import { useKeptLayout, useKeptViewport } from "../lib/keptView";
+import { keep, recall } from "../lib/pageState";
 import { categoricalColour, OTHER, type Scheme, UI } from "../lib/palette";
 import { useScheme } from "./plots";
 
@@ -401,11 +404,12 @@ const routeArcs = (arcs: Arc[], nodes: Node<NodeData>[], labels: boolean, scheme
   });
 };
 
-const FitOnChange = ({ token }: { token: unknown }) => {
+const FitOnChange = ({ token, skip }: { token: unknown; skip: (token: unknown) => boolean }) => {
   const { fitView } = useReactFlow();
   useEffect(() => {
-    requestAnimationFrame(() => fitView({ padding: 0.1, maxZoom: 1 }));
-  }, [token, fitView]);
+    // Not for a layout whose zoom and pan were restored as the user left them.
+    if (!skip(token)) requestAnimationFrame(() => fitView({ padding: 0.1, maxZoom: 1 }));
+  }, [token, fitView, skip]);
   return null;
 };
 
@@ -511,9 +515,13 @@ export const useObjectGraph = (ocelId: string, handlingUnits: string[]) => {
  * @param onChange Called with the changed settings.
  * @param onToggle Called with a handling unit whose name is double-clicked in the graph (selects or unselects it).
  * @param layoutKey Changing it lays the graph out again (drops dragged positions; "Reset settings").
+ * @param stateKey Where the layout, the dragged positions and zoom and pan are kept (e.g.
+ *   `instances.objectGraph.view.<log id>`), so that the graph looks as it was left when the page opens again with the
+ *   same graph (`lib/keptView.ts`).
  */
 export const ObjectGraphChart = ({
   layoutKey = 0,
+  stateKey,
   ocelId,
   handlingUnits,
   colours,
@@ -528,6 +536,7 @@ export const ObjectGraphChart = ({
   onChange: (s: ObjectGraphSettings) => void;
   onToggle: (hu: string) => void;
   layoutKey?: number;
+  stateKey: string;
 }) => {
   const scheme = useScheme();
   const query = useObjectGraph(ocelId, handlingUnits);
@@ -541,26 +550,29 @@ export const ObjectGraphChart = ({
     return map;
   }, [colours, data, scheme]);
   const visible = useMemo(() => (data ? visibleGraph(data, settings) : null), [data, settings]);
-  const [flow, setFlow] = useState<Awaited<ReturnType<typeof layoutGraph>> | null>(null);
-  const [layoutError, setLayoutError] = useState<string | null>(null);
-  // Nodes keep the positions the user dragged them to until the next layout (new selection or visible part).
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>([]);
+  // layoutKey only triggers a new layout.
+  const { layout: flow, error: layoutError } = useKeptLayout(
+    `${stateKey}.layout`,
+    [visible, allColours, scheme, onToggle, layoutKey],
+    () => layoutGraph(visible!, allColours, scheme, onToggle),
+    !!visible,
+  );
+  // Nodes keep the positions the user dragged them to until the next layout (new selection or visible part), also
+  // when the page is left and opened again; positions of another layout are not used.
+  type Dragged = { flow: typeof flow; nodes: Node<NodeData>[] };
+  const [dragged, setDragged] = useState<Dragged>(() => {
+    const kept = recall<Dragged>(`${stateKey}.nodes`);
+    return kept && flow && kept.flow === flow ? kept : { flow, nodes: flow?.nodes ?? [] };
+  });
+  const nodes = useMemo(() => (dragged.flow === flow ? dragged.nodes : (flow?.nodes ?? [])), [dragged, flow]);
+  const onNodesChange = useCallback(
+    (changes: NodeChange<Node<NodeData>>[]) => setDragged({ flow, nodes: applyNodeChanges(changes, nodes) }),
+    [flow, nodes],
+  );
   useEffect(() => {
-    if (!visible) return;
-    let cancelled = false;
-    layoutGraph(visible, allColours, scheme, onToggle).then(
-      (f) => {
-        if (cancelled) return;
-        setFlow(f);
-        setNodes(f.nodes);
-      },
-      (e: unknown) => !cancelled && setLayoutError(String(e)),
-    );
-    return () => {
-      cancelled = true;
-    };
-    // layoutKey only triggers a new layout.
-  }, [visible, allColours, scheme, onToggle, setNodes, layoutKey]);
+    if (dragged.flow) keep(`${stateKey}.nodes`, dragged);
+  }, [stateKey, dragged]);
+  const { skipFit, ...viewport } = useKeptViewport(`${stateKey}.viewport`, flow);
   const edges = useMemo(() => (flow ? routeArcs(flow.arcs, nodes, settings.labels, scheme) : []), [flow, nodes, settings.labels, scheme]);
   const o2oColour = UI[scheme].accent;
 
@@ -602,11 +614,11 @@ export const ObjectGraphChart = ({
                 elementsSelectable={false}
                 minZoom={0.05}
                 maxZoom={3}
-                fitView
+                {...viewport}
                 fitViewOptions={{ padding: 0.1, maxZoom: 1 }}
               >
                 <Controls showInteractive={false} />
-                <FitOnChange token={flow} />
+                <FitOnChange token={flow} skip={skipFit} />
               </ReactFlow>
             </ReactFlowProvider>
           </Box>

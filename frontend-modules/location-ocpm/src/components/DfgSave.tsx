@@ -7,6 +7,7 @@ import { type DfgArc, type DirectlyFollowsGraph, saveDirectlyFollowsGraph } from
 import { applyArcSettings } from "../lib/dfgView";
 import { errorText } from "../lib/errors";
 import { num } from "../lib/format";
+import { usePageState } from "../lib/pageState";
 import { arcSettings, type DfgState, toRequest } from "./DfgSettings";
 
 /** What is saved: the model (Ocelescope's DFG resource) or the log (a new OCEL). */
@@ -56,9 +57,10 @@ export const DfgSave = ({
   applied: DfgState;
   pending: boolean;
 }) => {
-  const [kind, setKind] = useState<SaveKind>("model");
-  const [version, setVersion] = useState<SaveVersion>("displayed");
-  const [name, setName] = useState("");
+  // Kept with the page (per log), like the rest of the sidebar.
+  const [kind, setKind] = usePageState<SaveKind>(`dfg.save.kind.${ocelId}`, "model");
+  const [version, setVersion] = usePageState<SaveVersion>(`dfg.save.version.${ocelId}`, "displayed");
+  const [name, setName] = usePageState(`dfg.save.name.${ocelId}`, "");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const defaultName = `DFG ${kind} (${version})`;

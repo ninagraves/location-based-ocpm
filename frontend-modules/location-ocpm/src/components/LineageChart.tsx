@@ -18,7 +18,7 @@ import {
   useReactFlow,
 } from "@xyflow/react";
 import ELK, { type ElkNode } from "elkjs/lib/elk.bundled.js";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo } from "react";
 import {
   getSelectionLineage,
   type LineageEdge,
@@ -28,6 +28,7 @@ import {
 } from "../api/locationBasedOcpm";
 import { ELK_OPTIONS, sectionPath, textWidth } from "../lib/dfgLayout";
 import { errorText } from "../lib/errors";
+import { useKeptLayout, useKeptViewport } from "../lib/keptView";
 import { OTHER } from "../lib/palette";
 import { useScheme } from "./plots";
 
@@ -257,11 +258,12 @@ const layoutLineage = async (
   return { nodes, edges };
 };
 
-const FitOnChange = ({ token }: { token: unknown }) => {
+const FitOnChange = ({ token, skip }: { token: unknown; skip: (token: unknown) => boolean }) => {
   const { fitView } = useReactFlow();
   useEffect(() => {
-    requestAnimationFrame(() => fitView({ padding: 0.1, maxZoom: 1 }));
-  }, [token, fitView]);
+    // Not for a layout whose zoom and pan were restored as the user left them.
+    if (!skip(token)) requestAnimationFrame(() => fitView({ padding: 0.1, maxZoom: 1 }));
+  }, [token, fitView, skip]);
   return null;
 };
 
@@ -350,9 +352,12 @@ export const useSelectionLineage = (ocelId: string, handlingUnits: string[], set
  * @param settings The settings (for the shape of the graph).
  * @param onToggle Called with a handling unit whose name is double-clicked in the graph (selects or unselects it).
  * @param layoutKey Changing it lays the graph out again and fits it (drops zoom and pan; "Reset settings").
+ * @param stateKey Where the layout and zoom and pan are kept (e.g. `instances.lineage.view.<log id>`), so that the graph
+ *   looks as it was left when the page opens again with the same lineage (`lib/keptView.ts`).
  */
 export const LineageChart = ({
   layoutKey = 0,
+  stateKey,
   query,
   colours,
   settings,
@@ -363,23 +368,18 @@ export const LineageChart = ({
   settings: LineageSettings;
   onToggle: (hu: string) => void;
   layoutKey?: number;
+  stateKey: string;
 }) => {
   const scheme = useScheme();
-  const [flow, setFlow] = useState<Awaited<ReturnType<typeof layoutLineage>> | null>(null);
-  const [layoutError, setLayoutError] = useState<string | null>(null);
   const data = query.data;
-  useEffect(() => {
-    if (!data) return;
-    let cancelled = false;
-    layoutLineage(data, colours, settings.withEvents, settings.layout, scheme === "dark" ? "#909296" : "#666666", OTHER[scheme], onToggle).then(
-      (f) => !cancelled && setFlow(f),
-      (e: unknown) => !cancelled && setLayoutError(String(e)),
-    );
-    return () => {
-      cancelled = true;
-    };
-    // layoutKey only triggers a new layout.
-  }, [data, colours, settings.withEvents, settings.layout, scheme, onToggle, layoutKey]);
+  // layoutKey only triggers a new layout.
+  const { layout: flow, error: layoutError } = useKeptLayout(
+    `${stateKey}.layout`,
+    [data, colours, settings.withEvents, settings.layout, scheme, onToggle, layoutKey],
+    () => layoutLineage(data!, colours, settings.withEvents, settings.layout, scheme === "dark" ? "#909296" : "#666666", OTHER[scheme], onToggle),
+    !!data,
+  );
+  const { skipFit, ...viewport } = useKeptViewport(`${stateKey}.viewport`, flow);
 
   if (query.isError) return <Alert color="red">{errorText(query.error)}</Alert>;
   if (layoutError) return <Alert color="red">Layout failed: {layoutError}</Alert>;
@@ -408,11 +408,11 @@ export const LineageChart = ({
             zoomOnDoubleClick={false}
             minZoom={0.05}
             maxZoom={3}
-            fitView
+            {...viewport}
             fitViewOptions={{ padding: 0.1, maxZoom: 1 }}
           >
             <Controls showInteractive={false} />
-            <FitOnChange token={flow} />
+            <FitOnChange token={flow} skip={skipFit} />
           </ReactFlow>
         </ReactFlowProvider>
       </Box>

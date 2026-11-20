@@ -20,7 +20,7 @@ Columns come in groups, in this order: Lifecycle, Lineage, Locations, MF Profile
 A header row above the column titles names the groups (no colours; Nina 2026-11-18).
 Columns with a dotted underline explain themselves on hover (e.g. Connectedness, Linked HUs).
 
-Clicking a row unfolds it (several rows can be open) with the names behind the counts, loaded per handling unit:
+Clicking a row unfolds it (several rows can be open; kept with the page, `instances.expanded.<log>`) with the names behind the counts, loaded per handling unit:
 - start and end: first and last event, creation event, final consumption, partial consumptions (activity, id, timestamp);
 - lineage: parents, children, siblings (clicking one adds it to the selection);
 - locations: the location path, one entry per location change with the event that reached it and its timestamp;
@@ -108,7 +108,7 @@ Arcs: one undirected arc per pair of nodes sharing at least one event, labelled 
 The arcs are all arcs between the nodes, also between two related objects.
 Hovering an arc's label lists its events (id, timestamp, activity) or the o2o relation; hovering a node gives its number of events and of events shared with the selection; double-clicking a handling unit's name selects or unselects it (the rest of the box drags it).
 Option *Events as boxes* (Nina 2026-11-20, default off): every event of a selected handling unit becomes a white box (event id, activity; hover: timestamp and number of objects), with a thin line to every shown object it involves; these events then leave the event arcs, so an event arc only remains for events between related objects that involve no selected handling unit (e.g. c1–c3 with e14). Hidden object types get no line.
-Objects (and event boxes) can be dragged (Nina 2026-11-15); the arcs follow, and positions are kept until the graph is laid out again (other selection or other visible part).
+Objects (and event boxes) can be dragged (Nina 2026-11-15); the arcs follow, and positions are kept until the graph is laid out again (other selection or other visible part), also when the page is left and opened again (since 2026-11-20, with zoom and pan; the lineage keeps its zoom and pan the same way; `docs/hosting/state-and-caching.md`, section "Page state").
 
 ### How it is calculated
 For the selected handling units $S$, with $E(o)$ the events of object $o$ (e2o) and $O2O$ the o2o relations:
