@@ -1,12 +1,13 @@
 // Data overview charts: events sunburst, E2HU chart, HU chart, locations sunburst. Clicking a segment sets the
 // matching page filter value (replacing other values of its category). Documented in docs/pages/overview.md, section "Data overview charts".
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import { Alert, Box, Card, ColorSwatch, Group, Loader, SegmentedControl, SimpleGrid, Stack, Text } from "@mantine/core";
 import type { Segment } from "../api/locationBasedOcpm";
 import { useGetDataCharts } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
 import { type FilterKey, usePageFilter, withValue } from "../lib/filters";
 import { num, pct } from "../lib/format";
+import { usePageState } from "../lib/pageState";
 import { CATEGORICAL, OTHER, STATUS } from "../lib/palette";
 import { plotConfig, ScrollLegend, ThemedPlot, useScheme } from "./plots";
 
@@ -211,7 +212,7 @@ const highLevelColours = (segments: Segment[], scheme: "light" | "dark") => {
 /** Locations sunburst: inner ring location type, outer ring high-level location; # locations or # relations. */
 const LocationsChart = ({ locations, relations, unlocated, onAdd }: { locations: Segment[]; relations: Segment[]; unlocated: number; onAdd: Add }) => {
   const scheme = useScheme();
-  const [measure, setMeasure] = useState<"locations" | "relations">("locations");
+  const [measure, setMeasure] = usePageState<"locations" | "relations">("charts.locationsMeasure", "locations");
   const segments = measure === "locations" ? locations : relations;
   const colours = highLevelColours(segments, scheme);
   const colour = (s: Segment) => (s.parent === "" ? STATUS[scheme][s.label] ?? OTHER[scheme] : colours.get(s.label) ?? OTHER[scheme]);

@@ -25,6 +25,8 @@ import type { DfgActivityOption, DfgActivityTypeOption, DfgObjectType, DfgReques
 import { type ArcSettings, type BaseArc, neededArcThresholds } from "../lib/dfgArcs";
 import type { ArcLabel, Direction } from "../lib/dfgLayout";
 import { num } from "../lib/format";
+import { useKeptScrollOf } from "../lib/keptView";
+import { usePageState } from "../lib/pageState";
 import { UI } from "../lib/palette";
 import { useScheme } from "./plots";
 
@@ -349,6 +351,7 @@ const TypeRow = ({
   arcCountMax,
   variantDefault,
   connecting = 0,
+  openKey,
 }: {
   type: DfgObjectType;
   colour?: string;
@@ -359,8 +362,10 @@ const TypeRow = ({
   variantDefault: number;
   /** Arcs of the type added by Stay connected. */
   connecting?: number;
+  /** Where the row keeps whether it is unfolded (`usePageState`). */
+  openKey: string;
 }) => {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = usePageState(openKey, false);
   const scheme = useScheme();
   const own = state.own[type.object_type] ?? {};
   const marks = [
@@ -576,6 +581,7 @@ const ActivityRow = ({
   projectionExact,
   withoutHu,
   missingTypes,
+  openKey,
 }: {
   option: DfgActivityOption;
   colours: Map<string, string>;
@@ -591,8 +597,10 @@ const ActivityRow = ({
   withoutHu?: boolean;
   /** Upper part: the selected types without a drawn arc of the activity; their unfold shows the values as below. */
   missingTypes?: Set<string>;
+  /** Where the row keeps whether it is unfolded (`usePageState`). */
+  openKey: string;
 }) => {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = usePageState(openKey, false);
   const selectable = option.object_types.filter((t) => selectedTypes.has(t.object_type));
   const included = selectable.filter((t) => t.included).length;
   // Per type (unfold, exact values with up to 3 decimals): the Arcs (projection) needed (blue), "in the graph", or the
@@ -695,6 +703,7 @@ export const DfgSettings = ({
   state,
   setState,
   footer,
+  stateKey,
 }: {
   graph: DirectlyFollowsGraph;
   baseArcs: BaseArc[];
@@ -703,9 +712,14 @@ export const DfgSettings = ({
   setState: (update: (s: DfgState) => DfgState) => void;
   /** Shown below the scrolling part, at the bottom of the sidebar ("Save to session", `DfgSave`). */
   footer?: ReactNode;
+  /** Where the searches, unfolded rows and scroll positions are kept, with the log id (e.g. `dfg.sidebar.<log id>`). */
+  stateKey: string;
 }) => {
-  const [typeQuery, setTypeQuery] = useState("");
-  const [activityQuery, setActivityQuery] = useState("");
+  const [typeQuery, setTypeQuery] = usePageState(`${stateKey}.typeQuery`, "");
+  const [activityQuery, setActivityQuery] = usePageState(`${stateKey}.activityQuery`, "");
+  const sidebarScroll = useKeptScrollOf<HTMLDivElement>(`${stateKey}.scroll`);
+  const typeScroll = useKeptScrollOf<HTMLDivElement>(`${stateKey}.types.scroll`);
+  const activityScroll = useKeptScrollOf<HTMLDivElement>(`${stateKey}.activities.scroll`);
   const objectTypes = graph.object_types;
   const activityOptions = graph.activity_options;
   const selected = objectTypes.filter((t) => t.selected);
@@ -793,7 +807,7 @@ export const DfgSettings = ({
   return (
     <Card withBorder padding="xs" h="100%" style={{ display: "flex", flexDirection: "column" }}>
       <Text size="sm" fw={700} mb={6}>Discovery Settings</Text>
-      <Box style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden" }} pr={4}>
+      <Box ref={sidebarScroll} style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden" }} pr={4}>
       {/* Fills the sidebar's height; the activity list takes the rest (Nina, 2026-11-19: more room than the types). */}
       <Stack gap={6} mih="100%">
 
@@ -853,7 +867,7 @@ export const DfgSettings = ({
           <Heading info={INFO.objectTypes}>{selectedTypes.length} of {objectTypes.length} selected</Heading>
         </Group>
         <Search value={typeQuery} onChange={setTypeQuery} placeholder="Search object types" />
-        <ScrollArea.Autosize mah={TYPE_LIST_HEIGHT} type="auto" offsetScrollbars>
+        <ScrollArea.Autosize viewportRef={typeScroll} mah={TYPE_LIST_HEIGHT} type="auto" offsetScrollbars>
           <Stack gap={2}>
             {listedTypes
               .filter((t) => matches(t.object_type, typeQuery))
@@ -868,6 +882,7 @@ export const DfgSettings = ({
                   arcCountMax={graph.arc_count_max ?? 0}
                   variantDefault={graph.variant_default ?? 100}
                   connecting={graph.arcs.filter((a) => a.connecting && a.object_type === t.object_type).length}
+                  openKey={`${stateKey}.open.type.${t.object_type}`}
                 />
               ))}
           </Stack>
@@ -896,7 +911,7 @@ export const DfgSettings = ({
             </Tooltip>
           )}
         </Group>
-        <ScrollArea type="auto" offsetScrollbars style={{ flex: "1 1 0", minHeight: ACTIVITY_LIST_MIN_HEIGHT }}>
+        <ScrollArea viewportRef={activityScroll} type="auto" offsetScrollbars style={{ flex: "1 1 0", minHeight: ACTIVITY_LIST_MIN_HEIGHT }}>
           <Stack gap={2}>
             {inGraph.map((a) => {
               const missing = missingTypes(a);
@@ -904,6 +919,7 @@ export const DfgSettings = ({
               return (
                 <ActivityRow
                   key={a.activity}
+                  openKey={`${stateKey}.open.activity.${a.activity}`}
                   option={a}
                   colours={colours}
                   selectedTypes={selectedSet}
@@ -927,6 +943,7 @@ export const DfgSettings = ({
               return (
                 <ActivityRow
                   key={a.activity}
+                  openKey={`${stateKey}.open.activity.${a.activity}`}
                   option={a}
                   colours={colours}
                   selectedTypes={selectedSet}
@@ -950,6 +967,7 @@ export const DfgSettings = ({
               return (
                 <ActivityRow
                   key={a.activity}
+                  openKey={`${stateKey}.open.activity.${a.activity}`}
                   option={a}
                   colours={colours}
                   selectedTypes={selectedSet}

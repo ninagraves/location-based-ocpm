@@ -18,7 +18,7 @@ import {
   UnstyledButton,
 } from "@mantine/core";
 import { ChevronDownIcon, ChevronRightIcon, ChevronsUpDownIcon, ChevronUpIcon, SearchIcon } from "lucide-react";
-import { Fragment, type ReactNode, useState } from "react";
+import { Fragment, type ReactNode } from "react";
 import { type ActivityRow, type Typical, useGetActivityProfile, type ValueShare } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
 import { filterParams, filterRequest, usePageFilter } from "../lib/filters";
@@ -156,14 +156,17 @@ const Row = ({
   kept,
   columns,
   high,
+  openKey,
 }: {
   row: ActivityRow;
   withShare: boolean;
   kept: number;
   columns: number;
   high: boolean;
+  /** Where the row keeps whether it is unfolded (`usePageState`). */
+  openKey: string;
 }) => {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = usePageState(openKey, false);
   // Short cells stay on one line; the typical location may wrap.
   const cell = (content: ReactNode, wrap = false) => (
     <Table.Td style={wrap ? undefined : { whiteSpace: "nowrap" }}>
@@ -228,12 +231,12 @@ const Row = ({
 /** The activity profile card: search box, the sortable table and its pages. */
 export const ActivityProfile = ({ ocelId }: { ocelId: string }) => {
   const [filter] = usePageFilter(ocelId);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = usePageState(`profile.search.${ocelId}`, "");
   const [sort, setSort] = usePageState<Sort>("profile.sort", { key: "events", descending: true });
   const [pageSize, setPageSize] = usePageState<number>("profile.pageSize", PAGE_SIZES[0]);
   // Back to page 1 whenever the search or the sorting changes; a filter that leaves fewer pages
   // shows the last page (see `current` below).
-  const [page, setPage] = useState(1);
+  const [page, setPage] = usePageState(`profile.page.${ocelId}`, 1);
   const { data, error } = useGetActivityProfile(ocelId, filterParams(filter), { request: filterRequest });
   if (error) return <Alert color="red">{errorText(error)}</Alert>;
   if (!data) return <Loader size="sm" />;
@@ -299,6 +302,7 @@ export const ActivityProfile = ({ ocelId }: { ocelId: string }) => {
                   kept={data.kept_events}
                   columns={withShare ? 8 : 7}
                   high={data.location_mode === "high"}
+                  openKey={`profile.open.${ocelId}.${row.activity}`}
                 />
               ))}
             </Table.Tbody>

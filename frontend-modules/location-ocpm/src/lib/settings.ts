@@ -2,13 +2,10 @@
 // every request sees the same values. Documented in docs/pages/settings-bar.md.
 import { useQueryClient } from "@tanstack/react-query";
 import { type SettingsResult, type SettingsUpdate, useGetSettings, useUpdateSettings } from "../api/locationBasedOcpm";
+import { ofLog } from "./queries";
 
 /** The settings bar of a log (level, transformations as processing operations, Locations: low | high). */
 export const useGlobalSettings = (ocelId: string) => useGetSettings(ocelId, { query: { enabled: !!ocelId } });
-
-/** True if a query belongs to a log of this module, i.e. may change with its settings. */
-const ofLog = (ocelId: string) => (query: { queryKey: readonly unknown[] }) =>
-  String(query.queryKey[0]).includes(`/locationBasedOcpm/v1/${ocelId}/`);
 
 /**
  * Change settings of a log. On success every query of the log is refetched (settings, configuration and all page

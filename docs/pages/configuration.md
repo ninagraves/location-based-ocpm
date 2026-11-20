@@ -45,6 +45,7 @@ The object-attribute, o2o and object-type options only appear if target or picku
 
 **Code** (`frontend-modules/location-ocpm/src/components/ConfigForm.tsx`):
 - Form state `ConfigDraft`: keeps the entries of every option of an input, so switching the option and back loses nothing. `emptyDraft()` is the empty form.
+- The form keeps its unapplied changes and the last Apply result when another page is opened, and across reloads, as long as the applied configuration is the one the changes started from (`config.form.<log>`, `usePageState`); "Edit configuration" stays open too (`config.editing.<log>`). "Apply" and "Cancel" drop the kept changes (since 2026-11-20; `docs/hosting/state-and-caching.md`, section "Page state").
 - `toConfig(draft)` → `DerivationConfig` sent to the backend; `fromConfig(config)` the reverse (applied or loaded configuration).
 - Sections: `EventSetFields` (movement, transformation events, processing operations), `RolesFields` and `ObjectSetFields` (consumed and produced handling units), `LocationFields` (target and pickup locations), `HighLevelFields`, `LocationSetFields` (vehicles, storage units), `TableColumns` (table, columns, upload, preview), `CountPicker`, `AttributeValuePicker`; `useFormLocations` (L for pickers and template), `downloadTemplate`.
 - Texts: `INFO` (ⓘ texts) and `LEVELS` (level labels).

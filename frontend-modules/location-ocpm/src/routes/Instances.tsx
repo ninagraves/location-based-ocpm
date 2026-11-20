@@ -4,7 +4,7 @@
 // Documented in docs/pages/instances.md.
 import { Box, Button, Card, Group, Pill, Stack, Text, Title } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { getHuProfile } from "../api/locationBasedOcpm";
 import { HuProfileTable } from "../components/HuProfileTable";
 import { DEFAULT_TIMELINE, HuTimelineChart, type TimelineSettings, TimelineSettingsRow, TimelineUnitsBar } from "../components/HuTimelineChart";
@@ -19,7 +19,7 @@ import { DEFAULT_OBJECT_GRAPH, ObjectGraphChart, type ObjectGraphSettings, useOb
 import { ModulePage } from "../components/ModulePage";
 import { DEFAULT_OBJECT_TRACES, ObjectTracesChart, type ObjectTracesSettings } from "../components/ObjectTracesChart";
 import { useScheme } from "../components/plots";
-import { usePageState } from "../lib/pageState";
+import { useMemoryState, usePageState } from "../lib/pageState";
 import { colourMap } from "../lib/palette";
 
 /** Selected handling units shown at most as pills (the rest as "+ n more"). */
@@ -84,8 +84,9 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
   const [objectGraphStored, setObjectGraph] = usePageState<ObjectGraphSettings>(`instances.objectGraph.${ocelId}`, DEFAULT_OBJECT_GRAPH);
   const lineageSettings = { ...DEFAULT_LINEAGE, ...lineageStored };
   // Raised by "Reset settings" so that the graphs are laid out again (drops dragged positions, zoom and pan).
-  const [lineageLayout, setLineageLayout] = useState(0);
-  const [objectGraphLayout, setObjectGraphLayout] = useState(0);
+  // Kept with the page (memory only), so that the kept layouts still fit when the page opens again.
+  const [lineageLayout, setLineageLayout] = useMemoryState(`instances.lineage.layoutKey.${ocelId}`, 0);
+  const [objectGraphLayout, setObjectGraphLayout] = useMemoryState(`instances.objectGraph.layoutKey.${ocelId}`, 0);
   const objectGraphSettings = useMemo(() => ({ ...DEFAULT_OBJECT_GRAPH, ...objectGraphStored }), [objectGraphStored]);
   const timelineSettings = { ...DEFAULT_TIMELINE, ...timelineStored };
   const [tracesStored, setTraces] = usePageState<ObjectTracesSettings>(`instances.traces.${ocelId}`, DEFAULT_OBJECT_TRACES);
@@ -143,7 +144,7 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
               setLineageLayout((k) => k + 1);
             }}>
             <LineageSettingsRow settings={lineageSettings} onChange={setLineage} />
-            <LineageChart layoutKey={lineageLayout} query={lineage} colours={colours} settings={lineageSettings} onToggle={toggle} />
+            <LineageChart stateKey={`instances.lineage.view.${ocelId}`} layoutKey={lineageLayout} query={lineage} colours={colours} settings={lineageSettings} onToggle={toggle} />
           </ChartCard>
           <ChartCard title="Object graph" onReset={() => {
               setObjectGraph(DEFAULT_OBJECT_GRAPH);
@@ -151,6 +152,7 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
             }}>
             <ObjectGraphChart
               layoutKey={objectGraphLayout}
+              stateKey={`instances.objectGraph.view.${ocelId}`}
               ocelId={ocelId}
               handlingUnits={selected}
               colours={colours}

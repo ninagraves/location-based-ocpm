@@ -533,6 +533,8 @@ export const HuProfileTable = ({ ocelId, selected, onSelected }: { ocelId: strin
       else delete filters[column];
       return { ...DEFAULT_TABLE, ...s, filters, page: 1 };
     });
+  // Unfolded rows, kept with the page like the rest of the table.
+  const [expanded, setExpanded] = usePageState<string[]>(`instances.expanded.${ocelId}`, []);
   const [search] = useDebouncedValue(state.search, 250);
   const filters = Object.values(state.filters).filter((f): f is ProfileFilter => !!f);
   const query: ProfileQuery = {
@@ -633,6 +635,7 @@ export const HuProfileTable = ({ ocelId, selected, onSelected }: { ocelId: strin
           onSortStatusChange={(s) => set({ sort: { columnAccessor: s.columnAccessor as ProfileQuerySortBy, direction: s.direction }, page: 1 })}
           rowExpansion={{
             allowMultiple: true,
+            expanded: { recordIds: expanded, onRecordIdsChange: (ids: unknown[]) => setExpanded(ids as string[]) },
             content: ({ record }) => <HuDetailsPanel ocelId={ocelId} row={record} page={data} width={width - 2} onPick={(hu) => onSelected(selected.includes(hu) ? selected : [...selected, hu])} />,
           }}
           selectedRecords={selectedRecords}

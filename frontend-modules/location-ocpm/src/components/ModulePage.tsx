@@ -4,9 +4,12 @@ import { Alert, Button, Card, Group, Loader, Stack, Text, Title } from "@mantine
 import { getModuleRoute, useCurrentOcel } from "@ocelescope/core";
 import { DownloadIcon, SettingsIcon } from "lucide-react";
 import { useRouter } from "next/router";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect } from "react";
 import { type DerivationConfig, useGetConfig, useGetStatus } from "../api/locationBasedOcpm";
 import { errorText } from "../lib/errors";
+import { useKeptScroll } from "../lib/keptView";
+import { usePageState } from "../lib/pageState";
+import { useKeptAnswers } from "../lib/queries";
 import { ConfigForm, downloadJson, Notices } from "./ConfigForm";
 import { SettingsBar } from "./SettingsBar";
 import { ShortList } from "./ShortList";
@@ -110,7 +113,9 @@ const Versions = () => {
  * configuration", or the form while no configuration is applied or while editing; on every page the settings bar
  * (`SettingsBar`, once a configuration is applied); then the page's content. Other pages open the Configuration
  * page instead while no configuration is applied for the log (Nina, 2026-11-20: Ocelescope 0.13 cannot hide
- * sidebar entries, so the pages stay listed but redirect).
+ * sidebar entries, so the pages stay listed but redirect). Every page opens again as it was left: scroll position
+ * (`useKeptScroll`), editing state, and the answers of its requests (`useKeptAnswers`); see
+ * docs/hosting/state-and-caching.md, section "Page state".
  */
 export const ModulePage = ({
   title,
@@ -124,9 +129,16 @@ export const ModulePage = ({
 }) => {
   const { id: ocelId } = useCurrentOcel();
   const { data: state, isLoading, error } = useGetConfig(ocelId ?? "", { query: { enabled: !!ocelId } });
-  const [editing, setEditing] = useState(false);
+  // Kept across page switches like the rest of the page (the form keeps its unapplied changes, `ConfigForm`).
+  const [editingKept, setEditing] = usePageState(`config.editing.${ocelId}`, false);
+  // Only the Configuration page has the form; other pages show their content meanwhile.
+  const editing = configuration && editingKept;
   const config = state?.config;
   const router = useRouter();
+  // Answers of the module's requests stay in the browser for a while, so a page opened again shows them at once.
+  useKeptAnswers();
+  // The page opens again where it was scrolled to (per page and log).
+  const scrollAnchor = useKeptScroll<HTMLDivElement>(`scroll.${ocelId}.${router.asPath.split(/[?#]/)[0]}`);
   const unconfigured = !configuration && !!ocelId && !isLoading && !error && !!state && !config;
 
   useEffect(() => {
@@ -175,7 +187,7 @@ export const ModulePage = ({
     );
 
   return (
-    <Stack p="md" gap="lg">
+    <Stack ref={scrollAnchor} p="md" gap="lg">
       <Group justify="space-between" align="flex-end">
         <Title order={2}>{title}</Title>
         <Versions />
