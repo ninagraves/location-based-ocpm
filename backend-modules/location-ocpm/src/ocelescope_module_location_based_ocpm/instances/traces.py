@@ -115,9 +115,9 @@ def object_traces(
 ) -> ObjectTraces:
     """The traces of the selected handling units with the other objects of every event, projected on the categories.
 
-    Example (running example, c2 selected, Movements deselected): c2's trace e3 roll, e4 label, e6 move, e8 load
-    truck, ... loses e6 (a movement only) but keeps e8 (a movement to the vehicle T, while Move to vehicle is
-    still selected); e3 lists s1 and c1 as other objects, c1 marked `selected` if c1 is selected too.
+    Example (running example, c2 selected, Other movements deselected): c2's trace e3 roll, e4 label, e6 move, e8
+    load truck, ... loses e6 (a movement to A2, neither vehicle nor storage unit) but keeps e8 (a movement to the
+    vehicle T, while Move to vehicle is still selected); e3 lists s1 and c1 as other objects, c1 marked `selected` if c1 is selected too.
 
     Args:
         relations: hu-event relations (`Derivation.relations`).

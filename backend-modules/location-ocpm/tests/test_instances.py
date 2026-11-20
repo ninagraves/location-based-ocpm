@@ -282,8 +282,9 @@ def test_object_traces(ocel, full):
     assert all(o["is_hu"] for o in e3["objects"])
     assert t.totals.select("hu", "n_events", "n_shown").rows() == [("c2", 8, 8), ("c1", 9, 9)]
     assert t.notes == ["Not handling units of this log: zz."]
-    # Movements off: the movement-only events go, e8 stays (also Move to vehicle), events in no category stay (c1's e7).
-    projected = traces(["movement"])
+    # Other movements off: movements to A2 go, e8 (to vehicle T) and e12 (to storage B1) stay, events in no category
+    # stay (c1's e7).
+    projected = traces(["other_movement"])
     c2 = projected.events.filter(pl.col("hu") == "c2")
     assert c2["event"].to_list() == ["e3", "e4", "e8", "e12", "e15"] and c2["pos"].to_list() == [1, 2, 3, 4, 5]
     assert "e7" in projected.events.filter(pl.col("hu") == "c1")["event"].to_list()

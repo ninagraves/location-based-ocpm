@@ -34,7 +34,7 @@ const MAX_HOVER_OBJECTS = 20;
 
 /** Hover text of the event categories here (the DFG's mentions its activity selection). */
 const CATEGORIES_INFO =
-  "Event categories (as on the directly-follows graph page): an event leaves the traces only when all categories it belongs to are deselected; the following events move up. Move to vehicle / storage: movements whose target location is a vehicle / storage unit; such an event is also a movement, so it stays until both Movements and its Move to chip are off. Events in no category always stay. Numbers: events of the selected handling units in the category. Default: all selected.";
+  "Event categories (as on the directly-follows graph page): an event leaves the traces only when all categories it belongs to are deselected; the following events move up. Move to vehicle / Move to storage / Other movements: movements whose target location is a vehicle / a storage unit / anything else, so every movement is in exactly one of them. A movement that is also a processing operation stays until Processing is off too. Events in no category always stay. Numbers: events of the selected handling units in the category. Default: all selected.";
 
 /** Format a timestamp of the backend (ISO, UTC) as "YYYY-MM-DD HH:MM:SS". */
 const formatTime = (t: string | null | undefined) => (t ? t.replace("T", " ").replace(/(\.\d+)?(Z|[+-]\d\d:\d\d)?$/, "") : "?");
