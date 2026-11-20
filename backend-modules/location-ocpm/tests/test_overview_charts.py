@@ -48,9 +48,9 @@ def test_activities_by_event_properties(derivation):
     relations = bars(overview_bar_chart(derivation, chart="activities", by="locatedness"))
     assert relations["quality check"] == (6, {"fully located": 3, "partially located": 2, "unlocated": 1})
     agreement = bars(overview_bar_chart(derivation, chart="activities", by="agreement"))
-    assert agreement["quality check"] == (6, {"not tested": 4, "not agreeing": 2})
+    assert agreement["quality check"] == (6, {"agreeing": 4, "not agreeing": 2})
     events = overview_bar_chart(derivation, chart="activities", measure="events", by="agreement")
-    assert bars(events)["quality check"] == (4, {"not tested": 3, "not agreeing": 1})  # e14 counts
+    assert bars(events)["quality check"] == (4, {"agreeing": 3, "not agreeing": 1})  # e14 counts
     assert events.left_out == 0
     located = bars(overview_bar_chart(derivation, chart="activities", measure="events", by="locatedness"))
     assert located["quality check"] == (4, {"fully located": 2, "partially located": 1, "unlocated": 1})

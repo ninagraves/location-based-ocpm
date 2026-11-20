@@ -99,8 +99,8 @@ def relation_units(derivation: Derivation, page_filter: PageFilter) -> pl.DataFr
 
 
 def _event_properties(derivation: Derivation, high: bool = False) -> pl.DataFrame:
-    """Locatedness and agreement ("agreeing", "not agreeing", "not tested", in low-level mode also "agreeing at
-    high level only") of every event."""
+    """Locatedness and agreement ("agreeing", "not agreeing", in low-level mode also "agreeing at high level
+    only") of every event."""
     return event_categories(derivation, high).select(c.EVENT, pl.col("located").alias("locatedness"), "agreement")
 
 

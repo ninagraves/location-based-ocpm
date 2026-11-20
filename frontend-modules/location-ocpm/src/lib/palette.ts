@@ -71,7 +71,7 @@ export const STATUS: Record<Scheme, Record<string, string>> = {
     "transformation · processing": CATEGORICAL.light[5], "movement · processing": CATEGORICAL.light[6],
     "movement · transformation · processing": CATEGORICAL.light[7],
     vehicle: "#F6A800", "storage unit": "#00549F", "vehicle and storage unit": "#6f2b4b",
-    agreeing: "#007e56", "agreeing at high level only": "#8EBAE5", "not agreeing": "#CE108A", "not tested": "#dee2e6",
+    agreeing: "#007e56", "agreeing at high level only": "#8EBAE5", "not agreeing": "#CE108A",
     "0": "#034648", "1": "#067b7e", "2": "#4fbec1", "3": "#a1dfd7", "⊥": OTHER.light,
   },
   dark: {
@@ -82,7 +82,7 @@ export const STATUS: Record<Scheme, Record<string, string>> = {
     "transformation · processing": CATEGORICAL.dark[5], "movement · processing": CATEGORICAL.dark[6],
     "movement · transformation · processing": CATEGORICAL.dark[7],
     vehicle: "#f79803", "storage unit": "#5291cc", "vehicle and storage unit": "#a34772",
-    agreeing: "#61bb79", "agreeing at high level only": "#6db2b8", "not agreeing": "#e266a9", "not tested": "#373a40",
+    agreeing: "#61bb79", "agreeing at high level only": "#6db2b8", "not agreeing": "#e266a9",
     "0": "#a1dfd7", "1": "#6cbec2", "2": "#188489", "3": "#005256", "⊥": OTHER.dark,
   },
 };

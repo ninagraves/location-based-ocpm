@@ -15,7 +15,7 @@ const HEIGHT = 220;
 
 /** Hover texts of segments that need an explanation. */
 const NOTES: Record<string, string> = {
-  "not tested": "fewer than two located handling units: agreeing by definition, but nothing is compared",
+  agreeing: "no two handling units at different known locations (also events with fewer than two located handling units)",
   "agreeing at high level only": "its handling units are at different locations, but at the same high-level location",
   "⊥": "no location at any level",
 };
@@ -43,7 +43,7 @@ const hover = (s: Segment, total: number, unit: string, name: (label: string) =>
 const RINGS: [string, string[] | null][] = [
   ["type", null],
   ["located", ["fully located", "partially located", "unlocated"]],
-  ["agreement", ["agreeing", "agreeing at high level only", "not agreeing", "not tested"]],
+  ["agreement", ["agreeing", "agreeing at high level only", "not agreeing"]],
 ];
 
 /** Legend beside a chart: one swatch per value, one per line, optionally with a title. */

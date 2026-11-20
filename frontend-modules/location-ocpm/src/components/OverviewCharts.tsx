@@ -81,7 +81,7 @@ const HU_VALUES: Record<string, string> = {
   unlocated: "[unlocated HUs]",
 };
 
-/** Filter values of event properties (locatedness, agreement); "not tested" has none. */
+/** Filter values of event properties (locatedness, agreement). */
 const EVENT_VALUES: Record<string, string> = {
   "fully located": "[fully located events]",
   "partially located": "[partially located events]",
@@ -176,7 +176,7 @@ const CHARTS: Record<
  * Adds the clicked values to the page filter: each (dimension, value) pair goes to the
  * dimension's include list ("–" as "[unknown]"; locatedness and agreement as their special
  * activity values, handling unit locatedness ("hu_locatedness") as its special object type
- * values; "other", "[several types]", "[several locations]" and "not tested" add nothing).
+ * values; "other", "[several types]" and "[several locations]" add nothing).
  * Chart locations are loc (post), so a location switches the role "pre" to "post". In high-level mode, a
  * high-level location adds its entry ("[high-level] A", standing for all its locations), a low-level location
  * segment its location; a location type adds "[vehicles]" or "[storage units]".
