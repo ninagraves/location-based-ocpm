@@ -1,6 +1,7 @@
 // Object graph of the instance page: the selected handling units, every object related to them by a shared event or
 // an o2o relation, and all arcs between these. The backend returns the whole graph once; object types and arc kinds
-// are shown or hidden here. Laid out with ELK (stress) and drawn with React Flow.
+// are shown or hidden here. Optionally, the events of the selected handling units are drawn as boxes with an arc from
+// every object they involve. Laid out with ELK (stress) and drawn with React Flow.
 // Documented in docs/pages/instances.md, section "Object graph".
 import { Alert, Box, Checkbox, Chip, Group, Loader, Stack, Text, Tooltip } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -20,7 +21,14 @@ import {
 } from "@xyflow/react";
 import ELK, { type ElkNode } from "elkjs/lib/elk.bundled.js";
 import { memo, useEffect, useMemo, useState } from "react";
-import { type EventArc, getObjectGraph, type O2oArc, type ObjectGraphNode, type ObjectGraphResponse } from "../api/locationBasedOcpm";
+import {
+  type EventArc,
+  type FocalEvent,
+  getObjectGraph,
+  type O2oArc,
+  type ObjectGraphNode,
+  type ObjectGraphResponse,
+} from "../api/locationBasedOcpm";
 import { textWidth } from "../lib/dfgLayout";
 import { errorText } from "../lib/errors";
 import { categoricalColour, OTHER, type Scheme, UI } from "../lib/palette";
@@ -38,32 +46,48 @@ export type ObjectGraphSettings = {
   relatedArcs: boolean;
   /** Event ids on the event arcs, qualifiers on the o2o arcs. */
   labels: boolean;
+  /** The events of the selected handling units as boxes, with an arc from every object they involve (their shared
+   * events then leave the event arcs). */
+  eventBoxes: boolean;
 };
 
-/** Defaults: handling units only, both arc kinds, all arcs, with labels. */
-export const DEFAULT_OBJECT_GRAPH: ObjectGraphSettings = { types: {}, eventArcs: true, o2oArcs: true, relatedArcs: true, labels: true };
+/** Defaults: handling units only, both arc kinds, all arcs, with labels, no event boxes. */
+export const DEFAULT_OBJECT_GRAPH: ObjectGraphSettings = {
+  types: {},
+  eventArcs: true,
+  o2oArcs: true,
+  relatedArcs: true,
+  labels: true,
+  eventBoxes: false,
+};
 
 /** Sizes of the drawing in pixels. */
-const SIZE = { font: 12, small: 10, padX: 10, minWidth: 64, height: 40, arcGap: 44, edgeLength: 190 };
+const SIZE = { font: 12, small: 10, padX: 10, minWidth: 64, height: 40, eventHeight: 34, arcGap: 44, edgeLength: 190 };
 const HEIGHT = 460;
 /** Event ids written on an event arc at most (the rest as "+ n"); events listed in the hover at most. */
 const MAX_LABEL_EVENTS = 3;
 const MAX_HOVER_EVENTS = 25;
 
-type NodeData = { [K in keyof ObjectGraphNode]: ObjectGraphNode[K] } & { width: number; height: number; colour: string; onPick?: (hu: string) => void };
-type Arc = { kind: "event"; arc: EventArc } | { kind: "o2o"; arc: O2oArc };
+/** Id of the node of an event box (prefixed, so that it cannot clash with an object id). */
+const eventNodeId = (event: string) => `\u0001event:${event}`;
+
+type ObjectData = { kind: "object" } & { [K in keyof ObjectGraphNode]: ObjectGraphNode[K] } & { width: number; height: number; colour: string };
+type EventData = { kind: "event" } & { [K in keyof FocalEvent]: FocalEvent[K] } & { width: number; height: number };
+type NodeData = ObjectData | EventData;
+/** An arc from an object to the box of an event it is involved in. */
+type E2oArc = { source: string; target: string; event: FocalEvent };
+type Arc = { kind: "event"; arc: EventArc } | { kind: "o2o"; arc: O2oArc } | { kind: "e2o"; arc: E2oArc };
 type EdgeData = { path: string; label: string | null; labelAt: { x: number; y: number }; arc: Arc; colour: string; width: number; arrow: string | null };
 
 /** Is the object type shown? (handling-unit types on, others off, unless the user switched them.) */
 const typeShown = (settings: ObjectGraphSettings, type: string, isHu: boolean) => settings.types[type] ?? isHu;
 
 /** An object: id and object type in the colour of its type; handling units rounded, other objects square; selected ones with a thick border. */
-const ObjectNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
+const ObjectNode = memo(({ data }: NodeProps<Node<ObjectData>>) => {
   const focal = data.role === "focal";
-  const pickable = data.is_hu && !focal && data.onPick;
   return (
     <Tooltip
-      label={`${data.node} (${data.object_type ?? "?"}) · ${data.n_events} events${data.n_shared != null ? `, ${data.n_shared} shared with the selection` : ""}${focal ? " · selected" : pickable ? " · click to select" : ""} · drag to move`}
+      label={`${data.node} (${data.object_type ?? "?"}) · ${data.n_events} events${data.n_shared != null ? `, ${data.n_shared} shared with the selection` : ""}${focal ? " · selected, double-click to unselect" : data.is_hu ? " · double-click to select" : ""} · drag to move`}
       withinPortal
     >
       <Box
@@ -91,12 +115,39 @@ const ObjectNode = memo(({ data }: NodeProps<Node<NodeData>>) => {
   );
 });
 
+/** An event of a selected handling unit (event boxes): event id and activity in a white box. */
+const EventNode = memo(({ data }: NodeProps<Node<EventData>>) => (
+  <Tooltip label={`${data.event} · ${formatTime(data.time)} · ${data.activity ?? ""} · ${data.objects.length} objects · drag to move`} withinPortal>
+    <Box
+      style={{
+        width: data.width,
+        height: data.height,
+        borderRadius: 3,
+        border: "1px solid var(--mantine-color-default-border)",
+        background: "var(--mantine-color-body)",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        lineHeight: 1.1,
+        cursor: "grab",
+      }}
+    >
+      <Handle type="target" position={Position.Left} style={{ opacity: 0, pointerEvents: "none" }} />
+      <Handle type="source" position={Position.Right} style={{ opacity: 0, pointerEvents: "none" }} />
+      <Text fz={SIZE.small} fw={600}>{data.event}</Text>
+      <Text fz={SIZE.small} c="dimmed">{data.activity}</Text>
+    </Box>
+  </Tooltip>
+));
+
 /** Format a timestamp of the backend (ISO, UTC) as "YYYY-MM-DD HH:MM:SS". */
 const formatTime = (t: string | null | undefined) => (t ? t.replace("T", " ").replace(/(\.\d+)?(Z|[+-]\d\d:\d\d)?$/, "") : "?");
 
 /** Hover of an arc: the shared events (id, timestamp, activity) or the o2o relation. */
 const arcHover = (arc: Arc) => {
   if (arc.kind === "o2o") return `${arc.arc.source} → ${arc.arc.target}: ${arc.arc.qualifier ?? "(no qualifier)"} (o2o)`;
+  if (arc.kind === "e2o") return `${arc.arc.source} in ${arc.arc.event.event} · ${formatTime(arc.arc.event.time)} · ${arc.arc.event.activity ?? ""}`;
   const { events, source, target, n_events } = arc.arc;
   const lines = events.slice(0, MAX_HOVER_EVENTS).map((e) => `${e.event} · ${formatTime(e.time)} · ${e.activity ?? ""}`);
   if (n_events > MAX_HOVER_EVENTS) lines.push(`+ ${n_events - MAX_HOVER_EVENTS} more`);
@@ -113,6 +164,7 @@ const arcHover = (arc: Arc) => {
 /** Label of an arc: up to three event ids (event arc) or the qualifier (o2o arc). */
 const arcLabel = (arc: Arc) => {
   if (arc.kind === "o2o") return arc.arc.qualifier ?? "";
+  if (arc.kind === "e2o") return null;
   const ids = arc.arc.events.map((e) => e.event);
   return ids.length > MAX_LABEL_EVENTS ? `${ids.slice(0, MAX_LABEL_EVENTS).join(", ")} +${ids.length - MAX_LABEL_EVENTS}` : ids.join(", ");
 };
@@ -161,9 +213,15 @@ const ArcView = memo(({ id, data }: EdgeProps<Edge<EdgeData>>) => {
   );
 });
 
-const NODE_TYPES = { object: ObjectNode };
+const NODE_TYPES = { object: ObjectNode, event: EventNode };
 const EDGE_TYPES = { arc: ArcView };
 const elk = new ELK();
+
+/** Width and height of an event box: tight around its id and activity. */
+const eventSize = (e: FocalEvent) => ({
+  width: Math.ceil(Math.max(textWidth(e.event, SIZE.small, 600), textWidth(e.activity ?? "", SIZE.small)) + 2 * SIZE.padX),
+  height: SIZE.eventHeight,
+});
 
 /** Width and height of a node: tight around its id and object type. */
 const nodeSize = (n: ObjectGraphNode) => {
@@ -186,11 +244,25 @@ export const visibleGraph = (graph: ObjectGraphResponse, settings: ObjectGraphSe
   const focal = new Set(nodes.filter((n) => n.role === "focal").map((n) => n.node));
   const keep = (a: { source: string; target: string }) =>
     ids.has(a.source) && ids.has(a.target) && (settings.relatedArcs || focal.has(a.source) || focal.has(a.target));
+  // With event boxes, the events of the selection are boxes; event arcs keep only the other shared events.
+  const events = settings.eventBoxes ? (graph.events ?? []) : [];
+  const boxed = new Set(events.map((e) => e.event));
+  const eventArcs = graph.event_arcs
+    .filter(keep)
+    .map((arc) => {
+      if (!boxed.size) return arc;
+      const rest = arc.events.filter((e) => !boxed.has(e.event));
+      return { ...arc, events: rest, n_events: rest.length };
+    })
+    .filter((arc) => arc.n_events > 0);
   const arcs: Arc[] = [
-    ...(settings.eventArcs ? graph.event_arcs.filter(keep).map((arc) => ({ kind: "event" as const, arc })) : []),
+    ...(settings.eventArcs ? eventArcs.map((arc) => ({ kind: "event" as const, arc })) : []),
     ...(settings.o2oArcs ? graph.o2o_arcs.filter(keep).map((arc) => ({ kind: "o2o" as const, arc })) : []),
+    ...events.flatMap((event) =>
+      event.objects.filter((o) => ids.has(o)).map((o) => ({ kind: "e2o" as const, arc: { source: o, target: eventNodeId(event.event), event } })),
+    ),
   ];
-  return { nodes, arcs };
+  return { nodes, events, arcs };
 };
 
 /**
@@ -200,15 +272,12 @@ export const visibleGraph = (graph: ObjectGraphResponse, settings: ObjectGraphSe
  * @param graph The visible part (`visibleGraph`).
  * @param colours Colour per object type.
  * @param scheme Colour scheme.
- * @param onPick Shown in the hover of handling units that can be added to the selection.
  */
-const layoutGraph = async (
-  graph: ReturnType<typeof visibleGraph>,
-  colours: Map<string, string>,
-  scheme: Scheme,
-  onPick?: (hu: string) => void,
-) => {
-  const sizes = new Map(graph.nodes.map((n) => [n.node, nodeSize(n)]));
+const layoutGraph = async (graph: ReturnType<typeof visibleGraph>, colours: Map<string, string>, scheme: Scheme) => {
+  const sizes = new Map([
+    ...graph.nodes.map((n) => [n.node, nodeSize(n)] as const),
+    ...graph.events.map((e) => [eventNodeId(e.event), eventSize(e)] as const),
+  ]);
   const root: ElkNode = {
     id: "root",
     layoutOptions: {
@@ -217,7 +286,7 @@ const layoutGraph = async (
       "elk.separateConnectedComponents": "true",
       "elk.spacing.componentComponent": "60",
     },
-    children: graph.nodes.map((n) => ({ id: n.node, ...sizes.get(n.node) })),
+    children: [...sizes.entries()].map(([id, size]) => ({ id, ...size })),
     // One layout edge per pair of objects, so that several arcs between two objects do not pull them together.
     edges: [...new Set(graph.arcs.map(({ arc }) => [arc.source, arc.target].sort().join("\u0000")))].map((key, i) => {
       const [s, t] = key.split("\u0000");
@@ -228,17 +297,28 @@ const layoutGraph = async (
   const centre = new Map(
     (result.children ?? []).map((n) => [n.id, { x: (n.x ?? 0) + (n.width ?? 0) / 2, y: (n.y ?? 0) + (n.height ?? 0) / 2 }]),
   );
-  const nodes: Node<NodeData>[] = graph.nodes.map((n) => {
-    const size = sizes.get(n.node) as { width: number; height: number };
-    const c = centre.get(n.node) ?? { x: 0, y: 0 };
-    return {
-      id: n.node,
-      type: "object",
-      position: { x: c.x - size.width / 2, y: c.y - size.height / 2 },
-      data: { ...n, ...size, colour: colours.get(n.object_type ?? "") ?? OTHER[scheme], onPick },
-      connectable: false,
-    };
-  });
+  const at = (id: string) => {
+    const size = sizes.get(id) as { width: number; height: number };
+    const c = centre.get(id) ?? { x: 0, y: 0 };
+    return { size, position: { x: c.x - size.width / 2, y: c.y - size.height / 2 } };
+  };
+  const nodes: Node<NodeData>[] = [
+    ...graph.nodes.map((n): Node<NodeData> => {
+      const { size, position } = at(n.node);
+      return {
+        id: n.node,
+        type: "object",
+        position,
+        data: { kind: "object", ...n, ...size, colour: colours.get(n.object_type ?? "") ?? OTHER[scheme] },
+        connectable: false,
+      };
+    }),
+    ...graph.events.map((e): Node<NodeData> => {
+      const id = eventNodeId(e.event);
+      const { size, position } = at(id);
+      return { id, type: "event", position, data: { kind: "event", ...e, ...size }, connectable: false };
+    }),
+  ];
   return { nodes, arcs: graph.arcs };
 };
 
@@ -291,7 +371,7 @@ const routeArcs = (arcs: Arc[], nodes: Node<NodeData>[], labels: boolean, scheme
         labelAt: { x: (p.x + q.x) / 2 + offset * normal.x, y: (p.y + q.y) / 2 + offset * normal.y },
         arc: a,
         colour,
-        width: a.kind === "event" ? Math.min(1.2 + Math.log2(a.arc.n_events), 5) : 1.4,
+        width: a.kind === "event" ? Math.min(1.2 + Math.log2(a.arc.n_events), 5) : a.kind === "e2o" ? 1.2 : 1.4,
         arrow: a.kind === "o2o" ? `og-arrow-${scheme}` : null,
       },
     };
@@ -311,7 +391,8 @@ const Legend = () => (
   <Text fz={11} lh={1.3} c="dimmed">
     Rounded box: handling unit, square box: other object, in the colour of its object type (thick border: selected) · solid
     line: shared events, labelled with their ids (thicker: more events) · dashed arrow: o2o relation, labelled with its
-    qualifier · hover a label for the events (id, timestamp, activity) · drag objects to move them · click a handling unit to add it to the selection
+    qualifier · hover a label for the events (id, timestamp, activity) · with "Events as boxes": white box = event of a selected handling
+    unit, with a line to every object it involves · drag objects to move them · double-click a handling unit to select or unselect it
   </Text>
 );
 
@@ -376,6 +457,12 @@ const ObjectGraphSettingsRow = ({
         onChange={(e) => onChange({ ...settings, relatedArcs: e.currentTarget.checked })}
       />
       <Checkbox size="xs" label="Labels" checked={settings.labels} onChange={(e) => onChange({ ...settings, labels: e.currentTarget.checked })} />
+      <Checkbox
+        size="xs"
+        label="Events as boxes"
+        checked={settings.eventBoxes}
+        onChange={(e) => onChange({ ...settings, eventBoxes: e.currentTarget.checked })}
+      />
     </Group>
   );
 };
@@ -399,7 +486,7 @@ export const useObjectGraph = (ocelId: string, handlingUnits: string[]) => {
  * @param colours Colour per object type of the handling units (other object types get the next palette colours).
  * @param settings The settings.
  * @param onChange Called with the changed settings.
- * @param onPick Called with a handling unit clicked in the graph.
+ * @param onToggle Called with a handling unit double-clicked in the graph (selects or unselects it).
  * @param layoutKey Changing it lays the graph out again (drops dragged positions; "Reset settings").
  */
 export const ObjectGraphChart = ({
@@ -409,14 +496,14 @@ export const ObjectGraphChart = ({
   colours,
   settings,
   onChange,
-  onPick,
+  onToggle,
 }: {
   ocelId: string;
   handlingUnits: string[];
   colours: Map<string, string>;
   settings: ObjectGraphSettings;
   onChange: (s: ObjectGraphSettings) => void;
-  onPick: (hu: string) => void;
+  onToggle: (hu: string) => void;
   layoutKey?: number;
 }) => {
   const scheme = useScheme();
@@ -438,7 +525,7 @@ export const ObjectGraphChart = ({
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
-    layoutGraph(visible, allColours, scheme, onPick).then(
+    layoutGraph(visible, allColours, scheme).then(
       (f) => {
         if (cancelled) return;
         setFlow(f);
@@ -450,7 +537,7 @@ export const ObjectGraphChart = ({
       cancelled = true;
     };
     // layoutKey only triggers a new layout.
-  }, [visible, allColours, scheme, onPick, setNodes, layoutKey]);
+  }, [visible, allColours, scheme, setNodes, layoutKey]);
   const edges = useMemo(() => (flow ? routeArcs(flow.arcs, nodes, settings.labels, scheme) : []), [flow, nodes, settings.labels, scheme]);
   const o2oColour = UI[scheme].accent;
 
@@ -484,7 +571,8 @@ export const ObjectGraphChart = ({
                 nodes={nodes}
                 edges={edges}
                 onNodesChange={onNodesChange}
-                onNodeClick={(_, n) => n.data.is_hu && n.data.role !== "focal" && onPick(n.id)}
+                onNodeDoubleClick={(_, n) => n.data.kind === "object" && n.data.is_hu && onToggle(n.id)}
+                zoomOnDoubleClick={false}
                 nodeTypes={NODE_TYPES}
                 edgeTypes={EDGE_TYPES}
                 nodesConnectable={false}

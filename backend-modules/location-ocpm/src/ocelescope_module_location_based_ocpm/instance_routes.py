@@ -528,6 +528,15 @@ class O2oArc(BaseModel):
     qualifier: str | None = None
 
 
+class FocalEvent(BaseModel):
+    """An event of a selected handling unit with the objects of the graph it involves."""
+
+    event: str
+    time: datetime | None = None
+    activity: str | None = None
+    objects: list[str]
+
+
 class ObjectGraphResponse(BaseModel):
     """The object graph of the selected handling units.
 
@@ -535,12 +544,14 @@ class ObjectGraphResponse(BaseModel):
         nodes: Selected handling units first, then related handling units, then related other objects.
         event_arcs: Shared events.
         o2o_arcs: O2O relations.
+        events: Events of the selected handling units (drawn as boxes if the user switches it on).
         notes: Remarks.
     """
 
     nodes: list[ObjectGraphNode]
     event_arcs: list[EventArc]
     o2o_arcs: list[O2oArc]
+    events: list[FocalEvent]
     notes: list[str]
 
 
@@ -552,5 +563,6 @@ def get_object_graph(ocel: ApiOcel, derivation: CurrentDerivation, request: Obje
         nodes=[ObjectGraphNode(**row) for row in graph.nodes.to_dicts()],
         event_arcs=[EventArc(**row) for row in graph.event_arcs.to_dicts()],
         o2o_arcs=[O2oArc(**row) for row in graph.o2o_arcs.to_dicts()],
+        events=[FocalEvent(**row) for row in graph.events.to_dicts()],
         notes=graph.notes,
     )

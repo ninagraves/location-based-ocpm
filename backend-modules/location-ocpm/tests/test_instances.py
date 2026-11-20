@@ -252,3 +252,8 @@ def test_object_graph(object_example):
     assert graph.notes == ["Not handling units of this log: zz."]
     cut = object_graph(object_example, ["c2"], ["s1", "c1", "c2", "c3", "c4", "c5"], max_nodes=3)
     assert cut.nodes["node"].to_list() == ["c2", "c1", "c3"] and cut.notes == ["10 objects; only the first 3 are drawn."]
+    # Events of the selected handling units (event boxes), in time order, with the involved nodes only.
+    events = {e: objects for e, objects in graph.events.select("event", "objects").iter_rows()}
+    assert list(events) == ["e3", "e4", "e6", "e8", "e9", "e11", "e12", "e15"]
+    assert events["e3"] == ["c1", "c2", "s1"] and events["e6"] == ["c2", "crane1", "op1"]
+    assert dict(cut.events.select("event", "objects").iter_rows())["e8"] == ["c1", "c2", "c3"]

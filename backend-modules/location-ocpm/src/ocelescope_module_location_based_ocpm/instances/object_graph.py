@@ -5,6 +5,8 @@ object related to one of them, by a shared event or by an o2o relation (in eithe
 events (one undirected arc per pair of objects, listing its events) and the o2o relations (directed, with their
 qualifier). The graph is complete for these nodes: arcs between two related objects are included as well, so the
 frontend only shows or hides object types and arc kinds without asking the backend again.
+`focal_events` lists the events of the selected handling units with the nodes involved in each, for the option
+that draws these events as boxes with an arc from every involved object.
 """
 
 from collections.abc import Collection
@@ -58,12 +60,15 @@ class ObjectGraph:
         event_arcs: Columns source, target (source < target), events (list of structs event, time, activity,
             ordered by time and event id), n_events.
         o2o_arcs: Columns source, target, qualifier.
+        events: Columns event, time, activity, objects (sorted ids of the nodes involved); the events of the
+            selected handling units, ordered by time and event id (see `focal_events`).
         notes: Remarks, e.g. handling units that are not part of the log, or a cut graph.
     """
 
     nodes: pl.DataFrame
     event_arcs: pl.DataFrame
     o2o_arcs: pl.DataFrame
+    events: pl.DataFrame
     notes: list[str]
 
 
@@ -211,6 +216,33 @@ def o2o_arcs(frames: ObjectFrames, nodes: Collection[str]) -> pl.DataFrame:
     )
 
 
+def focal_events(frames: ObjectFrames, selected: Collection[str], nodes: Collection[str]) -> pl.DataFrame:
+    """The events of the selected handling units, each with the nodes of the graph it involves.
+
+    Example: c2 is selected and e8 (load truck) involves c1, c2, c3 and the truck tr1; e8's objects are
+    [c1, c2, c3, tr1] if all four are nodes (a node cut by `MAX_OBJECT_NODES` is left out).
+
+    Args:
+        frames: Tables of the log.
+        selected: The selected handling units.
+        nodes: Ids of the nodes (selected ones included).
+
+    Returns:
+        pl.DataFrame: Columns event, time, activity, objects (list of node ids, sorted); ordered by time and event id.
+    """
+    events = frames.e2o.filter(pl.col("object").is_in(list(selected))).select("event").unique()
+    return (
+        frames.e2o.join(events, on="event", how="semi")
+        .filter(pl.col("object").is_in(list(nodes)))
+        .group_by("event")
+        .agg(pl.col("object").unique().sort().alias("objects"))
+        .join(frames.events, on="event", how="left")
+        .select("event", "time", "activity", "objects")
+        .sort("time", "event")
+        .collect()
+    )
+
+
 def object_graph(
     frames: ObjectFrames,
     selected: Collection[str],
@@ -226,7 +258,7 @@ def object_graph(
         max_nodes: Nodes returned at most; beyond it the graph is cut (order of `graph_nodes`).
 
     Returns:
-        ObjectGraph: Nodes, event arcs, o2o arcs and notes.
+        ObjectGraph: Nodes, event arcs, o2o arcs, events of the selected handling units and notes.
     """
     known = set(handling_units)
     focal = [hu for hu in dict.fromkeys(selected) if hu in known]
@@ -239,4 +271,10 @@ def object_graph(
         notes.append(f"{nodes.height} objects; only the first {max_nodes} are drawn.")
         nodes = nodes.head(max_nodes)
     ids = nodes["node"].to_list()
-    return ObjectGraph(nodes=nodes, event_arcs=event_arcs(frames, ids), o2o_arcs=o2o_arcs(frames, ids), notes=notes)
+    return ObjectGraph(
+        nodes=nodes,
+        event_arcs=event_arcs(frames, ids),
+        o2o_arcs=o2o_arcs(frames, ids),
+        events=focal_events(frames, focal, ids),
+        notes=notes,
+    )
