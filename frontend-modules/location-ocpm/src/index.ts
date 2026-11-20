@@ -4,12 +4,20 @@ import { MapPinnedIcon } from "lucide-react";
 import Configuration from "./routes/Configuration";
 import DirectlyFollowsGraph from "./routes/DirectlyFollowsGraph";
 import Instances from "./routes/Instances";
+import Overview from "./routes/Overview";
 
 const configurationRoute = defineModuleRoute({
   name: "configuration",
   label: "Configuration",
   requiresOcel: true,
   component: Configuration,
+});
+
+const overviewRoute = defineModuleRoute({
+  name: "overview",
+  label: "Overview",
+  requiresOcel: true,
+  component: Overview,
 });
 
 const dfgRoute = defineModuleRoute({
@@ -32,5 +40,5 @@ export default defineModule({
   description: "Location-based object-centric process mining for production and logistics",
   authors: [{ name: "Nina Graves" }],
   icon: MapPinnedIcon,
-  routes: [configurationRoute, dfgRoute, instancesRoute],
+  routes: [configurationRoute, overviewRoute, dfgRoute, instancesRoute],
 });

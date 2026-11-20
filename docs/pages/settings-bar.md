@@ -26,7 +26,7 @@ If deriving with the change gives blocking errors, they are listed in red below 
 Running example with `data/running_example/configuration.json` (high-level locations A1, A2 → A, B1 → B, T unmapped; P = label ∪ T; upload `inputs/locations.csv` first).
 Step by step, with the functions involved:
 1. Apply the configuration (`apply_config`). `get_settings` → Level 3, transformations on, Locations high (high-level locations are configured).
-   Key numbers: Locations tile "High-level locations 3" (A, B, T); processing operations 4 (cast slab, cut, label, roll). Instances: c1's events e3, e4, e5 have $\widehat{hl}$ = A.
+   Overview page, key numbers: Locations tile "High-level locations 3" (A, B, T); processing operations 4 (cast slab, cut, label, roll). Instances: c1's events e3, e4, e5 have $\widehat{hl}$ = A.
 2. Switch Locations to low (`update_settings` with `location_mode="low"`). `effective_config` drops the high-level locations, `current_derivation` derives with it, every page reloads.
    Key numbers: "Locations 4" (A1, A2, B1, T); the Locations chart on the Configuration page has no high-level ring, flag F6 is hidden; Instances: c1's e3, e4 have $\widehat{hl}$ = A1, e5 has A2; the overview filter's location list is no longer grouped.
    The configuration summary still says "high-level locations from table "locations.csv"".

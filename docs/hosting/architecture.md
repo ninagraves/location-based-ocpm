@@ -5,7 +5,7 @@
 - **Backend module** `backend-modules/location-ocpm/`: a FastAPI app. `ocelescope-backend` discovers it through the entry point `ocelescope_backend.modules` in its `pyproject.toml` and serves it under `/modules/locationBasedOcpm/v1`.
   - `module.py`: module class `LocationBasedOcpm` (key, version, app creation).
   - `routes.py`: API routes: `GET /status`, plus the configuration routes of `configuration_routes.py` (tables, options, apply; see `state-and-caching.md`), the settings bar routes of `settings_routes.py` (`global_settings.py`; documented in `docs/pages/settings-bar.md`), the overview routes of `overview_routes.py` the route of the directly-follows graph page (`dfg_routes.py`, with a small LRU cache of the log's frames and the traces of a selection) and the routes of the instance page (`instance_routes.py`, with a small LRU cache of the HU profile per derivation).
-  - `overview/`: content of the Configuration page (called overview page before 2026-11-20), one module per section (documented in `docs/pages/overview.md`).
+  - `overview/`: content of the Configuration and Overview pages, one module per section (documented in `docs/pages/overview.md`).
   - `dfg/`: content of the directly-follows graph page, one module per step (documented in `docs/pages/directly-follows-graph.md`).
   - `instances/`: content of the instance page: `profile.py` (HU profile, one function per step) and `charts.py` (lineage of a selection, HU timeline as Plotly JSON); documented in `docs/pages/instances.md`.
   - `state.py`: per-session state (uploaded tables, applied configuration and settings per log, cache).

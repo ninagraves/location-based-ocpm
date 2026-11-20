@@ -1,19 +1,18 @@
-# Configuration page
+# Configuration page and Overview page
 
-Called "Overview" until 2026-11-20 (Nina renamed it to "Configuration"; route `configuration`).
+Until 2026-11-20 one page "Overview". Nina then renamed it to "Configuration" (route `configuration`) and moved the filtered part to its own page "Overview" (route `overview`). Both pages share this note, since their content elements belong together (the data overview charts set filters of the Overview page).
 
 Concept: `overview/Deriving Locations.md`, section "overview", and for the location context (high-level locations, vehicles, storage units, processing operations) `overview/module/Module Overview.md`, "Update Overview Page", sections 6-10 (outside this repo).
 Content elements are added one at a time; built so far: page filter bar, key numbers (with filtered values), configuration notices, flag badges, data overview charts, activity profile, overview charts.
 Still to come: flag explore sections.
 
 ## Page structure (Nina, 2026-10-29; 2026-11-20)
-The only page with the configuration summary and form (`configuration.md`). Like every page it has the settings bar (`settings-bar.md`) below it; all content follows the settings bar (level, processing operations, Locations: low | high).
-Two sections, so that it is clear what the filters act on:
-- **Configuration** (page title): the configuration summary (`configuration.md`), configuration notices (section 2), the settings bar, input flags (section 3) and the data overview charts (section 4). Never filtered; always the whole log.
-- **Overview** (heading): the filter bar (section 0), key numbers (section 1), activity profile (section 5) and overview charts (section 6). Everything here follows the filters and uses the selected level, which the settings bar shows; the section itself does not repeat the level.
+Two pages, so that it is clear what the filters act on; both follow the settings bar (`settings-bar.md`: level, processing operations, Locations: low | high):
+- **Configuration** page: the configuration summary and form (`configuration.md`; the only page with them), configuration notices (section 2), the settings bar, input flags (section 3) and the data overview charts (section 4). Never filtered; always the whole log.
+- **Overview** page: the settings bar, the filter bar (section 0), key numbers (section 1), activity profile (section 5) and overview charts (section 6). Everything here follows the filters and uses the selected level, which the settings bar shows.
 
 ## Code
-- Page: `frontend-modules/location-ocpm/src/routes/Configuration.tsx` (`ModulePage` with `configuration`)
+- Pages: `frontend-modules/location-ocpm/src/routes/Configuration.tsx` (`ModulePage` with `configuration`) and `routes/Overview.tsx`
 - Frame: `frontend-modules/location-ocpm/src/components/ModulePage.tsx`: title, the configuration summary and form plus notices (this page only, `configuration.md`), the settings bar (every page, `settings-bar.md`).
 - Backend: one module per section in `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/overview/`, routes in `overview_routes.py`. Every route reads the cached derivation (`configuration_routes.current_derivation`, see `docs/hosting/state-and-caching.md`).
 - Number formatting: `frontend-modules/location-ocpm/src/lib/format.ts` (`num`, `pct`).
@@ -102,7 +101,7 @@ Implementation choice: the concept's filter line names "kept events with a locat
 
 **Example** (running example, Level 3, no filter): events movement 8 (fully located: 4 agreeing, 4 not tested), transformation · processing 3 (fully located: 2 agreeing, 1 not tested), other 6 (fully located 4: 1 agreeing, 1 not agreeing (e14), 2 not tested; partially located 1 (e16, not tested); unlocated 1 (e17, not tested)); relations Level 0: 15, Level 1: 4, Level 2: 3, Level 3: 4, ⊥: 2; handling units fully 5, unlocated 1 (c5).
 With the location context of `data/running_example/inputs/locations.csv` and processing "label": types movement 8, transformation · processing 3, processing 1 (e4), other 5; no event agrees at high level only (e14: T vs B); locations vehicle 1 (T), storage unit 1 (B), other 2 (A); relations vehicle 5, storage unit 8, other 13, 2 left out.
-**Filtering:** none since 2026-10-29: the charts sit in the configuration section and always show the whole log (the frontend sends no filter). The route still accepts the page filter (`data_charts(derivation, page_filter)`), e.g. "Location B1, post": 6 events; relations Level 0: 4, Level 1: 2, Level 3: 2; handling units 4 fully located. Clicks still set filter values for the overview section below.
+**Filtering:** none since 2026-10-29: the charts sit in the configuration section and always show the whole log (the frontend sends no filter). The route still accepts the page filter (`data_charts(derivation, page_filter)`), e.g. "Location B1, post": 6 events; relations Level 0: 4, Level 1: 2, Level 3: 2; handling units 4 fully located. Clicks still set filter values; they act on the Overview page (the filter is kept per log across pages).
 **Clicking** a segment adds its filter value to the filter bar, replacing any other value of the same category (e.g. "[transformation events]" replaces "[movement events]") and removing it from the matching exclude filter (`lib/filters.ts`, `withValue`, categories in `CATEGORIES`):
 
 | Segment | Filter value |
