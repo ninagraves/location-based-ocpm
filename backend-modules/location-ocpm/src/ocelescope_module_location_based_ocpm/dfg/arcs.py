@@ -16,7 +16,7 @@ by the arc threshold, the first $N$ of every object type (same $N$ for all types
 the ranking objects, traversals, first occurrence, source, target; ties are broken by this order, so exactly
 $N$ arcs per type are kept (all if the type has fewer). Default: None = all.
 
-Removed arcs (`remove_arcs`): arcs the user removed by hand (right click on the arc).
+Removed arcs (`remove_arcs`): arcs the user removed by hand (double click on the arc).
 The stay-connected repair (`connectivity.stay_connected`) runs after all three.
 """
 

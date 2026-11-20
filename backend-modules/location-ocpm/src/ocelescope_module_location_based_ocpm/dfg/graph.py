@@ -115,7 +115,7 @@ class DfgRequest(BaseModel):
             are removed from the type's traces first. A type that is missing gets the default
             (`projection.default_activities`).
         stay_connected: Connectivity repair on (`connectivity.stay_connected`).
-        removed_arcs: Arcs removed by hand (right click).
+        removed_arcs: Arcs removed by hand (double click on the arc).
         excluded_categories: Deselected event categories (`categories.CATEGORIES` keys); an event is removed from
             the traces first if all its categories are deselected. Default: Movements, Move to vehicle and Move to storage
             (`categories.DEFAULT_EXCLUDED`).

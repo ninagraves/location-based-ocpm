@@ -151,7 +151,7 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
   const [sidebar, setSidebar] = usePageState<SidebarState>("dfg.sidebar", { width: SIDEBAR_WIDTH.initial, hidden: false });
   const [height, setHeight] = usePageState<number>("dfg.height", GRAPH_HEIGHT.initial);
   const scheme = useScheme();
-  // Right click on an arc removes it (Nina, 2026-11-15), at once and without a new layout if nothing else waits
+  // Double click on an arc removes it (Nina, 2026-11-15; double click since 2026-11-20), at once and without a new layout if nothing else waits
   // (Nina, 2026-11-17): it only takes arcs out, in the browser.
   const removeNow = useRef(false);
   const onRemoveArc = useCallback(

@@ -48,7 +48,7 @@ export type DfgState = {
   activities: Record<string, string[]>;
   /** Every arc lies on a path from start to end ("Stay connected"). */
   stayConnected: boolean;
-  /** Arcs removed by hand (right click). */
+  /** Arcs removed by hand (double click on an arc). */
   removed: ArcKey[];
   /** Deselected event categories (keys, e.g. "to_vehicle"); their events are removed from the traces first. */
   excludedCategories: string[];
@@ -109,7 +109,7 @@ export const arcSettings = (state: DfgState): ArcSettings => ({
 /** True if two arcs are the same. */
 const sameArc = (a: ArcKey, b: ArcKey) => a.object_type === b.object_type && a.source === b.source && a.target === b.target;
 
-/** Adds an arc to the removed arcs (right click on the graph). */
+/** Adds an arc to the removed arcs (double click on an arc in the graph). */
 export const removeArc = (state: DfgState, arc: ArcKey): DfgState =>
   state.removed.some((r) => sameArc(r, arc)) ? state : { ...state, removed: [...state.removed, arc] };
 
@@ -125,7 +125,7 @@ export const INFO = {
     "Arcs (display), the arc count: of the arcs left by Arcs (projection), shows the first N, ranked by objects, traversals, first occurrence, then name (exactly N, ties broken by this order). General (default): N arcs of all object types together (types with an own value keep theirs); per type: N arcs of every type. − and + change it by one. The number shows how many arcs are shown of how many.",
   stay: "Stay connected: every shown arc lies on a path from the start to the end of its object type. Arcs that Arcs (projection) or Arcs (display) removed are added back where needed (drawn like the others; hovering such an arc says “only kept to stay connected”). It never adds arcs of removed variants, deselected activities or arcs removed by hand.",
   removed:
-    "Arcs removed by hand (right click on an arc in the graph). While there are any, the sliders no longer describe the graph on their own (marked as manual). Click × to restore an arc.",
+    "Arcs removed by hand (double click on an arc in the graph). While there are any, the sliders no longer describe the graph on their own (marked as manual). Click × to restore an arc.",
   objectTypes:
     "Checked object types are drawn with their directly-follows arcs, start and end nodes. Unchecked object types that are involved in the shown events appear only as circles on the activity nodes. Default: the object types of the handling units. Unfold a type for its own values.",
   categories:

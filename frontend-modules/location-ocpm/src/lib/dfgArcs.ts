@@ -1,4 +1,4 @@
-// Steps 4 and 5 of the directly-follows graph, in the browser so that the arc sliders, the right click and
+// Steps 4 and 5 of the directly-follows graph, in the browser so that the arc sliders, the arc removal (double click) and
 // "Stay connected" react without a request (Nina, 2026-11-15): arc threshold, arc count, arcs removed by hand and the
 // connectivity repair. The backend sends all arcs of the included traces (projected, variant-filtered), each with its
 // `rank` in the arc ranking of its type; these functions mirror `dfg/arcs.py` and `dfg/connectivity.py` exactly (the
