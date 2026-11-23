@@ -184,17 +184,24 @@ export const FADED_ALPHA = 0.55;
 /**
  * Colours for two groups of values: `emphasised` values get the signature colours first (then further
  * categorical colours), the `other` values get the remaining categorical colours (none of the signature
- * colours), made paler by `FADED_ALPHA`. Pass full domains (in their order) so a value keeps its colour.
+ * colours), made paler by `FADED_ALPHA` if `fade`. Pass full domains (in their order) so a value keeps its colour.
+ * The colours of the object types on every page come from here (`useObjectTypeColours`, lib/objectTypeColours.ts).
+ *
+ * Example: `emphasisColourMap(["pallet", "box"], ["order"])` gives pallet #006165 (petrol), box #CE108A (pink) and
+ * order #5291cc8c: the first categorical colour that is no signature colour (#0098A1 and #CE108A are, #d98b09 is
+ * skipped as too close to the signature orange), with alpha 8c (0.55); with `fade = false` order gets #5291cc.
  *
  * @param emphasised Values to stand out, e.g. the handling-unit types, most important first.
  * @param other All other values.
  * @param scheme Light or dark.
- * @returns Colour per value (8-digit hex with alpha for `other`).
+ * @param fade True: the `other` colours get the opacity `FADED_ALPHA` (default); false: the same colours, opaque.
+ * @returns Colour per value (8-digit hex with alpha for faded `other` values).
  */
 export function emphasisColourMap(
   emphasised: readonly string[],
   other: readonly string[],
   scheme: Scheme = "light",
+  fade = true,
 ): Map<string, string> {
   const signature = SIGNATURE[scheme];
   const taken = new Set(signature.map((c) => c.toLowerCase()));
@@ -207,7 +214,7 @@ export function emphasisColourMap(
   let next = 0;
   const map = new Map<string, string>();
   emphasised.forEach((value, i) => map.set(value, i < signature.length ? signature[i] : pool[next++]));
-  const alpha = Math.round(FADED_ALPHA * 255).toString(16).padStart(2, "0");
+  const alpha = fade ? Math.round(FADED_ALPHA * 255).toString(16).padStart(2, "0") : "";
   for (const value of other) if (!map.has(value)) map.set(value, `${pool[next++]}${alpha}`);
   return map;
 }

@@ -18,9 +18,8 @@ import {
 import { DEFAULT_OBJECT_GRAPH, ObjectGraphChart, type ObjectGraphSettings, useObjectGraph } from "../components/ObjectGraphChart";
 import { ModulePage } from "../components/ModulePage";
 import { DEFAULT_OBJECT_TRACES, ObjectTracesChart, type ObjectTracesSettings } from "../components/ObjectTracesChart";
-import { useScheme } from "../components/plots";
 import { useMemoryState, usePageState } from "../lib/pageState";
-import { colourMap } from "../lib/palette";
+import { useObjectTypeColours } from "../lib/objectTypeColours";
 
 /** Selected handling units shown at most as pills (the rest as "+ n more"). */
 const MAX_PILLS = 30;
@@ -77,7 +76,6 @@ const ChartCard = ({ title, onReset, children }: { title: string; onReset?: () =
 
 /** The content of the page for one log. */
 const InstancesContent = ({ ocelId }: { ocelId: string }) => {
-  const scheme = useScheme();
   const [selected, setSelected] = usePageState<string[]>(`instances.selected.${ocelId}`, []);
   const [lineageStored, setLineage] = usePageState<LineageSettings>(`instances.lineage.${ocelId}`, DEFAULT_LINEAGE);
   const [timelineStored, setTimeline] = usePageState<TimelineSettings>(`instances.timeline.${ocelId}`, DEFAULT_TIMELINE);
@@ -92,12 +90,13 @@ const InstancesContent = ({ ocelId }: { ocelId: string }) => {
   const [tracesStored, setTraces] = usePageState<ObjectTracesSettings>(`instances.traces.${ocelId}`, DEFAULT_OBJECT_TRACES);
   const tracesSettings = useMemo(() => ({ ...DEFAULT_OBJECT_TRACES, ...tracesStored }), [tracesStored]);
   const lineage = useSelectionLineage(ocelId, selected, lineageSettings);
-  // Object types of the log (most handling units first) for fixed colours; the first profile page carries them.
+  // The first profile page carries whether the log has high-level locations (timeline settings).
   const { data: profile } = useQuery({
     queryKey: ["locationBasedOcpm", "instances", "profile", ocelId, { limit: 1 }],
     queryFn: ({ signal }) => getHuProfile(ocelId, { limit: 1 }, undefined, undefined, signal),
   });
-  const colours = useMemo(() => colourMap((profile?.object_types ?? []).map(([t]) => t), scheme), [profile, scheme]);
+  // Object type colours from the module-wide order, the same on every page (Nina, 2026-11-23).
+  const { colours } = useObjectTypeColours(ocelId);
   // Double-clicking a handling unit in the lineage or object graph selects it, or unselects it if it is selected.
   const toggle = useCallback((hu: string) => setSelected((s) => (s.includes(hu) ? s.filter((x) => x !== hu) : [...s, hu])), [setSelected]);
 

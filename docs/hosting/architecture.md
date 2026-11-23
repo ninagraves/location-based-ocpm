@@ -20,7 +20,7 @@
   - `src/components/plots.tsx`: theme-aware Plotly chart (`ThemedPlot`) and the chart toolbar (`plotConfig`: download PNG, download SVG, reset axes).
   - `src/lib/dfgLayout.ts`: ELK layout of the directly-follows graph; `src/components/DfgGraph.tsx` draws it with React Flow (`@xyflow/react`), `src/components/DfgSettings.tsx` is its settings sidebar.
   - `src/routes/Instances.tsx`: the instance page; `src/components/HuProfileTable.tsx` (table), `LineageChart.tsx` (ELK + React Flow, reusing the options and edge paths of `dfgLayout.ts`), `HuTimelineChart.tsx` (Plotly figure from the backend).
-  - `src/lib/palette.ts`: the only source of colours (categorical, sequential, diverging, UI roles).
+  - `src/lib/palette.ts`: the only source of colours (categorical, sequential, diverging, UI roles); `src/lib/objectTypeColours.ts` (`useObjectTypeColours`): the one colour per object type on every page (`docs/resources/object-type-colours.md`).
   - `src/api/`: typed API client generated from the backend's OpenAPI schema by Orval (`pnpm run build:modules`); not committed.
 
 ## Data
