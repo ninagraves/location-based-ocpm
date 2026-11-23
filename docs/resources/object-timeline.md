@@ -8,7 +8,7 @@ For selected handling units, one row each (top to bottom; default by first event
 - **Band**: upper half $loc$, lower half $\widehat{hl} = agg(loc)$; one colour per location (shared by both halves), hatched on vehicles ($V$), empty at ⊥.
 - **Lifespan line** below the band with a tick at the first and last event.
 - **Markers**: processing operations ($P$) stars, other non-movement events circles (both above the band, with the activity name at an angle), movements on the band (▲ produced, ▼ consumed, otherwise a vertical tick; a small open diamond instead of the tick if the pickup location differs from the location after the previous event, details in the hover); colour by role at transformation events: produced green, consumed pink, consumed and produced amber, none dark grey.
-- **Movement labels** (option `label_movements`, Nina 2026-11-19; replaces the former explicit movement markers, since the line on the band already shows a movement): off by default; when on (and `show_activity_labels`), every movement that is not a processing operation also gets its activity name at an angle above the band, starting exactly above its line (`MOVEMENT_LABEL_SHIFT` = 6 px left, 6 px up, which puts the lower end of the angled label right above the line, with a gap to the band; Nina 2026-11-19), whereas the labels of the other events start a bit to the right of and above their marker (`LABEL_SHIFT` = 2 px, 7 px).
+- **Movement labels** (option `label_movements`, Nina 2026-11-19; replaces the former explicit movement markers, since the line on the band already shows a movement): off by default; when on (and `show_activity_labels`), every movement that is not a processing operation also gets its activity name at an angle above the band, starting exactly above its line at the height of the markers of the other events (`MARKER_Y`; Nina 2026-11-23, before: just above the band) with `MOVEMENT_LABEL_SHIFT` = 6 px left, 0 px up, which puts the lower end of the angled label right above the line (Nina 2026-11-19), whereas the labels of the other events start a bit to the right of and above their marker (`LABEL_SHIFT` = 2 px, 7 px).
 - Legend entry for hatching: "vehicle".
 - **Shared events**: dotted lines between the markers of an event shared by several shown handling units.
 - **Same timestamp**: light grey box over the whole height behind tied events.
@@ -41,8 +41,8 @@ None (draft outside the tool). The playground timeline ignored global filters; t
 - `processing`: event ids of $P$; None = only the transformation events $T$ (Nina 2026-10-31).
 - `roles`: table event, hu, role ("consumed"/"produced"); only rows of transformation events count.
 - `agg`, `vehicles`: from a location table via `visits.context.location_context`.
-- Activity names longer than `MAX_LABEL_CHARS` (16) are cut with "…" (`short_label`), the full name is in the hover of the label (Nina 2026-11-15).
-- Figure: `show_high_level`, `show_activity_labels`, `mark_ties`, `link_shared_events`, `label_movements`, `reach` ($\delta$), `title`, `width`.
+- Activity names longer than `MAX_LABEL_CHARS` (16) are cut with "…" (`short_label`), the full name is in the hover of the label (Nina 2026-11-15). Option `cut_activity_labels` (default on; Nina 2026-11-23): off writes every name in full, without a hover; long names may then run into the row above.
+- Figure: `show_high_level`, `show_activity_labels`, `mark_ties`, `link_shared_events`, `label_movements`, `cut_activity_labels`, `reach` ($\delta$), `title`, `width`.
 
 ## Where it lives in the code
 `backend-modules/location-ocpm/src/ocelescope_module_location_based_ocpm/timeline/object_timeline.py`:

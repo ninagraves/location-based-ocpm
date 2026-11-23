@@ -197,10 +197,10 @@ The resource `docs/resources/object-timeline.md` for the timeline's own list of 
 The list is reset to the selection whenever the selection changes; pills remove single handling units, *Add all HUs of the lineage* and *Add all HUs of the object graph* append the handling units of the loaded lineage chart (with its current settings) or of the object graph (all its handling units, also hidden ones) that are not in the list yet, *Reset to selection* goes back.
 
 ### Settings and defaults
-List = selection, axis `event order`, rows `as listed` (or by first event), high-level band, activity names, movement names off (Nina 2026-11-19: the movement option is now only this switch; labels start exactly above the line), same-timestamp boxes and shared-event lines on. At most 50 rows (`MAX_HANDLING_UNITS`).
+List = selection, axis `event order`, rows `as listed` (or by first event), high-level band, activity names, movement names off (Nina 2026-11-19: the movement option is now only this switch; labels start exactly above the line, at the height of the other events' markers since Nina 2026-11-23), cut long names on (Nina 2026-11-23: off writes activity names in full instead of cutting them after 16 characters with "…"), same-timestamp boxes and shared-event lines on. At most 50 rows (`MAX_HANDLING_UNITS`).
 
 ### Where it lives in the code
-- `instances/charts.py`: `timeline_figure(derivation, handling_units, axis, ..., by_first_event, label_movements) -> (plotly JSON, notes)`; it renames $loc^k$, $ploc^k$ to `loc`, `ploc` and runs `timeline.object_timeline.timeline_relations` and `object_timeline`.
+- `instances/charts.py`: `timeline_figure(derivation, handling_units, axis, ..., by_first_event, label_movements, cut_activity_labels) -> (plotly JSON, notes)`; it renames $loc^k$, $ploc^k$ to `loc`, `ploc` and runs `timeline.object_timeline.timeline_relations` and `object_timeline`.
 - Route `POST /{ocel_id}/instances/timeline` (`getHuTimeline`).
 - `components/HuTimelineChart.tsx`: shows the figure with `ThemedPlot` (the figure's template is dropped so Ocelescope's theme applies).
 
