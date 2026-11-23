@@ -34,7 +34,7 @@ import { textWidth } from "../lib/dfgLayout";
 import { errorText } from "../lib/errors";
 import { useKeptLayout, useKeptViewport } from "../lib/keptView";
 import { keep, recall } from "../lib/pageState";
-import { categoricalColour, OTHER, type Scheme, UI } from "../lib/palette";
+import { OTHER, type Scheme, UI } from "../lib/palette";
 import { useScheme } from "./plots";
 
 /** Settings of the object graph (kept per log). */
@@ -510,7 +510,7 @@ export const useObjectGraph = (ocelId: string, handlingUnits: string[]) => {
  *
  * @param ocelId The log.
  * @param handlingUnits The selected handling units.
- * @param colours Colour per object type of the handling units (other object types get the next palette colours).
+ * @param colours Colour per object type (`useObjectTypeColours`, the same on every page).
  * @param settings The settings.
  * @param onChange Called with the changed settings.
  * @param onToggle Called with a handling unit whose name is double-clicked in the graph (selects or unselects it).
@@ -541,20 +541,12 @@ export const ObjectGraphChart = ({
   const scheme = useScheme();
   const query = useObjectGraph(ocelId, handlingUnits);
   const data = query.data;
-  // Object types that are not handling-unit types continue the palette after the handling-unit types.
-  const allColours = useMemo(() => {
-    const map = new Map(colours);
-    for (const t of [...new Set((data?.nodes ?? []).map((n) => n.object_type ?? ""))].sort()) {
-      if (!map.has(t)) map.set(t, categoricalColour(map.size, scheme));
-    }
-    return map;
-  }, [colours, data, scheme]);
   const visible = useMemo(() => (data ? visibleGraph(data, settings) : null), [data, settings]);
   // layoutKey only triggers a new layout.
   const { layout: flow, error: layoutError } = useKeptLayout(
     `${stateKey}.layout`,
-    [visible, allColours, scheme, onToggle, layoutKey],
-    () => layoutGraph(visible!, allColours, scheme, onToggle),
+    [visible, colours, scheme, onToggle, layoutKey],
+    () => layoutGraph(visible!, colours, scheme, onToggle),
     !!visible,
   );
   // Nodes keep the positions the user dragged them to until the next layout (new selection or visible part), also
@@ -578,7 +570,7 @@ export const ObjectGraphChart = ({
 
   return (
     <Stack gap="sm">
-      <ObjectGraphSettingsRow graph={data} colours={allColours} settings={settings} onChange={onChange} />
+      <ObjectGraphSettingsRow graph={data} colours={colours} settings={settings} onChange={onChange} />
       {query.isError ? (
         <Alert color="red">{errorText(query.error)}</Alert>
       ) : layoutError ? (

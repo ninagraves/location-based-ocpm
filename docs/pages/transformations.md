@@ -78,7 +78,7 @@ One row per transformation type: type, kind, events, transformations, lineage re
 
 ## Transformation type graph
 ### What it shows
-Bipartite graph: object types (ellipses, coloured per type, ranked by handling units in the graph) and recipes (rectangles: activity, frequency, share of the transformation events; hover: id, recipe, kind). Arcs object type → recipe (input) and recipe → object type (output), labelled with the handling units of the type per event of the recipe, coloured by object type, as wide as the handling units that flowed along them (hover the label).
+Bipartite graph: object types (ellipses, each in its colour of the whole module, `useObjectTypeColours`, `docs/resources/object-type-colours.md`; legend of the download in that order) and recipes (rectangles: activity, frequency, share of the transformation events; hover: id, recipe, kind). Arcs object type → recipe (input) and recipe → object type (output), labelled with the handling units of the type per event of the recipe, coloured by object type, as wide as the handling units that flowed along them (hover the label).
 Settings: frequency slider, quantities (exact | as sets), layout (left to right | top to bottom).
 Download (Nina 2026-11-23: "export button for the gozinto graph"): button at the top right of the graph, as on the DFG page: PDF (vector), SVG (vector), HTML (interactive), PNG; option "With legend" (object types and the key of the symbols, on by default). The file shows the whole graph in light colours, whatever part is zoomed in on. File name `transformation-type-graph.<ext>`.
 ### How it is calculated

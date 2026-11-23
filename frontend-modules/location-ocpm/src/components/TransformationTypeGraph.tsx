@@ -32,7 +32,8 @@ import { errorText } from "../lib/errors";
 import { num, pct } from "../lib/format";
 import { useKeptLayout, useKeptViewport } from "../lib/keptView";
 import { usePageState } from "../lib/pageState";
-import { colourMap, OTHER, type Scheme } from "../lib/palette";
+import { useObjectTypeColours } from "../lib/objectTypeColours";
+import { OTHER } from "../lib/palette";
 import { KIND_LABELS, listRequest, type TransformationFilter } from "../lib/transformations";
 import { useDebounced } from "../lib/useDebounced";
 import { type TypeDrawing, typeGraphScene } from "../lib/typeGraphDrawing";
@@ -178,15 +179,10 @@ const quantityLabel = (a: TypeArc) => (a.quantity_min === a.quantity_max ? num(a
  *
  * @param graph The graph from the backend.
  * @param direction Layout direction.
- * @param scheme Colour scheme (object type colours, ranked by the handling units of the type in the graph).
+ * @param colours Colour per object type on the page (`useObjectTypeColours`: the same on every page).
+ * @param exportColours Colour per object type in the light scheme, for the downloads.
  */
-const layoutTypeGraph = async (graph: TypeGraph, direction: "RIGHT" | "DOWN", scheme: Scheme) => {
-  const ranked = [...graph.object_types].sort((a, b) => b.consumed + b.produced - (a.consumed + a.produced) || a.object_type.localeCompare(b.object_type));
-  const colours = colourMap(
-    ranked.map((t) => t.object_type),
-    scheme,
-  );
-  const exportColours = scheme === "light" ? colours : colourMap(ranked.map((t) => t.object_type), "light");
+const layoutTypeGraph = async (graph: TypeGraph, direction: "RIGHT" | "DOWN", colours: Map<string, string>, exportColours: Map<string, string>) => {
   const sizes = new Map<string, { width: number; height: number }>();
   for (const t of graph.object_types)
     sizes.set(t.node, { width: Math.ceil(Math.max(SIZE.minWidth, textWidth(t.object_type, SIZE.font, 600) + 2 * SIZE.padX) * 1.3), height: SIZE.typeHeight });
@@ -219,7 +215,7 @@ const layoutTypeGraph = async (graph: TypeGraph, direction: "RIGHT" | "DOWN", sc
         objectType: t.object_type,
         consumed: t.consumed,
         produced: t.produced,
-        colour: colours.get(t.object_type) ?? OTHER[scheme],
+        colour: colours.get(t.object_type) ?? OTHER.light,
         exportColour: exportColours.get(t.object_type) ?? OTHER.light,
         ...(sizes.get(t.node) as { width: number; height: number }),
       },
@@ -246,7 +242,7 @@ const layoutTypeGraph = async (graph: TypeGraph, direction: "RIGHT" | "DOWN", sc
     const r = routed.get(`a${i}`);
     const section = r?.sections?.[0];
     const label = r?.labels?.[0];
-    const colour = colours.get(a.object_type) ?? OTHER[scheme];
+    const colour = colours.get(a.object_type) ?? OTHER.light;
     const recipe = recipes.get(a.recipe);
     const events = recipe?.frequency ?? 0;
     return {
@@ -279,15 +275,17 @@ const FitOnChange = ({ token, skip }: { token: unknown; skip: (token: unknown) =
 
 /**
  * The graph as laid out on the page, in light colours, for the download (`typeGraphScene`). The legend lists the
- * object types as the page ranks their colours (most handling units first).
+ * object types in the module's colour order (`useObjectTypeColours`).
  *
  * @param nodes The React Flow nodes.
  * @param edges The React Flow edges.
+ * @param order The object types in colour order (the keys of the colour map).
  */
-export const typeDrawing = (nodes: Node<NodeData>[], edges: Edge<EdgeData>[]): TypeDrawing => {
+export const typeDrawing = (nodes: Node<NodeData>[], edges: Edge<EdgeData>[], order: string[]): TypeDrawing => {
   const types = nodes.filter((n): n is Node<TypeData> => n.data.kind === "type");
   const recipes = nodes.filter((n): n is Node<RecipeData> => n.data.kind === "recipe");
-  const ranked = [...types].sort((a, b) => b.data.consumed + b.data.produced - (a.data.consumed + a.data.produced) || a.data.objectType.localeCompare(b.data.objectType));
+  const rank = (t: string) => (order.indexOf(t) + 1 || Infinity);
+  const ranked = [...types].sort((a, b) => rank(a.data.objectType) - rank(b.data.objectType) || a.data.objectType.localeCompare(b.data.objectType));
   return {
     types: types.map(({ position, data: d }) => ({ ...position, width: d.width, height: d.height, objectType: d.objectType, consumed: d.consumed, produced: d.produced, colour: d.exportColour ?? d.colour })),
     recipes: recipes.map(({ position, data: d }) => ({
@@ -320,6 +318,7 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
   const [settings, setSettings] = usePageState<GraphSettings>(`transformations.graph.${ocelId}`, DEFAULTS);
   const [coverage] = useDebounced(settings.coverage, SLIDER_DELAY);
   const scheme = useScheme();
+  const typeColours = useObjectTypeColours(ocelId);
   const params = useMemo(
     () => ({ ...filter, coverage: coverage / 100, quantities: settings.quantities }),
     [filter, coverage, settings.quantities],
@@ -328,9 +327,9 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
   const data = query.data;
   const { layout: flow, error: layoutError } = useKeptLayout(
     `transformations.graph.layout.${ocelId}`,
-    [data, settings.layout, scheme],
-    () => layoutTypeGraph(data!, settings.layout, scheme),
-    !!data,
+    [data, settings.layout, scheme, typeColours],
+    () => layoutTypeGraph(data!, settings.layout, typeColours.colours, typeColours.exportColours),
+    !!data && typeColours.loaded,
   );
   const { skipFit, ...viewport } = useKeptViewport(`transformations.graph.viewport.${ocelId}`, flow);
   const set = (change: Partial<GraphSettings>) => setSettings((s) => ({ ...s, ...change }));
@@ -450,7 +449,7 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
             >
               <Controls showInteractive={false} />
               <GraphDownloadMenu
-                scene={(legend) => typeGraphScene(typeDrawing(flow.nodes, flow.edges), { legend })}
+                scene={(legend) => typeGraphScene(typeDrawing(flow.nodes, flow.edges, [...typeColours.exportColours.keys()]), { legend })}
                 fileName="transformation-type-graph"
                 title="Transformation type graph"
                 legendLabel="With legend (object types and symbols)"

@@ -57,6 +57,9 @@ const CHARTS: Record<
   diversity: { title: "Unique counts", by: [{ value: "none", label: "none" }], unit: "" },
 };
 
+/** No chart here splits by object type, so no object type colours (`useObjectTypeColours`) are needed. */
+const NO_TYPE_COLOURS = new Map<string, string>();
+
 /** Hover text of the charts' subtitle. */
 const LOCATIONS_INFO =
   "Locations are the known locations of an event's handling units after the event (loc at the selected level; high-level locations in high-level mode). An event at several locations counts once at each, an event without any under '–'.";
@@ -93,7 +96,7 @@ const ChartCard = ({
   const legend =
     data && shownBy !== "none"
       ? [
-          ...data.colours.map((v) => ({ label: v, colour: colourOf(v, data.colours, scheme, shownBy) })),
+          ...data.colours.map((v) => ({ label: v, colour: colourOf(v, data.colours, scheme, shownBy, NO_TYPE_COLOURS) })),
           ...(data.bars.some((b) => b.segments?.some((s) => s.value === OTHER_LABEL)) ? [{ label: OTHER_LABEL, colour: OTHER[scheme] }] : []),
           ...(data.bars.some((b) => b.segments?.some((s) => s.value === MISSING))
             ? [{ label: MISSING, colour: OTHER[scheme], hatched: true }]
@@ -146,7 +149,7 @@ const ChartCard = ({
           <Group gap="xs" wrap="nowrap" align="center">
             <Box h={HEIGHT} style={{ flex: 1, minWidth: 0 }}>
               <ThemedPlot
-                data={traces(data, shownBy, unit, byLabel, scheme)}
+                data={traces(data, shownBy, unit, byLabel, scheme, NO_TYPE_COLOURS, false)}
                 layout={{
                   height: HEIGHT,
                   barmode: "stack",

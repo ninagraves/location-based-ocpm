@@ -14,10 +14,9 @@ import { applyArcSettings, pendingSelection } from "../lib/dfgView";
 import { useDebounced } from "../lib/useDebounced";
 import type { LaidOutArc } from "../lib/dfgLayout";
 import { ModulePage } from "../components/ModulePage";
-import { useScheme } from "../components/plots";
 import { errorText } from "../lib/errors";
 import { usePageState } from "../lib/pageState";
-import { emphasisColourMap } from "../lib/palette";
+import { useObjectTypeColours } from "../lib/objectTypeColours";
 
 /** Default, smallest and largest width of the settings sidebar in pixels. */
 const SIDEBAR_WIDTH = { initial: 300, min: 220, max: 640 };
@@ -150,7 +149,6 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
   );
   const [sidebar, setSidebar] = usePageState<SidebarState>("dfg.sidebar", { width: SIDEBAR_WIDTH.initial, hidden: false });
   const [height, setHeight] = usePageState<number>("dfg.height", GRAPH_HEIGHT.initial);
-  const scheme = useScheme();
   // Double click on an arc removes it (Nina, 2026-11-15; double click since 2026-11-20), at once and without a new layout if nothing else waits
   // (Nina, 2026-11-17): it only takes arcs out, in the browser.
   const removeNow = useRef(false);
@@ -193,19 +191,10 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
   const arcs = useMemo(() => arcSettings(applied), [applied]);
   const data = useMemo(() => (base ? applyArcSettings(base, arcs) : undefined), [base, arcs]);
   options.current = data?.activity_options ?? [];
-  // Handling-unit types get the signature colours first, the other types paler colours (Nina, 2026-11-15); each
-  // group in the order of all object types (most objects first), so a type keeps its colour.
+  // Object type colours from the module-wide order, the same on every page (Nina, 2026-11-23): handling-unit types
+  // get the signature colours first, the other types paler colours (Nina, 2026-11-15).
   // Downloads are always light (white background), so they get the light colours (Nina, 2026-11-23).
-  const [colours, exportColours] = useMemo(() => {
-    const types = data?.object_types ?? [];
-    const map = (s: typeof scheme) =>
-      emphasisColourMap(
-        types.filter((t) => t.handling_units).map((t) => t.object_type),
-        types.filter((t) => !t.handling_units).map((t) => t.object_type),
-        s,
-      );
-    return [map(scheme), map("light")];
-  }, [data, scheme]);
+  const { colours, exportColours } = useObjectTypeColours(ocelId, true);
 
   // The sidebar's checkboxes show the current selection while the graph still shows the applied one.
   const sidebarGraph = useMemo(

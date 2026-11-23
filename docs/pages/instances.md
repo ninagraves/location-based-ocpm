@@ -103,7 +103,7 @@ Direction `both`, generations 2 (1–10 or all), transformation events off, sibl
 
 ### What it shows
 Requested by Nina 2026-11-15.
-Nodes: the selected handling units (`focal`, thick border) and every object related to one of them by a shared event or by an o2o relation in either direction (`related`), handling units and other objects alike (handling units rounded, other objects square, in the colour of their object type).
+Nodes: the selected handling units (`focal`, thick border) and every object related to one of them by a shared event or by an o2o relation in either direction (`related`), handling units and other objects alike (handling units rounded, other objects square, in the colour of their object type, `../resources/object-type-colours.md`).
 Arcs: one undirected arc per pair of nodes sharing at least one event, labelled with the event ids (at most three, then "+ n"; thicker for more events), and one dashed arrow per o2o relation (source → target), labelled with its qualifier.
 The arcs are all arcs between the nodes, also between two related objects.
 Hovering an arc's label lists its events (id, timestamp, activity) or the o2o relation; hovering a node gives its number of events and of events shared with the selection; double-clicking a handling unit's name selects or unselects it (the rest of the box drags it).
@@ -156,7 +156,7 @@ Kept per log in the page state (`instances.objectGraph.<ocel>`).
 Requested by Nina 2026-11-20.
 One row per selected handling unit (in the order of the selection; at most `MAX_TRACES` = 50), left its id, object type and "n of m events" (when the categories removed some).
 Its events from left to right in trace order, each as a chevron with its event id (small, dimmed) above its activity (Nina 2026-11-20): $seq$ order as in the HU profile (time, then the AS4 tie order, then event id).
-On every chevron one small circle per other object of the event (all objects of the log, the row's handling unit itself left out), in the colour of its object type (handling-unit types as in the rest of the page, other types continue the palette alphabetically), sorted by object type and id; at most `MAX_CIRCLES` = 10, then "+ n".
+On every chevron one small circle per other object of the event (all objects of the log, the row's handling unit itself left out), in the colour of its object type (the module-wide object type colours, `../resources/object-type-colours.md`), sorted by object type and id; at most `MAX_CIRCLES` = 10, then "+ n".
 If another selected handling unit takes part in the event, its **circle** gets a wider border (1.75 instead of 0.5 px, dark grey; Nina 2026-11-20: the circle, not the chevron); there is no other mark.
 Double-clicking a circle of a handling unit selects it, or unselects it if it is selected (as in the lineage and the object graph); double-clicking the name of a row unselects it. Circles of other objects do nothing.
 Below the chart a legend of the object types with circles (types of the rows first), each with its number of distinct objects.
@@ -179,7 +179,7 @@ Tests: `test_object_traces` in `tests/test_instances.py`; notebook demo: section
 - `instances/traces.py`: `trace_events(relations, handling_units, loc, hl, processing)` (`profile.ordered_traces` of the selection), `involved_objects(frames, events)` (e2o with object types), `object_traces(relations, frames, categories, handling_units, units, loc, hl, processing, excluded, max_traces) -> ObjectTraces(events, totals, categories, notes)` (each object with `is_hu`, `selected`), `align_columns(events)` (aligned columns), `traces_figure(traces, align, colours)` (plotly version of the chart for notebooks).
 - `dfg/categories.py`: `removed_events(categories, excluded)` (also used by `remove_categories`).
 - Route `POST /{ocel_id}/instances/traces` (`getObjectTraces`, body `ObjectTracesRequest`: handling_units, excluded_categories), answer `ObjectTracesResponse` (traces with events and their objects, categories, notes).
-- `components/ObjectTracesChart.tsx`: `Chevron` (SVG outline `chevronPath`, width `chevronWidth`), `TraceRow`, `alignColumns`, `TypeLegend`, `useObjectTraces`, `traceColours`; sizes `SIZE`.
+- `components/ObjectTracesChart.tsx`: `Chevron` (SVG outline `chevronPath`, width `chevronWidth`), `TraceRow`, `alignColumns`, `TypeLegend`, `useObjectTraces`; sizes `SIZE`.
 
 ### How to change it
 - Circles per chevron: `MAX_CIRCLES`; objects in the hover: `MAX_HOVER_OBJECTS`; rows: `MAX_TRACES` (backend).

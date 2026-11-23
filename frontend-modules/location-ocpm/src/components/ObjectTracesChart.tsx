@@ -10,7 +10,7 @@ import { getObjectTraces, type ObjectTrace, type ObjectTracesResponse, type Trac
 import { textWidth } from "../lib/dfgLayout";
 import { errorText } from "../lib/errors";
 import { num } from "../lib/format";
-import { categoricalColour, OTHER } from "../lib/palette";
+import { OTHER } from "../lib/palette";
 import { CategoryChips } from "./DfgToolbar";
 import { useScheme } from "./plots";
 
@@ -307,18 +307,6 @@ export const useObjectTraces = (ocelId: string, handlingUnits: string[], exclude
 };
 
 /**
- * Colours of all object types in the traces: the given ones (handling-unit types of the log), the others continue
- * the palette in alphabetical order.
- */
-const traceColours = (colours: Map<string, string>, data: ObjectTracesResponse | undefined, scheme: "light" | "dark") => {
-  const map = new Map(colours);
-  const types = new Set<string>();
-  for (const t of data?.traces ?? []) for (const e of t.events) for (const o of e.objects) types.add(o.object_type ?? "");
-  for (const t of [...types].sort()) if (!map.has(t)) map.set(t, categoricalColour(map.size, scheme));
-  return map;
-};
-
-/**
  * Legend of the object types: a circle in the type's colour and its name, for every type in the traces (the rows'
  * types and the types of the other objects), with its number of distinct objects; the rows' types first, then by name.
  *
@@ -353,7 +341,7 @@ const TypeLegend = ({ traces, colours }: { traces: ObjectTrace[]; colours: Map<s
  *
  * @param ocelId The log.
  * @param handlingUnits The selected handling units.
- * @param colours Colour per object type of the handling units (others get the next palette colours).
+ * @param colours Colour per object type (`useObjectTypeColours`, the same on every page).
  * @param settings The settings.
  * @param onChange Called with the changed settings.
  * @param onToggle Called with a handling unit double-clicked in the chart (selects or unselects it).
@@ -373,10 +361,8 @@ export const ObjectTracesChart = ({
   onChange: (s: ObjectTracesSettings) => void;
   onToggle?: (hu: string) => void;
 }) => {
-  const scheme = useScheme();
   const query = useObjectTraces(ocelId, handlingUnits, settings.excluded);
   const data = query.data;
-  const allColours = useMemo(() => traceColours(colours, data, scheme), [colours, data, scheme]);
   const labels = useMemo(() => new Map((data?.categories ?? []).map((c) => [c.key, c.label])), [data]);
   const columns = useMemo(() => (settings.alignShared && data ? alignColumns(data.traces) : null), [settings.alignShared, data]);
   return (
@@ -407,11 +393,11 @@ export const ObjectTracesChart = ({
       ) : (
         <>
           {data.notes.length > 0 && <Text size="xs" c="dimmed">{data.notes.join(" ")}</Text>}
-          <TypeLegend traces={data.traces} colours={allColours} />
+          <TypeLegend traces={data.traces} colours={colours} />
           <ScrollArea type="auto" offsetScrollbars style={{ opacity: query.isFetching ? 0.6 : 1 }}>
             <Stack gap={8} pb={4}>
               {data.traces.map((t) => (
-                <TraceRow key={t.hu} trace={t} colours={allColours} labels={labels} columns={columns} onToggle={onToggle} />
+                <TraceRow key={t.hu} trace={t} colours={colours} labels={labels} columns={columns} onToggle={onToggle} />
               ))}
             </Stack>
           </ScrollArea>

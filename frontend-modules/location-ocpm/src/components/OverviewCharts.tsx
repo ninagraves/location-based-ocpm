@@ -31,6 +31,7 @@ import {
 import { num, pct } from "../lib/format";
 import { usePageState } from "../lib/pageState";
 import { categoricalColour, OTHER, plotlyScale, type Scheme, SEQUENTIAL, STATUS, UI } from "../lib/palette";
+import { useObjectTypeColours } from "../lib/objectTypeColours";
 import { plotConfig, ScrollLegend, ThemedPlot, useScheme } from "./plots";
 
 /** Labels the backend uses for missing values, the summed rest, and mixed object types. */
@@ -216,11 +217,13 @@ const useAddValues = (ocelId: string) => {
 
 /**
  * Colour of a segment value: its rank in the chart, grey for "other" and "–"; locatedness and
- * agreement keep their status colours (`STATUS`).
+ * agreement keep their status colours (`STATUS`); object types their colour of the whole module
+ * (`typeColours`, from `useObjectTypeColours`; Nina, 2026-11-23).
  */
-export const colourOf = (value: string, colours: string[], scheme: Scheme, by: string) => {
+export const colourOf = (value: string, colours: string[], scheme: Scheme, by: string, typeColours: Map<string, string>) => {
   if ((EVENT_PROPERTIES.includes(by) || by === "location_type") && value !== OTHER_LABEL && STATUS[scheme][value])
     return STATUS[scheme][value];
+  if (by === "object_type" && typeColours.has(value)) return typeColours.get(value)!;
   const index = colours.indexOf(value);
   return index < 0 ? OTHER[scheme] : categoricalColour(index, scheme);
 };
@@ -278,8 +281,18 @@ const hoverText = (bar: Bar, unit: string, segment?: { value: string; count: num
 /**
  * Plotly traces of a stacked horizontal bar chart: one trace per segment value, largest bar on top.
  * The bars beyond the shown ones are not drawn (a summed "other" bar would dwarf the others).
+ * Without segments, bars of object types (`typeBars`, the chart "Handling unit types") are drawn in their object
+ * type's colour (`typeColours`), all other bars in the primary colour.
  */
-export const traces = (data: BarChartData, by: string, unit: string, byLabel: string, scheme: Scheme) => {
+export const traces = (
+  data: BarChartData,
+  by: string,
+  unit: string,
+  byLabel: string,
+  scheme: Scheme,
+  typeColours: Map<string, string>,
+  typeBars: boolean,
+) => {
   const bars = data.bars;
   const y = bars.map((b) => b.label);
   const grey = OTHER[scheme];
@@ -292,7 +305,7 @@ export const traces = (data: BarChartData, by: string, unit: string, byLabel: st
         x: bars.map((b) => b.count),
         customdata: bars.map((b) => [b.label, ""]),
         marker: {
-          color: bars.map((b) => (b.label === MISSING ? grey : UI[scheme].primary)),
+          color: bars.map((b) => (b.label === MISSING ? grey : ((typeBars && typeColours.get(b.label)) || UI[scheme].primary))),
           pattern: { shape: bars.map((b) => (b.label === MISSING ? "/" : "")) },
         },
         hovertext: bars.map((b) => hoverText(b, unit)),
@@ -315,7 +328,7 @@ export const traces = (data: BarChartData, by: string, unit: string, byLabel: st
         x: shown.map(({ segment }) => segment.count),
         customdata: shown.map(({ bar }) => [bar.label, value]),
         marker: {
-          color: colourOf(value, data.colours, scheme, by),
+          color: colourOf(value, data.colours, scheme, by, typeColours),
           // "–" values and the "–" bar are hatched.
           pattern: { shape: shown.map(({ bar }) => (value === MISSING || bar.label === MISSING ? "/" : "")) },
         },
@@ -337,6 +350,7 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
   const { ref, width } = useElementSize();
   const { measures, modes, unit: fixedUnit, sub: fixedSub } = CHARTS[chart];
   const { high, withTypes } = useLocationContext(ocelId);
+  const { colours: typeColours } = useObjectTypeColours(ocelId);
   const mostLocations = modes && settings.mode === "locations";
   // With "# locations", only "by" values whose segments add up to the bar are offered.
   const locationsBy: readonly string[] = ["none", "location", "activity"];
@@ -370,7 +384,7 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
   const legend =
     data && by !== "none"
       ? [
-          ...data.colours.map((v) => ({ label: v, colour: colourOf(v, data.colours, scheme, by) })),
+          ...data.colours.map((v) => ({ label: v, colour: colourOf(v, data.colours, scheme, by, typeColours) })),
           ...[OTHER_LABEL, SEVERAL_LOCATIONS]
             .filter((v) => data.bars.some((b) => b.segments?.some((s) => s.value === v)))
             .map((v) => ({ label: v, colour: OTHER[scheme] })),
@@ -440,7 +454,7 @@ const BarChartCard = ({ ocelId, chart, end }: { ocelId: string; chart: GetBarCha
           <Group gap="xs" wrap="nowrap" align="center">
             <Box h={HEIGHT} style={{ flex: 1, minWidth: 0 }}>
               <ThemedPlot
-                data={traces(data, by, unit, byLabel, scheme)}
+                data={traces(data, by, unit, byLabel, scheme, typeColours, bar === "object_type")}
                 layout={{
                   height: HEIGHT,
                   barmode: "stack",
