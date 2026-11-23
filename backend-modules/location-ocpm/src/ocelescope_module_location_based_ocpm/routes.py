@@ -10,6 +10,7 @@ from ocelescope_module_location_based_ocpm.dfg_routes import router as dfg_route
 from ocelescope_module_location_based_ocpm.instance_routes import router as instance_router
 from ocelescope_module_location_based_ocpm.overview_routes import router as overview_router
 from ocelescope_module_location_based_ocpm.settings_routes import router as settings_router
+from ocelescope_module_location_based_ocpm.transformation_routes import router as transformation_router
 
 router = APIRouter()
 router.include_router(configuration_router)
@@ -17,6 +18,7 @@ router.include_router(settings_router)
 router.include_router(overview_router)
 router.include_router(dfg_router)
 router.include_router(instance_router)
+router.include_router(transformation_router)
 
 
 class StatusResponse(BaseModel):
