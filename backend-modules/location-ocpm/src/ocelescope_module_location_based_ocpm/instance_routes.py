@@ -453,6 +453,7 @@ class TimelineRequest(BaseModel):
         link_shared_events: Dotted lines between markers of shared events.
         by_first_event: Rows ordered by first event instead of the given order.
         label_movements: Also write the activity names of movements, starting exactly above their line.
+        cut_activity_labels: Cut long activity names with "…" (full name in the hover).
     """
 
     handling_units: list[str]
@@ -463,6 +464,7 @@ class TimelineRequest(BaseModel):
     link_shared_events: bool = True
     by_first_event: bool = False
     label_movements: bool = False
+    cut_activity_labels: bool = True
 
 
 class TimelineResponse(BaseModel):
@@ -488,6 +490,7 @@ def get_hu_timeline(derivation: CurrentDerivation, request: TimelineRequest) -> 
         request.link_shared_events,
         request.by_first_event,
         request.label_movements,
+        request.cut_activity_labels,
     )
     return TimelineResponse(figure=figure, notes=notes)
 

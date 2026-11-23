@@ -17,8 +17,10 @@ export type TimelineSettings = {
   linkSharedEvents: boolean;
   /** Row order: as selected (lineage: selected first) or by first event. */
   order: "given" | "first event";
-  /** Also write the activity names of movements, starting exactly above their line on the band. */
+  /** Also write the activity names of movements, starting exactly above their line at the height of the other markers. */
   movementLabels: boolean;
+  /** Cut activity names longer than 16 characters with "…" (full name in the hover). */
+  cutLabels: boolean;
 };
 
 /** Defaults: event order, everything shown, rows in selection order. */
@@ -30,6 +32,7 @@ export const DEFAULT_TIMELINE: TimelineSettings = {
   linkSharedEvents: true,
   order: "given",
   movementLabels: false,
+  cutLabels: true,
 };
 
 /** The legend, in grey above the chart (see the resource "HU Timeline"). */
@@ -146,10 +149,18 @@ export const TimelineSettingsRow = ({
     <Checkbox
       size="xs"
       label="Movement names"
-      title="Also write the activity names of movements, starting exactly above their line on the band"
+      title="Also write the activity names of movements, starting exactly above their line at the height of the other markers"
       disabled={!settings.showActivityLabels}
       checked={settings.movementLabels}
       onChange={(e) => onChange({ ...settings, movementLabels: e.currentTarget.checked })}
+    />
+    <Checkbox
+      size="xs"
+      label="Cut long names"
+      title="Cut activity names longer than 16 characters with … (full name in the hover)"
+      disabled={!settings.showActivityLabels}
+      checked={settings.cutLabels}
+      onChange={(e) => onChange({ ...settings, cutLabels: e.currentTarget.checked })}
     />
     <Checkbox size="xs" label="Same timestamp" checked={settings.markTies} onChange={(e) => onChange({ ...settings, markTies: e.currentTarget.checked })} />
     <Checkbox size="xs" label="Shared events" checked={settings.linkSharedEvents} onChange={(e) => onChange({ ...settings, linkSharedEvents: e.currentTarget.checked })} />
@@ -174,6 +185,7 @@ export const HuTimelineChart = ({ ocelId, handlingUnits, settings }: { ocelId: s
       link_shared_events: settings.linkSharedEvents,
       by_first_event: settings.order === "first event",
       label_movements: settings.movementLabels,
+      cut_activity_labels: settings.cutLabels,
     }),
     [handlingUnits, settings],
   );

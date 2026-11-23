@@ -266,3 +266,18 @@ def test_short_label():
     assert short_label("crane move") == "crane move"
     cut = short_label("discharge furnace and inspect")
     assert len(cut) <= MAX_LABEL_CHARS and cut.endswith("…") and cut.startswith("discharge")
+
+
+def test_cut_activity_labels_is_optional(edge):
+    """With cut_activity_labels (default) a long activity name is cut with "…" and its full name is the label's
+    hover; without, it is written in full and has no hover."""
+    from ocelescope_module_location_based_ocpm.derivation import columns as c
+
+    mapping = pl.read_csv(EDGE / "relations.csv", try_parse_dates=True)
+    rel = _inputs(EDGE, mapping, EDGE / "locations.csv")
+    long_name = "discharge furnace and inspect"
+    rel = rel.with_columns(pl.lit(long_name).alias(c.ACTIVITY))
+    cut = object_timeline(rel).layout.annotations
+    full = object_timeline(rel, cut_activity_labels=False).layout.annotations
+    assert cut and all(a.text.endswith("…") and a.hovertext == long_name for a in cut)
+    assert full and all(a.text == long_name and a.hovertext is None for a in full)

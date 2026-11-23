@@ -161,6 +161,7 @@ def timeline_figure(
     link_shared_events: bool = True,
     by_first_event: bool = False,
     label_movements: bool = False,
+    cut_activity_labels: bool = True,
     max_handling_units: int = MAX_HANDLING_UNITS,
 ) -> tuple[dict, list[str]]:
     """The HU timeline (`timeline.object_timeline`) of handling units at the selected level, as Plotly JSON.
@@ -175,6 +176,7 @@ def timeline_figure(
         link_shared_events: Dotted lines between the markers of an event shared by shown handling units.
         by_first_event: Order the rows by first event (then id) instead of the given order.
         label_movements: Also write the activity names of movements (`object_timeline.object_timeline`).
+        cut_activity_labels: Cut long activity names with "…" (`object_timeline.object_timeline`).
         max_handling_units: Rows drawn at most.
 
     Returns:
@@ -214,6 +216,7 @@ def timeline_figure(
         mark_ties=mark_ties,
         link_shared_events=link_shared_events,
         label_movements=label_movements,
+        cut_activity_labels=cut_activity_labels,
     )
     figure.update_layout(width=None, autosize=True)
     return json.loads(figure.to_json()), notes

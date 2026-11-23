@@ -213,14 +213,16 @@ def test_timeline_figure(full):
 
 
 def test_timeline_movement_labels(full):
-    """Movement labels: the activity names of c2's movements are added, starting exactly above their line (no shift
-    to the right); the other labels keep their offset."""
+    """Movement labels: the activity names of c2's movements are added, starting exactly above their line at the
+    height of the other markers (MARKER_Y, no shift up); the other labels keep their offset."""
     plain, _ = timeline_figure(full, ["c2"])
     labelled, _ = timeline_figure(full, ["c2"], label_movements=True)
     texts = lambda figure: [a["text"] for a in figure["layout"].get("annotations", [])]
     assert sorted(set(texts(labelled)) - set(texts(plain))) == ["crane move", "load truck", "unload truck"]
     shifts = {(a["text"], a["xshift"], a["yshift"]) for a in labelled["layout"]["annotations"]}
-    assert ("load truck", -6, 6) in shifts and ("roll", 2, 7) in shifts
+    assert ("load truck", -6, 0) in shifts and ("roll", 2, 7) in shifts
+    ys = {a["text"]: a["y"] for a in labelled["layout"]["annotations"]}
+    assert ys["load truck"] == pytest.approx(ys["roll"])
     assert not any(t.get("name", "").startswith("movement (explicit)") for t in labelled["data"])
 
 

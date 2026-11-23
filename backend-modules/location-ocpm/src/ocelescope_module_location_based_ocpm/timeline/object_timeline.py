@@ -97,11 +97,12 @@ SIZE = {"processing": 17, "other": 10, "movement": 16}
 #: dominant; details in the hover): a small open diamond instead of the tick.
 PICKUP_DIFFERS_SYMBOL = "diamond-tall-open"
 PICKUP_DIFFERS_SIZE = 13
-#: Offset in pixels of an activity label from its marker: events above the band start a bit to the right of and
-#: above their marker; a movement label is moved left so that the lower end of the angled text sits exactly above
-#: its line on the band (about font height x sin(35°)), and up for a gap to the band (Nina 2026-11-19).
+#: Offset in pixels of an activity label from its anchor: events above the band start a bit to the right of and
+#: above their marker; a movement label starts at the height of the marker of an event that is not a movement
+#: (`MARKER_Y`, Nina 2026-11-23) and is moved left so that the lower end of the angled text sits exactly above
+#: its line on the band (about font height x sin(35°), Nina 2026-11-19).
 LABEL_SHIFT = (2, 7)
-MOVEMENT_LABEL_SHIFT = (-6, 6)
+MOVEMENT_LABEL_SHIFT = (-6, 0)
 #: Most handling units shown in one timeline (Nina 2026-10-31).
 MAX_HANDLING_UNITS = 50
 
@@ -696,6 +697,7 @@ def object_timeline(
     mark_ties: bool = True,
     link_shared_events: bool = True,
     label_movements: bool = False,
+    cut_activity_labels: bool = True,
     reach=None,
     title: str | None = None,
     width: int = WIDTH,
@@ -715,7 +717,8 @@ def object_timeline(
     Dotted lines join the markers of an event shared by several handling units (`link_shared_events`), and
     events with the same timestamp get a light grey box over the whole height (`mark_ties`).
     With `label_movements`, every movement that is not a processing operation also gets its activity name,
-    starting exactly above its line on the band (if `show_activity_labels`).
+    starting exactly above its line at the height of the other markers (if `show_activity_labels`).
+    With `cut_activity_labels`, names longer than `MAX_LABEL_CHARS` are cut with "…" (full name in the hover).
 
     Args:
         relations: Output of `timeline_relations`.
@@ -723,7 +726,9 @@ def object_timeline(
         show_activity_labels: Write the activity name above every marker that is not on the band.
         mark_ties: Grey boxes behind events with the same timestamp.
         link_shared_events: Dotted lines joining shared events.
-        label_movements: Write the activity names of the movements too (above the band, `MOVEMENT_LABEL_SHIFT`).
+        label_movements: Write the activity names of the movements too (from `MARKER_Y`, `MOVEMENT_LABEL_SHIFT`).
+        cut_activity_labels: Cut activity names longer than `MAX_LABEL_CHARS` with "…" (`short_label`); if
+            False, names are written in full (they may run into the row above).
         reach: Length of band lead-ins and continuations (see `band_segments`); None = default.
         title: Figure title.
         width: Figure width in pixels.
@@ -944,7 +949,7 @@ def object_timeline(
             )
         )
     if labelled:
-        # Movements on the band are labelled from the band's top (only with `label_movements`).
+        # Movements on the band are labelled from the height of the other markers (only with `label_movements`).
         written = ~pl.col(c.IS_MOVEMENT).fill_null(False)
         if label_movements:
             written = written | (pl.col(MARKER) == "movement")
@@ -956,9 +961,13 @@ def object_timeline(
             annotations.append(
                 {
                     "x": x,
-                    "y": y - on_band_y + BAND_TOP if on_band else y,
-                    "text": short_label(activity or ""),
-                    "hovertext": activity if len(activity or "") > MAX_LABEL_CHARS else None,
+                    "y": y - on_band_y + MARKER_Y if on_band else y,
+                    "text": short_label(activity or "") if cut_activity_labels else activity or "",
+                    "hovertext": (
+                        activity
+                        if cut_activity_labels and len(activity or "") > MAX_LABEL_CHARS
+                        else None
+                    ),
                     "textangle": LABEL_ANGLE,
                     "showarrow": False,
                     "xanchor": "left",
