@@ -19,10 +19,10 @@ export type ImageFormat = "svg" | "pdf" | "png" | "html";
 
 /** The formats in the order of the menu, with their labels and a hint. */
 export const IMAGE_FORMATS: { format: ImageFormat; label: string; hint: string }[] = [
-  { format: "pdf", label: "PDF (vector)", hint: "Sharp at any zoom; for papers and printing" },
-  { format: "svg", label: "SVG (vector)", hint: "Sharp at any zoom; editable (e.g. Inkscape); hover texts in a browser" },
+  { format: "pdf", label: "PDF (vector)", hint: "For papers and printing" },
+  { format: "svg", label: "SVG (vector)", hint: "Editable (e.g. Inkscape); hover texts in a browser" },
   { format: "html", label: "HTML (interactive)", hint: "Opens in a browser: zoom, pan and the hover texts of the page" },
-  { format: "png", label: "PNG (image)", hint: "High-resolution image, up to 4 pixels per screen pixel" },
+  { format: "png", label: "PNG (image)", hint: "Image, e.g. for slides" },
 ];
 
 /** Largest PNG: at most 4 pixels per CSS pixel, 16 000 pixels per side and 120 million pixels (browser canvas limits). */
