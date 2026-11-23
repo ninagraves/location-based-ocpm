@@ -80,6 +80,7 @@ One row per transformation type: type, kind, events, transformations, lineage re
 ### What it shows
 Bipartite graph: object types (ellipses, coloured per type, ranked by handling units in the graph) and recipes (rectangles: activity, frequency, share of the transformation events; hover: id, recipe, kind). Arcs object type → recipe (input) and recipe → object type (output), labelled with the handling units of the type per event of the recipe, coloured by object type, as wide as the handling units that flowed along them (hover the label).
 Settings: frequency slider, quantities (exact | as sets), layout (left to right | top to bottom).
+Download (Nina 2026-11-23: "export button for the gozinto graph"): button at the top right of the graph, as on the DFG page: PDF (vector), SVG (vector), HTML (interactive), PNG; option "With legend" (object types and the key of the symbols, on by default). The file shows the whole graph in light colours, whatever part is zoomed in on. File name `transformation-type-graph.<ext>`.
 ### How it is calculated
 `type_graph.py`, one function per step:
 1. `event_sides`: one row per (event, side, object type) with the quantity.
@@ -97,10 +98,12 @@ Follows the page filters (the share and the slider refer to the kept events).
 Slider 100 % (all recipes), quantities exact, left to right; kept per log (`transformations.graph.<log>`); the slider recalculates 0.4 s after the last move (`SLIDER_DELAY`).
 ### Where it lives in the code
 `transformations/type_graph.py`; route `GET /{ocel_id}/transformations/type-graph` (`coverage` in [0, 1], `quantities`); frontend `components/TransformationTypeGraph.tsx` (ELK layered with `ELK_OPTIONS` of `lib/dfgLayout.ts`, React Flow, layout and zoom kept with `lib/keptView.ts`).
+Download: `typeDrawing` (in `TransformationTypeGraph.tsx`: the laid-out nodes and arcs with their light colours) → `typeGraphScene` (`lib/typeGraphDrawing.ts`: plain shapes, ellipses as four Bézier curves, legend) → `downloadScene` (`lib/dfgDownload.ts`, shared with the DFG); menu `components/GraphDownloadMenu.tsx`.
 ### How to change it
 - Other slider semantics (e.g. a plain minimum frequency or share of recipes): `min_frequency`, and the slider text in `TransformationTypeGraph`.
 - Arc width: `SIZE.minArc`/`SIZE.maxArc` and the formula in `layoutTypeGraph` (linear in handling units).
 - Other recipe definitions: `recipe_keys`.
+- Download: look of the file in `lib/typeGraphDrawing.ts` (sizes `SIZES`, legend texts in `legendGroups`); formats and the PDF, PNG and HTML writers are shared with the DFG (`lib/dfgDownload.ts`). The PDF uses Helvetica, which has no "→" or "∅", so texts drawn into the file avoid them (hover texts may use them).
 ### Alternatives
 - One rectangle per activity (all recipes of an activity merged): fewer nodes, but recipes with different input types are no longer distinguishable (discussion note `claude_notes/transformations-page-discussion.md`, R3); not built.
 - A transformation Sankey (playground): unreadable on the real log (self-loops, dozens of activities); handled in the Sankey discussion.

@@ -245,6 +245,26 @@ ${sceneSvg(scene, "data")}
 `;
 
 /**
+ * Download a scene in one format (the DFG and the transformation type graph).
+ *
+ * @param scene The scene (`graphScene`, `typeGraphScene`).
+ * @param format PDF, SVG, HTML or PNG.
+ * @param name File name without extension.
+ * @param title Title of the interactive HTML page.
+ * @returns Resolves when the file has been handed to the browser.
+ */
+export const downloadScene = async (scene: Scene, format: ImageFormat, name: string, title: string): Promise<void> => {
+  if (format === "svg") saveText(sceneSvg(scene), "image/svg+xml", `${name}.svg`);
+  else if (format === "html") saveText(sceneHtml(scene, title), "text/html", `${name}.html`);
+  else if (format === "pdf") scenePdf(scene).save(`${name}.pdf`);
+  else {
+    const url = URL.createObjectURL(await scenePng(scene));
+    save(url, `${name}.png`);
+    window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }
+};
+
+/**
  * Download the drawing in one format.
  *
  * @param drawing Nodes and arcs as on the page, with colours and the arc labels' meaning.
@@ -253,14 +273,5 @@ ${sceneSvg(scene, "data")}
  * @param options `legend`: add the legend of object types and symbols below the graph.
  * @returns Resolves when the file has been handed to the browser; rejects if the graph is empty or too large.
  */
-export const downloadDrawing = async (drawing: Drawing, format: ImageFormat, name: string, options: { legend: boolean }): Promise<void> => {
-  const scene = graphScene(drawing, options);
-  if (format === "svg") saveText(sceneSvg(scene), "image/svg+xml", `${name}.svg`);
-  else if (format === "html") saveText(sceneHtml(scene, "Directly-follows graph"), "text/html", `${name}.html`);
-  else if (format === "pdf") scenePdf(scene).save(`${name}.pdf`);
-  else {
-    const url = URL.createObjectURL(await scenePng(scene));
-    save(url, `${name}.png`);
-    window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  }
-};
+export const downloadDrawing = async (drawing: Drawing, format: ImageFormat, name: string, options: { legend: boolean }): Promise<void> =>
+  downloadScene(graphScene(drawing, options), format, name, "Directly-follows graph");

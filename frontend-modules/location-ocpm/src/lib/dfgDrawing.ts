@@ -42,7 +42,7 @@ export const solid = (colour: string): string => {
 /** Length and half width of an arc's arrow head, in pixels. */
 const ARROW = { length: 8, halfWidth: 4 };
 /** White space around the drawing, in pixels. */
-const MARGIN = 12;
+export const MARGIN = 12;
 
 /** A point. */
 type Point = { x: number; y: number };
@@ -151,8 +151,8 @@ export const arrowHead = (d: Segment[], by: number = ARROW.length * 0.7): { path
   return { path, arrow };
 };
 
-/** Text shape helper: measured width, baseline from the vertical centre. */
-const text = (
+/** Text shape helper: measured width, baseline from the vertical centre (also used by lib/typeGraphDrawing.ts). */
+export const text = (
   value: string,
   x: number,
   centreY: number,
@@ -251,7 +251,7 @@ const arcGroup = (a: DrawnArc): Group => {
 };
 
 /** Bounding box of shapes (texts by their measured width, curves by their control points). */
-const bounds = (items: (Shape | Group)[]) => {
+export const bounds = (items: (Shape | Group)[]) => {
   let box = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
   const add = (x: number, y: number) => {
     box = { left: Math.min(box.left, x), top: Math.min(box.top, y), right: Math.max(box.right, x), bottom: Math.max(box.bottom, y) };
@@ -276,7 +276,7 @@ const bounds = (items: (Shape | Group)[]) => {
 };
 
 /** Move shapes by (dx, dy). */
-const shift = (item: Shape | Group, dx: number, dy: number): Shape | Group => {
+export const shift = (item: Shape | Group, dx: number, dy: number): Shape | Group => {
   if ("shapes" in item) return { ...item, shapes: item.shapes.map((s) => shift(s, dx, dy)) };
   const p = (q: Point) => ({ x: q.x + dx, y: q.y + dy });
   switch (item.kind) {

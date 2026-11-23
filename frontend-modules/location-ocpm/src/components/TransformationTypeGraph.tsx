@@ -1,7 +1,8 @@
 // Transformation type graph of the transformations page (draft; concept: Lineage (DRAFT).md, "Transformation Type
 // Level Model"): object types (ellipses) and recipes (rectangles), arcs object type → recipe (input) and recipe →
 // object type (output) labelled with the quantity. A frequency slider hides rare recipes. Laid out with ELK and drawn
-// with React Flow, as the lineage chart. Documented in docs/pages/transformations.md, section "Transformation type graph".
+// with React Flow, as the lineage chart; downloadable as PDF, SVG, HTML or PNG (`GraphDownloadMenu`, lib/typeGraphDrawing.ts).
+// Documented in docs/pages/transformations.md, section "Transformation type graph".
 import { Alert, Box, Group, Loader, SegmentedControl, Slider, Stack, Text, Tooltip } from "@mantine/core";
 import {
   BaseEdge,
@@ -34,6 +35,8 @@ import { usePageState } from "../lib/pageState";
 import { colourMap, OTHER, type Scheme } from "../lib/palette";
 import { KIND_LABELS, listRequest, type TransformationFilter } from "../lib/transformations";
 import { useDebounced } from "../lib/useDebounced";
+import { type TypeDrawing, typeGraphScene } from "../lib/typeGraphDrawing";
+import { GraphDownloadMenu } from "./GraphDownloadMenu";
 import { useScheme } from "./plots";
 
 /** Settings of the type graph (kept per log). */
@@ -51,7 +54,8 @@ const SLIDER_DELAY = 400;
 const SIZE = { font: 12, small: 10, padX: 10, typeHeight: 36, recipeHeight: 38, minWidth: 60, minArc: 1.2, maxArc: 8 };
 const HEIGHT = 520;
 
-type TypeData = { kind: "type"; objectType: string; consumed: number; produced: number; width: number; height: number; colour: string };
+/** `exportColour`: the colour in the light scheme, for the downloads (always light). */
+type TypeData = { kind: "type"; objectType: string; consumed: number; produced: number; width: number; height: number; colour: string; exportColour: string };
 type RecipeData = {
   kind: "recipe";
   id: string;
@@ -67,6 +71,7 @@ type NodeData = TypeData | RecipeData;
 type EdgeData = {
   path: string;
   colour: string;
+  exportColour: string;
   width: number;
   label: string;
   hover: string;
@@ -181,6 +186,7 @@ const layoutTypeGraph = async (graph: TypeGraph, direction: "RIGHT" | "DOWN", sc
     ranked.map((t) => t.object_type),
     scheme,
   );
+  const exportColours = scheme === "light" ? colours : colourMap(ranked.map((t) => t.object_type), "light");
   const sizes = new Map<string, { width: number; height: number }>();
   for (const t of graph.object_types)
     sizes.set(t.node, { width: Math.ceil(Math.max(SIZE.minWidth, textWidth(t.object_type, SIZE.font, 600) + 2 * SIZE.padX) * 1.3), height: SIZE.typeHeight });
@@ -214,6 +220,7 @@ const layoutTypeGraph = async (graph: TypeGraph, direction: "RIGHT" | "DOWN", sc
         consumed: t.consumed,
         produced: t.produced,
         colour: colours.get(t.object_type) ?? OTHER[scheme],
+        exportColour: exportColours.get(t.object_type) ?? OTHER.light,
         ...(sizes.get(t.node) as { width: number; height: number }),
       },
       style: { pointerEvents: "all" as const },
@@ -250,6 +257,7 @@ const layoutTypeGraph = async (graph: TypeGraph, direction: "RIGHT" | "DOWN", sc
       data: {
         path: section ? sectionPath(section) : "",
         colour,
+        exportColour: exportColours.get(a.object_type) ?? OTHER.light,
         width: SIZE.minArc + ((SIZE.maxArc - SIZE.minArc) * a.hus) / maxHus,
         label: quantityLabel(a),
         hover: `${recipe?.recipe ?? a.recipe}: ${quantityLabel(a)} ${a.object_type} per event ${a.role === "consumed" ? "consumed" : "produced"}; ${num(a.hus)} handling units over ${num(events)} events`,
@@ -267,6 +275,36 @@ const FitOnChange = ({ token, skip }: { token: unknown; skip: (token: unknown) =
     if (!skip(token)) requestAnimationFrame(() => fitView({ padding: 0.1, maxZoom: 1 }));
   }, [token, fitView, skip]);
   return null;
+};
+
+/**
+ * The graph as laid out on the page, in light colours, for the download (`typeGraphScene`). The legend lists the
+ * object types as the page ranks their colours (most handling units first).
+ *
+ * @param nodes The React Flow nodes.
+ * @param edges The React Flow edges.
+ */
+export const typeDrawing = (nodes: Node<NodeData>[], edges: Edge<EdgeData>[]): TypeDrawing => {
+  const types = nodes.filter((n): n is Node<TypeData> => n.data.kind === "type");
+  const recipes = nodes.filter((n): n is Node<RecipeData> => n.data.kind === "recipe");
+  const ranked = [...types].sort((a, b) => b.data.consumed + b.data.produced - (a.data.consumed + a.data.produced) || a.data.objectType.localeCompare(b.data.objectType));
+  return {
+    types: types.map(({ position, data: d }) => ({ ...position, width: d.width, height: d.height, objectType: d.objectType, consumed: d.consumed, produced: d.produced, colour: d.exportColour ?? d.colour })),
+    recipes: recipes.map(({ position, data: d }) => ({
+      ...position,
+      width: d.width,
+      height: d.height,
+      id: d.id,
+      recipe: d.recipe,
+      activity: d.activity,
+      frequency: d.frequency,
+      share: d.share,
+      kind: d.recipeKind,
+    })),
+    arcs: edges.flatMap((e) => (e.data ? [{ path: e.data.path, colour: e.data.exportColour ?? e.data.colour, width: e.data.width, label: e.data.label, labelPosition: e.data.labelPosition, hover: e.data.hover }] : [])),
+    colours: new Map(ranked.map((n) => [n.data.objectType, n.data.exportColour ?? n.data.colour])),
+    kindLabels: KIND_LABELS,
+  };
 };
 
 /** The slider's marks: 0, 50 and 100 %. */
@@ -411,6 +449,12 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
               fitViewOptions={{ padding: 0.1, maxZoom: 1 }}
             >
               <Controls showInteractive={false} />
+              <GraphDownloadMenu
+                scene={(legend) => typeGraphScene(typeDrawing(flow.nodes, flow.edges), { legend })}
+                fileName="transformation-type-graph"
+                title="Transformation type graph"
+                legendLabel="With legend (object types and symbols)"
+              />
               <FitOnChange token={flow} skip={skipFit} />
             </ReactFlow>
           </ReactFlowProvider>
