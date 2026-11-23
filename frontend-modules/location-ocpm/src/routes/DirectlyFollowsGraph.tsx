@@ -195,13 +195,16 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
   options.current = data?.activity_options ?? [];
   // Handling-unit types get the signature colours first, the other types paler colours (Nina, 2026-11-15); each
   // group in the order of all object types (most objects first), so a type keeps its colour.
-  const colours = useMemo(() => {
+  // Downloads are always light (white background), so they get the light colours (Nina, 2026-11-23).
+  const [colours, exportColours] = useMemo(() => {
     const types = data?.object_types ?? [];
-    return emphasisColourMap(
-      types.filter((t) => t.handling_units).map((t) => t.object_type),
-      types.filter((t) => !t.handling_units).map((t) => t.object_type),
-      scheme,
-    );
+    const map = (s: typeof scheme) =>
+      emphasisColourMap(
+        types.filter((t) => t.handling_units).map((t) => t.object_type),
+        types.filter((t) => !t.handling_units).map((t) => t.object_type),
+        s,
+      );
+    return [map(scheme), map("light")];
   }, [data, scheme]);
 
   // The sidebar's checkboxes show the current selection while the graph still shows the applied one.
@@ -228,9 +231,11 @@ const DfgContent = ({ ocelId }: { ocelId: string }) => {
           <DfgGraph
             graph={data}
             colours={colours}
+            exportColours={exportColours}
             direction={applied.direction}
             arcLabel={applied.arcLabel}
             compact={applied.compact}
+            paper={applied.paper}
             height={height}
             onRemoveArc={onRemoveArc}
             onDeselectActivity={onDeselectActivity}

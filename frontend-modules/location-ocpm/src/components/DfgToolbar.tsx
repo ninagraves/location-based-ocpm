@@ -1,14 +1,29 @@
 // The toolbar above the directly-follows graph (Nina, 2026-11-15/16): the event categories (deselect one to remove
 // its events from the traces); arc labels, direction, Arcs (display) (general or per type, − / + and slider),
-// compact, reset and the button that shows or hides the sidebar "Discovery Settings" (DfgSettings.tsx).
+// compact, paper (aim at the shape of a sheet of paper), reset and the button that shows or hides the sidebar "Discovery Settings" (DfgSettings.tsx).
 // Documented in docs/pages/directly-follows-graph.md, section "Settings".
 import { ActionIcon, Button, Chip, Group, SegmentedControl, Slider, Switch, Text, Tooltip } from "@mantine/core";
 import { ArrowDownIcon, ArrowRightIcon, InfoIcon, MinusIcon, PlusIcon, RotateCcwIcon, SlidersHorizontalIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { DfgEventCategory, DirectlyFollowsGraph } from "../api/locationBasedOcpm";
-import type { ArcLabel, Direction } from "../lib/dfgLayout";
+import type { ArcLabel, Direction, PaperRatio } from "../lib/dfgLayout";
 import { num } from "../lib/format";
 import { DEFAULT_STATE, type DfgState, INFO } from "./DfgSettings";
+
+/**
+ * A sheet of paper as a small outlined rectangle (ratio 1 : √2), upright or lying, with "A4" next to it; the label of
+ * the options of the setting "Paper".
+ *
+ * @param portrait Upright (default: lying).
+ */
+const PaperIcon = ({ portrait = false }: { portrait?: boolean }) => (
+  <Group gap={3} wrap="nowrap" align="center" aria-label={portrait ? "Portrait sheet" : "Landscape sheet"}>
+    <svg width={portrait ? 10 : 14} height={portrait ? 14 : 10} style={{ display: "block" }} aria-hidden>
+      <rect x={0.75} y={0.75} width={portrait ? 8.5 : 12.5} height={portrait ? 12.5 : 8.5} rx={1} fill="none" stroke="currentColor" strokeWidth={1.5} />
+    </svg>
+    <span>A4</span>
+  </Group>
+);
 
 /**
  * One chip per event category; clicking one (de)selects it. A category without events is disabled. An event is
@@ -148,7 +163,7 @@ const DisplayArcs = ({
 };
 
 /**
- * The toolbar: event categories on the left; arc labels, direction, Arcs (display), compact, reset and the settings
+ * The toolbar: event categories on the left; arc labels, direction, Arcs (display), compact, paper, reset and the settings
  * button on the right.
  *
  * @param graph The graph as drawn (categories and arc numbers).
@@ -215,6 +230,19 @@ export const DfgToolbar = ({
             setState((s) => ({ ...s, compact }));
           }}
           label="Compact"
+        />
+      </Tooltip>
+      <Tooltip label={INFO.paper} multiline w={300} withinPortal>
+        <SegmentedControl
+          size="xs"
+          aria-label="Paper"
+          value={state.paper}
+          onChange={(v) => setState((s) => ({ ...s, paper: v as PaperRatio }))}
+          data={[
+            { value: "off", label: "Any shape" },
+            { value: "portrait", label: <PaperIcon portrait /> },
+            { value: "landscape", label: <PaperIcon /> },
+          ]}
         />
       </Tooltip>
       {pending && (

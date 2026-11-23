@@ -5,6 +5,8 @@ import type { DirectlyFollowsGraph } from "../api/locationBasedOcpm";
 
 export type Direction = "RIGHT" | "DOWN";
 export type ArcLabel = "count" | "objects";
+/** Shape the layout aims at (setting "Paper"): any, a portrait or a landscape sheet of paper (A4 and every ISO 216 size). */
+export type PaperRatio = "off" | "portrait" | "landscape";
 type Point = { x: number; y: number };
 
 /** Sizes of the drawing, in pixels. */
@@ -66,6 +68,23 @@ export const COMPACT_OPTIONS: Record<string, string> = {
   "elk.layered.spacing.edgeNodeBetweenLayers": "10",
   "elk.layered.spacing.edgeEdgeBetweenLayers": "5",
 };
+
+/** Width-to-height ratio of a sheet of paper (ISO 216: 1 : √2) per orientation. */
+export const PAPER_RATIOS: Record<Exclude<PaperRatio, "off">, number> = { portrait: Math.SQRT1_2, landscape: Math.SQRT2 };
+
+/**
+ * Options of the setting "Paper" (Nina, 2026-11-23): ELK's graph wrapping cuts the chain of layers into several rows
+ * (left to right) or columns (top to bottom) and places them below / next to each other, aiming at the ratio
+ * `elk.aspectRatio`; arcs between the parts are routed around. Separate components are packed with the same ratio.
+ * Added to the spacing options, so it works with and without "Compact".
+ */
+export const paperOptions = (aspectRatio: number): Record<string, string> => ({
+  "elk.layered.wrapping.strategy": "MULTI_EDGE",
+  "elk.aspectRatio": aspectRatio.toFixed(3),
+});
+
+/** How many ELK runs "Paper" may use to get closer to the ratio (`layoutForPaper`). */
+const PAPER_TRIES = 4;
 
 let probe: HTMLSpanElement | null = null;
 
@@ -179,6 +198,43 @@ export const sectionPath = (section: NonNullable<ElkExtendedEdge["sections"]>[nu
   return points.map((p, i) => `${i ? "L" : "M"} ${p.x},${p.y}`).join(" ");
 };
 
+/**
+ * The point halfway along an ELK edge section (by length), drawn as `sectionPath` draws it: cubic Bézier curves for
+ * spline routing, straight lines otherwise. Used for the arc labels with "Paper" (no ELK label placement there).
+ * Example: the section (0, 0) → (100, 0) without bend points gives (50, 0).
+ *
+ * @param section The ELK edge section.
+ * @returns The midpoint.
+ */
+export const pathMidpoint = (section: NonNullable<ElkExtendedEdge["sections"]>[number]): Point => {
+  const control = [section.startPoint, ...(section.bendPoints ?? [])];
+  if ((control.length - 1) % 3 === 2) control.push(section.endPoint);
+  const samples: Point[] = [];
+  if (control.length >= 4 && (control.length - 1) % 3 === 0) {
+    for (let i = 0; i + 3 < control.length; i += 3) {
+      const [p0, p1, p2, p3] = control.slice(i, i + 4);
+      for (let k = i ? 1 : 0; k <= 16; k += 1) {
+        const t = k / 16;
+        const u = 1 - t;
+        samples.push({
+          x: u * u * u * p0.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * p3.x,
+          y: u * u * u * p0.y + 3 * u * u * t * p1.y + 3 * u * t * t * p2.y + t * t * t * p3.y,
+        });
+      }
+    }
+  } else samples.push(section.startPoint, ...(section.bendPoints ?? []), section.endPoint);
+  const lengths = samples.slice(1).map((p, i) => Math.hypot(p.x - samples[i].x, p.y - samples[i].y));
+  let remaining = lengths.reduce((a, b) => a + b, 0) / 2;
+  for (const [i, length] of lengths.entries()) {
+    if (remaining <= length && length > 0) {
+      const t = remaining / length;
+      return { x: samples[i].x + (samples[i + 1].x - samples[i].x) * t, y: samples[i].y + (samples[i + 1].y - samples[i].y) * t };
+    }
+    remaining -= length;
+  }
+  return samples[samples.length - 1];
+};
+
 const elk = new ELK();
 
 /**
@@ -186,13 +242,15 @@ const elk = new ELK();
  * that has a kept start / end arc, one edge per kept arc (labelled with its count or its objects).
  * Start and end nodes get no layer constraint, so ELK places them next to their first / last activities
  * instead of all in the first / last layer.
- * `compact` replaces the spacing by `COMPACT_OPTIONS` and sets activity names in bold.
+ * `compact` replaces the spacing by `COMPACT_OPTIONS` and sets activity names in bold; `paper` aims the layout at the
+ * ratio of a sheet of paper (`layoutForPaper`).
  */
 export const layoutGraph = async (
   graph: DirectlyFollowsGraph,
   direction: Direction,
   arcLabel: ArcLabel,
   compact = false,
+  paper: PaperRatio = "off",
 ): Promise<Layout> => {
   const selected = new Set(graph.object_types.filter((t) => t.selected).map((t) => t.object_type));
   const data = new Map<string, ActivityNodeData | TerminalNodeData>();
@@ -240,17 +298,22 @@ export const layoutGraph = async (
       id: a.id,
       sources: [a.source],
       targets: [a.target],
-      labels: [
-        {
-          text: a.label,
-          width: textWidth(a.label, SIZES.smallFont) + 6,
-          height: SIZES.smallFont + 2,
-          layoutOptions: { "elk.edgeLabels.inline": "true" },
-        },
-      ],
+      // ELK (0.12) fails on graph wrapping with spline routing and edge labels: with "Paper", the labels are placed
+      // halfway along the arcs afterwards (`pathMidpoint`).
+      labels:
+        paper === "off"
+          ? [
+              {
+                text: a.label,
+                width: textWidth(a.label, SIZES.smallFont) + 6,
+                height: SIZES.smallFont + 2,
+                layoutOptions: { "elk.edgeLabels.inline": "true" },
+              },
+            ]
+          : [],
     })),
   };
-  const result = await elk.layout(root);
+  const result = paper === "off" ? await elk.layout(root) : await layoutForPaper(root, PAPER_RATIOS[paper]);
 
   const nodes: LaidOutNode[] = (result.children ?? []).map((n) => ({
     id: n.id,
@@ -282,10 +345,39 @@ export const layoutGraph = async (
         labelPosition:
           label?.x != null && label?.y != null
             ? { x: label.x + (label.width ?? 0) / 2, y: label.y + (label.height ?? 0) / 2 }
-            : null,
+            : section && paper !== "off"
+              ? pathMidpoint(section)
+              : null,
       };
     }),
   };
+};
+
+/**
+ * Lay out `root` with graph wrapping (`paperOptions`) so that its width-to-height ratio comes close to `target`. ELK
+ * reaches the requested ratio only roughly (it cuts between whole layers), so the request is corrected by the ratio
+ * reached and laid out again, at most `PAPER_TRIES` times; the result closest to the target (by the factor between
+ * the ratios) is kept.
+ * Example: target 0.707 (portrait); a first run gives 1.03, the second asks for 0.707 × 0.707 / 1.03 = 0.485 and gets
+ * 0.74, which is kept unless a later run comes closer.
+ *
+ * @param root The ELK graph with its layout options.
+ * @param target Width divided by height, e.g. `PAPER_RATIOS.portrait`.
+ * @returns The laid-out graph closest to the ratio.
+ */
+export const layoutForPaper = async (root: ElkNode, target: number): Promise<ElkNode> => {
+  let request = target;
+  let best: { node: ElkNode; error: number } | null = null;
+  for (let i = 0; i < PAPER_TRIES; i += 1) {
+    const node = await elk.layout(structuredClone({ ...root, layoutOptions: { ...root.layoutOptions, ...paperOptions(request) } }));
+    const ratio = (node.width ?? 1) / Math.max(node.height ?? 1, 1);
+    const error = Math.abs(Math.log(ratio / target));
+    if (!best || error < best.error) best = { node, error };
+    // Within 10 %, or the graph cannot be wrapped further: stop.
+    if (error < Math.log(1.1)) break;
+    request = Math.min(20, Math.max(0.05, (request * target) / ratio));
+  }
+  return (best as { node: ElkNode }).node;
 };
 
 /** Key of an arc: object type, source and target activity (null = start / end). */
