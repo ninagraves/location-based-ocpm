@@ -1,6 +1,6 @@
 // The drawing of the directly-follows graph: ELK layout (lib/dfgLayout.ts), rendered with React Flow so that
 // it can be panned and zoomed, and its nodes dragged (the arcs follow; Nina, 2026-11-15). Documented in docs/pages/directly-follows-graph.md.
-import { ActionIcon, Alert, Box, Group, Loader, Menu, Stack, Text, Tooltip } from "@mantine/core";
+import { ActionIcon, Alert, Box, Checkbox, Group, Loader, Menu, Stack, Text, Tooltip } from "@mantine/core";
 import {
   applyNodeChanges,
   BaseEdge,
@@ -20,7 +20,7 @@ import {
   useReactFlow,
 } from "@xyflow/react";
 import { DownloadIcon } from "lucide-react";
-import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DirectlyFollowsGraph } from "../api/locationBasedOcpm";
 import {
   type ActivityNodeData,
@@ -29,11 +29,13 @@ import {
   type LaidOutArc,
   type Layout,
   layoutGraph,
+  type PaperRatio,
   reduceLayout,
   SIZES,
   type TerminalNodeData,
 } from "../lib/dfgLayout";
-import { downloadGraph, IMAGE_FORMATS, type ImageFormat } from "../lib/dfgDownload";
+import { type Drawing, legendEntries } from "../lib/dfgDrawing";
+import { downloadDrawing, IMAGE_FORMATS, type ImageFormat } from "../lib/dfgDownload";
 import { num } from "../lib/format";
 import { useKeptViewport } from "../lib/keptView";
 import { keep, recall, sameInputs } from "../lib/pageState";
@@ -205,6 +207,39 @@ const ArcEdge = memo(({ id, data, markerEnd }: EdgeProps<Edge<ArcData>>) => {
 /** Grey of start and end arcs. */
 const GREY = "#9aa0a6";
 
+/**
+ * The object types of the drawing with their colours (Nina, 2026-11-23): a short line for a selected type (its arcs,
+ * start and end nodes), a circle for an unselected one (only shown as circles on the activities). The same entries
+ * as the legend of the downloaded files (`legendEntries`, lib/dfgDrawing.ts), in the page's colours (`colours`).
+ */
+const TypeLegend = ({ drawing, colours }: { drawing: Drawing; colours: Map<string, string> }) => {
+  const entries = legendEntries(drawing);
+  if (entries.length === 0) return null;
+  return (
+    <Group gap={10} wrap="wrap" align="center">
+      <Text fz={11} fw={600}>Object types:</Text>
+      {entries.map((e) => (
+        <Tooltip
+          key={e.objectType}
+          label={e.selected ? "Selected: its arcs, start and end nodes are drawn in this colour" : "Not selected: shown as a circle on the activities whose events involve it"}
+          withinPortal
+        >
+          <Group gap={4} wrap="nowrap" align="center">
+            <Box
+              style={
+                e.selected
+                  ? { width: 16, height: 3, borderRadius: 2, background: colours.get(e.objectType) ?? e.colour }
+                  : { width: SIZES.circle + 1, height: SIZES.circle + 1, borderRadius: "50%", background: colours.get(e.objectType) ?? e.colour, boxShadow: "0 0 0 0.5px var(--mantine-color-gray-6)" }
+              }
+            />
+            <Text fz={11}>{e.objectType}</Text>
+          </Group>
+        </Tooltip>
+      ))}
+    </Group>
+  );
+};
+
 /** The legend, in grey above the graph. */
 const Legend = () => (
   <Text fz={11} lh={1.3} c="dimmed">
@@ -313,22 +348,23 @@ const FitOnChange = ({ generation, skip }: { generation: number | null; skip: (g
 };
 
 /**
- * The download button at the top right of the graph (Nina, 2026-11-20): a menu with SVG, PDF and PNG; the file shows
- * the whole graph as drawn (dragged nodes and removed arcs included), not just the part zoomed in on
- * (`lib/dfgDownload.ts`). React Flow's panels (this button, the zoom controls) are not in the image.
+ * The download button at the top right of the graph (Nina, 2026-11-20; vector files, legend, interactive HTML: Nina,
+ * 2026-11-23): a menu with PDF, SVG, HTML and PNG and the option "With legend". The file shows the whole graph as
+ * drawn (dragged nodes and removed arcs included), not just the part zoomed in on, redrawn as plain shapes
+ * (`lib/dfgDrawing.ts`, `lib/dfgDownload.ts`). React Flow's panels (this button, the zoom controls) are not in it.
  *
- * @param container The element around the graph.
+ * @param drawing Returns the graph as currently drawn.
  * @param fileName File name without extension.
  */
-const DownloadMenu = ({ container, fileName }: { container: RefObject<HTMLDivElement | null>; fileName: string }) => {
+const DownloadMenu = ({ drawing, fileName }: { drawing: () => Drawing; fileName: string }) => {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [legend, setLegend] = useState(true);
   const download = async (format: ImageFormat) => {
-    if (!container.current) return;
     setBusy(true);
     setError(null);
     try {
-      await downloadGraph(container.current, format, fileName);
+      await downloadDrawing(drawing(), format, fileName, { legend });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -343,21 +379,31 @@ const DownloadMenu = ({ container, fileName }: { container: RefObject<HTMLDivEle
             {error}
           </Text>
         )}
-        <Menu position="bottom-end" withinPortal shadow="sm">
+        <Menu position="bottom-end" withinPortal shadow="sm" closeOnItemClick>
           <Menu.Target>
-            <Tooltip label="Download the graph as an image" withinPortal>
-              <ActionIcon size="sm" variant="default" loading={busy} aria-label="Download the graph as an image">
+            <Tooltip label="Download the graph" withinPortal>
+              <ActionIcon size="sm" variant="default" loading={busy} aria-label="Download the graph">
                 <DownloadIcon size={13} />
               </ActionIcon>
             </Tooltip>
           </Menu.Target>
           <Menu.Dropdown>
             <Menu.Label>Download as</Menu.Label>
-            {IMAGE_FORMATS.map(({ format, label }) => (
+            {IMAGE_FORMATS.map(({ format, label, hint }) => (
               <Menu.Item key={format} onClick={() => download(format)}>
-                {label}
+                <Text size="sm">{label}</Text>
+                <Text size="xs" c="dimmed">{hint}</Text>
               </Menu.Item>
             ))}
+            <Menu.Divider />
+            <Box px="sm" py={6}>
+              <Checkbox
+                size="xs"
+                label="With legend (object types and symbols)"
+                checked={legend}
+                onChange={(e) => setLegend(e.currentTarget.checked)}
+              />
+            </Box>
           </Menu.Dropdown>
         </Menu>
       </Group>
@@ -370,9 +416,11 @@ const DownloadMenu = ({ container, fileName }: { container: RefObject<HTMLDivEle
  *
  * @param graph The graph from the backend.
  * @param colours Colour per object type.
+ * @param exportColours Colour per object type in the downloads and the object-type legend (light scheme; default: `colours`).
  * @param direction Layout direction (left to right or top to bottom).
  * @param arcLabel What the arc labels show: traversals (`count`) or distinct objects.
  * @param compact Compact layout (little white space, `COMPACT_OPTIONS`).
+ * @param paper Aim the layout at the width-to-height ratio of a sheet of paper (`PAPER_RATIOS`; "off": no aim).
  * @param height Height of the drawing area in pixels.
  * @param onRemoveArc Called when the user double-clicks an arc (to remove it).
  * @param onDeselectActivity Called when the user double-clicks an activity node (to deselect it for all types).
@@ -385,9 +433,11 @@ const DownloadMenu = ({ container, fileName }: { container: RefObject<HTMLDivEle
 export const DfgGraph = ({
   graph,
   colours,
+  exportColours,
   direction,
   arcLabel,
   compact,
+  paper = "off",
   height,
   onRemoveArc,
   onDeselectActivity,
@@ -397,9 +447,11 @@ export const DfgGraph = ({
 }: {
   graph: DirectlyFollowsGraph;
   colours: Map<string, string>;
+  exportColours?: Map<string, string>;
   direction: Direction;
   arcLabel: ArcLabel;
   compact: boolean;
+  paper?: PaperRatio;
   height: number;
   onRemoveArc?: (arc: LaidOutArc) => void;
   onDeselectActivity?: (activity: string) => void;
@@ -407,17 +459,16 @@ export const DfgGraph = ({
   keepLayout?: boolean;
   stateKey?: string;
 }) => {
-  const container = useRef<HTMLDivElement>(null);
   // The layout kept when the page was left, if it was made for the same graph and look settings.
-  const inputs = [graph, direction, arcLabel, compact];
+  const inputs = [graph, direction, arcLabel, compact, paper];
   const keptLayout = () => {
     const kept = stateKey ? recall<{ inputs: unknown[]; layout: Layout }>(`${stateKey}.layout`) : undefined;
     return kept && sameInputs(kept.inputs, inputs) ? kept.layout : null;
   };
   const [layout, setLayoutState] = useState<Layout | null>(keptLayout);
   const [error, setError] = useState<string | null>(null);
-  const current = useRef<{ layout: Layout | null; direction: Direction; arcLabel: ArcLabel; compact: boolean } | null>(
-    layout ? { layout, direction, arcLabel, compact } : null,
+  const current = useRef<{ layout: Layout | null; direction: Direction; arcLabel: ArcLabel; compact: boolean; paper: PaperRatio } | null>(
+    layout ? { layout, direction, arcLabel, compact, paper } : null,
   );
   const setLayout = (next: Layout) => {
     if (stateKey) keep(`${stateKey}.layout`, { inputs, layout: next });
@@ -428,24 +479,24 @@ export const DfgGraph = ({
     setError(null);
     const kept = keptLayout();
     if (kept) {
-      current.current = { layout: kept, direction, arcLabel, compact };
+      current.current = { layout: kept, direction, arcLabel, compact, paper };
       setLayoutState(kept);
       return;
     }
     // Only arcs removed (same look settings): drop them from the current layout instead of a new ELK run.
     const previous = current.current;
-    if (keepLayout && previous?.layout && previous.direction === direction && previous.arcLabel === arcLabel && previous.compact === compact) {
+    if (keepLayout && previous?.layout && previous.direction === direction && previous.arcLabel === arcLabel && previous.compact === compact && previous.paper === paper) {
       const reduced = reduceLayout(previous.layout, graph);
       if (reduced) {
-        current.current = { layout: reduced, direction, arcLabel, compact };
+        current.current = { layout: reduced, direction, arcLabel, compact, paper };
         setLayout(reduced);
         return;
       }
     }
-    layoutGraph(graph, direction, arcLabel, compact).then(
+    layoutGraph(graph, direction, arcLabel, compact, paper).then(
       (result) => {
         if (cancelled) return;
-        current.current = { layout: result, direction, arcLabel, compact };
+        current.current = { layout: result, direction, arcLabel, compact, paper };
         setLayout(result);
       },
       (err: unknown) => !cancelled && setError(String(err)),
@@ -455,7 +506,7 @@ export const DfgGraph = ({
     };
     // keepLayout is read when the graph changes, not a reason to lay out again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, direction, arcLabel, compact]);
+  }, [graph, direction, arcLabel, compact, paper]);
   const flow = useMemo(() => (layout ? toFlow(layout, colours, onRemoveArc) : null), [layout, colours, onRemoveArc]);
   // Dragged node positions, kept per layout generation: a new ELK run (a setting changed) starts from its own
   // positions; a reduced layout (arcs removed by hand) keeps them.
@@ -501,6 +552,24 @@ export const DfgGraph = ({
     }
     return followNodes(flow.edges, offsets);
   }, [flow, nodes]);
+  // The graph as drawn (current positions, bent arcs), for the downloads and the object-type legend, in the export
+  // colours (start and end arcs grey, as on the page).
+  const drawing = useMemo<Drawing>(() => {
+    const light = exportColours ?? colours;
+    return {
+      nodes: nodes.map((n) => ({ x: n.position.x, y: n.position.y, data: n.data })),
+      arcs: edges.flatMap((e) =>
+        e.data
+          ? [{ ...e.data, colour: e.data.colour === GREY ? GREY : (light.get(e.data.objectType) ?? GREY) }]
+          : [],
+      ),
+      colours: light,
+      arcLabel,
+    };
+  }, [nodes, edges, colours, exportColours, arcLabel]);
+  const drawingRef = useRef(drawing);
+  drawingRef.current = drawing;
+  const currentDrawing = useCallback(() => drawingRef.current, []);
 
   if (error) return <Alert color="red">Layout failed: {error}</Alert>;
   if (!flow) return <Loader size="sm" />;
@@ -509,7 +578,8 @@ export const DfgGraph = ({
   return (
     <Stack gap={4}>
       <Legend />
-    <Box ref={container} style={{ height, border: "1px solid var(--mantine-color-default-border)", borderRadius: 8, position: "relative" }}>
+      <TypeLegend drawing={drawing} colours={colours} />
+    <Box style={{ height, border: "1px solid var(--mantine-color-default-border)", borderRadius: 8, position: "relative" }}>
       {copied && (
         <Text
           size="xs"
@@ -559,7 +629,7 @@ export const DfgGraph = ({
           }}
         >
           <Controls showInteractive={false} />
-          <DownloadMenu container={container} fileName={fileName} />
+          <DownloadMenu drawing={currentDrawing} fileName={fileName} />
           <FitOnChange generation={generation} skip={stateKey ? skipFit : NEVER} />
         </ReactFlow>
       </ReactFlowProvider>

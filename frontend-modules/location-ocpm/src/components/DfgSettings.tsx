@@ -23,7 +23,7 @@ import { ChevronDownIcon, ChevronRightIcon, InfoIcon, SearchIcon, XIcon } from "
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { DfgActivityOption, DfgActivityTypeOption, DfgObjectType, DfgRequest, DirectlyFollowsGraph } from "../api/locationBasedOcpm";
 import { type ArcSettings, type BaseArc, neededArcThresholds } from "../lib/dfgArcs";
-import type { ArcLabel, Direction } from "../lib/dfgLayout";
+import type { ArcLabel, Direction, PaperRatio } from "../lib/dfgLayout";
 import { num } from "../lib/format";
 import { useKeptScrollOf } from "../lib/keptView";
 import { usePageState } from "../lib/pageState";
@@ -57,6 +57,8 @@ export type DfgState = {
   arcLabel: ArcLabel;
   direction: Direction;
   compact: boolean;
+  /** Aim the layout at the ratio of a portrait or landscape sheet of paper (Nina, 2026-11-23); "off": no aim. */
+  paper: PaperRatio;
 };
 
 /**
@@ -79,6 +81,7 @@ export const DEFAULT_STATE: DfgState = {
   arcLabel: "count",
   direction: "RIGHT",
   compact: false,
+  paper: "off",
 };
 
 /**
@@ -144,6 +147,8 @@ export const INFO = {
   pending:
     "The graph is recalculated 2 seconds after the last change, so several settings can be changed first. Update now: recalculate at once.",
   compact: "Less white space between nodes and arcs, e.g. to export the whole graph as a figure.",
+  paper:
+    "Paper: lays the graph out closer to the shape of a sheet of paper (A4 or any ISO size, width : height = 1 : 1.41 in portrait, 1.41 : 1 in landscape). The chain of activities is cut into several rows (left to right) or columns (top to bottom) placed below / next to each other; arcs between them run around. Only an approximation: a graph with few activities in a row cannot be cut finer. Works with and without Compact. Off: no aim (default).",
 };
 
 /** Heading with a hover text. */
