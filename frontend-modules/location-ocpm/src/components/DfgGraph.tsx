@@ -34,7 +34,7 @@ import {
   SIZES,
   type TerminalNodeData,
 } from "../lib/dfgLayout";
-import { type Drawing, legendEntries } from "../lib/dfgDrawing";
+import type { Drawing } from "../lib/dfgDrawing";
 import { downloadDrawing, IMAGE_FORMATS, type ImageFormat } from "../lib/dfgDownload";
 import { num } from "../lib/format";
 import { useKeptViewport } from "../lib/keptView";
@@ -206,39 +206,6 @@ const ArcEdge = memo(({ id, data, markerEnd }: EdgeProps<Edge<ArcData>>) => {
 
 /** Grey of start and end arcs. */
 const GREY = "#9aa0a6";
-
-/**
- * The object types of the drawing with their colours (Nina, 2026-11-23): a short line for a selected type (its arcs,
- * start and end nodes), a circle for an unselected one (only shown as circles on the activities). The same entries
- * as the legend of the downloaded files (`legendEntries`, lib/dfgDrawing.ts), in the page's colours (`colours`).
- */
-const TypeLegend = ({ drawing, colours }: { drawing: Drawing; colours: Map<string, string> }) => {
-  const entries = legendEntries(drawing);
-  if (entries.length === 0) return null;
-  return (
-    <Group gap={10} wrap="wrap" align="center">
-      <Text fz={11} fw={600}>Object types:</Text>
-      {entries.map((e) => (
-        <Tooltip
-          key={e.objectType}
-          label={e.selected ? "Selected: its arcs, start and end nodes are drawn in this colour" : "Not selected: shown as a circle on the activities whose events involve it"}
-          withinPortal
-        >
-          <Group gap={4} wrap="nowrap" align="center">
-            <Box
-              style={
-                e.selected
-                  ? { width: 16, height: 3, borderRadius: 2, background: colours.get(e.objectType) ?? e.colour }
-                  : { width: SIZES.circle + 1, height: SIZES.circle + 1, borderRadius: "50%", background: colours.get(e.objectType) ?? e.colour, boxShadow: "0 0 0 0.5px var(--mantine-color-gray-6)" }
-              }
-            />
-            <Text fz={11}>{e.objectType}</Text>
-          </Group>
-        </Tooltip>
-      ))}
-    </Group>
-  );
-};
 
 /** The legend, in grey above the graph. */
 const Legend = () => (
@@ -416,7 +383,7 @@ const DownloadMenu = ({ drawing, fileName }: { drawing: () => Drawing; fileName:
  *
  * @param graph The graph from the backend.
  * @param colours Colour per object type.
- * @param exportColours Colour per object type in the downloads and the object-type legend (light scheme; default: `colours`).
+ * @param exportColours Colour per object type in the downloads (light scheme; default: `colours`).
  * @param direction Layout direction (left to right or top to bottom).
  * @param arcLabel What the arc labels show: traversals (`count`) or distinct objects.
  * @param compact Compact layout (little white space, `COMPACT_OPTIONS`).
@@ -552,7 +519,7 @@ export const DfgGraph = ({
     }
     return followNodes(flow.edges, offsets);
   }, [flow, nodes]);
-  // The graph as drawn (current positions, bent arcs), for the downloads and the object-type legend, in the export
+  // The graph as drawn (current positions, bent arcs), for the downloads, in the export
   // colours (start and end arcs grey, as on the page).
   const drawing = useMemo<Drawing>(() => {
     const light = exportColours ?? colours;
@@ -578,7 +545,6 @@ export const DfgGraph = ({
   return (
     <Stack gap={4}>
       <Legend />
-      <TypeLegend drawing={drawing} colours={colours} />
     <Box style={{ height, border: "1px solid var(--mantine-color-default-border)", borderRadius: 8, position: "relative" }}>
       {copied && (
         <Text
