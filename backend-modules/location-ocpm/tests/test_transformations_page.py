@@ -15,7 +15,8 @@ from ocelescope_module_location_based_ocpm.transformations.events import (
 )
 from ocelescope_module_location_based_ocpm.transformations.key_numbers import key_numbers, transformation_count
 from ocelescope_module_location_based_ocpm.transformations.profile import type_profile
-from ocelescope_module_location_based_ocpm.transformations.type_graph import min_frequency, type_graph
+from ocelescope_module_location_based_ocpm.instance_routes import cached_profile
+from ocelescope_module_location_based_ocpm.transformations.type_graph import min_frequency, type_graph, type_lifecycles
 
 
 @pytest.fixture(scope="module")
@@ -149,6 +150,32 @@ def test_type_graph_of_the_running_example(running):
         ("recipe:r3", "type:coil"): 2,
     }
     assert [t.object_type for t in graph.object_types] == ["coil", "slab"]
+
+
+def test_type_lifecycles_of_the_running_example(running, derivation):
+    """Full lifecycles: c2 (12 h) of five coils and s1 (2 h); the ellipses carry them."""
+    lifecycles = type_lifecycles(cached_profile("test-transformations", derivation))
+    assert lifecycles.to_dicts() == [
+        {"object_type": "coil", "handling_units": 5, "full_lifecycle": 1, "lifetime_q1": 43200.0, "lifetime_median": 43200.0, "lifetime_q3": 43200.0},
+        {"object_type": "slab", "handling_units": 1, "full_lifecycle": 1, "lifetime_q1": 7200.0, "lifetime_median": 7200.0, "lifetime_q3": 7200.0},
+    ]
+    types = {t.object_type: t for t in type_graph(running, lifecycles=lifecycles).object_types}
+    assert (types["coil"].full_lifecycle, types["coil"].lifetime_median) == (1, 43200.0)
+    assert type_graph(running).object_types[0].lifetime_median is None
+
+
+def test_type_lifecycles_quartiles():
+    """Quartiles are interpolated over the handling units with a full lifecycle only."""
+    profile = pl.DataFrame(
+        {
+            "object_type": ["coil"] * 5 + ["slab"],
+            "lifecycle": ["both", "both", "both", "both", "produced", "open"],
+            "lifespan": [1.0, 2.0, 3.0, 5.0, 100.0, 7.0],
+        }
+    )
+    rows = {r["object_type"]: r for r in type_lifecycles(profile).to_dicts()}
+    assert (rows["coil"]["lifetime_q1"], rows["coil"]["lifetime_median"], rows["coil"]["lifetime_q3"]) == (1.75, 2.5, 3.5)
+    assert (rows["slab"]["full_lifecycle"], rows["slab"]["lifetime_median"]) == (0, None)
 
 
 def test_type_graph_quantities(extended):

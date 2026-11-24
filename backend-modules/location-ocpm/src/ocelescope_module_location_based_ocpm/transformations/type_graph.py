@@ -15,6 +15,10 @@ Steps:
    transformation events the shown recipes must cover. The most frequent recipes are taken until they cover it, and
    every recipe as frequent as the last one taken is shown too, so the slider amounts to a minimum frequency.
 5. `type_graph`: the graph of the shown recipes.
+
+Additionally, `type_lifecycles` gives per object type the handling units with a full lifecycle (produced and finally
+consumed in the log, lifecycle class "both" of the HU profile) and the quartiles of their lifespans
+$last(hu) - first(hu)$ (the lifetime from production to final consumption); the ellipses show them (Nina 2026-11-24).
 """
 
 from typing import Literal
@@ -197,12 +201,22 @@ class TypeNode(BaseModel):
         object_type: The object type.
         consumed: Handling units of this type consumed by the shown recipes.
         produced: Handling units of this type produced by the shown recipes.
+        handling_units: Handling units of this type in the log (`type_lifecycles`; 0 without lifecycles).
+        full_lifecycle: Of them, those with a full lifecycle (produced and finally consumed in the log).
+        lifetime_q1: First quartile of their lifetimes in seconds (null without a full lifecycle).
+        lifetime_median: Median of their lifetimes in seconds.
+        lifetime_q3: Third quartile of their lifetimes in seconds.
     """
 
     node: str
     object_type: str
     consumed: int
     produced: int
+    handling_units: int = 0
+    full_lifecycle: int = 0
+    lifetime_q1: float | None = None
+    lifetime_median: float | None = None
+    lifetime_q3: float | None = None
 
 
 class TypeArc(BaseModel):
@@ -257,13 +271,56 @@ class TypeGraph(BaseModel):
     frequencies: list[int]
 
 
-def type_graph(table: pl.DataFrame, coverage: float = DEFAULT_COVERAGE, quantities: Quantities = "exact") -> TypeGraph:
+def type_lifecycles(profile: pl.DataFrame) -> pl.DataFrame:
+    """Handling units with a full lifecycle and the quartiles of their lifetimes, per object type.
+
+    A handling unit has a full lifecycle if it is produced and finally consumed in the log (lifecycle class "both"
+    of the HU profile, `instances.profile.transformation_profile`); its lifetime is its lifespan
+    $last(hu) - first(hu)$, which then runs from its production to its final consumption. Handling units without a
+    full lifecycle are left out of the quartiles, since their lifespan is cut off by the log.
+    Quartiles are linearly interpolated (as numpy's default).
+
+    Args:
+        profile: The HU profile (`instances.profile.hu_profile`) with the columns object_type, lifecycle and lifespan
+            (seconds).
+
+    Returns:
+        pl.DataFrame: One row per object type with the columns object_type, handling_units, full_lifecycle,
+        lifetime_q1, lifetime_median and lifetime_q3 (null if no handling unit of the type has a full lifecycle).
+
+    Example (running example): coil 5 handling units, 1 with a full lifecycle (c2, 12 h: median, Q1 and Q3 43200 s);
+    slab 1 handling unit, 1 with a full lifecycle (s1, 2 h).
+    """
+    full = pl.col("lifecycle") == "both"
+    lifetime = pl.col("lifespan").filter(full)
+    return (
+        profile.group_by(c.OBJECT_TYPE)
+        .agg(
+            pl.len().alias("handling_units"),
+            full.sum().alias("full_lifecycle"),
+            lifetime.quantile(0.25, interpolation="linear").alias("lifetime_q1"),
+            lifetime.median().alias("lifetime_median"),
+            lifetime.quantile(0.75, interpolation="linear").alias("lifetime_q3"),
+        )
+        .with_columns(pl.col("handling_units", "full_lifecycle").cast(pl.Int64))
+        .sort(c.OBJECT_TYPE)
+    )
+
+
+def type_graph(
+    table: pl.DataFrame,
+    coverage: float = DEFAULT_COVERAGE,
+    quantities: Quantities = "exact",
+    lifecycles: pl.DataFrame | None = None,
+) -> TypeGraph:
     """Step 5: the transformation type graph of the kept transformation events.
 
     Args:
         table: Kept transformation events (`events.filter_events`).
         coverage: Slider value, share of the events the shown recipes cover (`min_frequency`).
         quantities: "exact" or "sets" (`recipe_keys`).
+        lifecycles: Optional output of `type_lifecycles` (of the whole log, so independent of the page filters and
+            the slider); adds the full lifecycles and lifetimes to the object types.
 
     Returns:
         TypeGraph: Nodes and arcs of the recipes with at least `min_frequency` events.
@@ -286,6 +343,10 @@ def type_graph(table: pl.DataFrame, coverage: float = DEFAULT_COVERAGE, quantiti
         )
         .sort(c.OBJECT_TYPE)
     )
+    if lifecycles is not None:
+        types = types.join(lifecycles, on=c.OBJECT_TYPE, how="left").with_columns(
+            pl.col("handling_units", "full_lifecycle").fill_null(0)
+        )
     total = table.height
     return TypeGraph(
         recipes=[

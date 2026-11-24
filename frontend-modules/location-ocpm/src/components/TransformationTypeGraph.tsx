@@ -3,7 +3,7 @@
 // object type (output) labelled with the quantity. A frequency slider hides rare recipes. Laid out with ELK and drawn
 // with React Flow, as the lineage chart; downloadable as PDF, SVG, HTML or PNG (`GraphDownloadMenu`, lib/typeGraphDrawing.ts).
 // Documented in docs/pages/transformations.md, section "Transformation type graph".
-import { Alert, Box, Group, Loader, SegmentedControl, Slider, Stack, Text, Tooltip } from "@mantine/core";
+import { Alert, Box, Checkbox, Group, Loader, SegmentedControl, Slider, Stack, Text, Tooltip } from "@mantine/core";
 import {
   BaseEdge,
   Controls,
@@ -11,7 +11,6 @@ import {
   type EdgeProps,
   EdgeLabelRenderer,
   Handle,
-  MarkerType,
   type Node,
   type NodeProps,
   Position,
@@ -25,6 +24,7 @@ import {
   type GetTransformationTypeGraphQuantities,
   type TypeArc,
   type TypeGraph,
+  type TypeNode,
   useGetTransformationTypeGraph,
 } from "../api/locationBasedOcpm";
 import { ELK_OPTIONS, sectionPath, textWidth } from "../lib/dfgLayout";
@@ -36,7 +36,8 @@ import { useObjectTypeColours } from "../lib/objectTypeColours";
 import { OTHER } from "../lib/palette";
 import { KIND_LABELS, listRequest, type TransformationFilter } from "../lib/transformations";
 import { useDebounced } from "../lib/useDebounced";
-import { type TypeDrawing, typeGraphScene } from "../lib/typeGraphDrawing";
+import { arcPaths, SIZES as DRAWING_SIZES, type TypeDrawing, typeGraphScene } from "../lib/typeGraphDrawing";
+import { duration } from "./HuProfileTable";
 import { GraphDownloadMenu } from "./GraphDownloadMenu";
 import { useScheme } from "./plots";
 
@@ -46,17 +47,34 @@ type GraphSettings = {
   coverage: number;
   quantities: GetTransformationTypeGraphQuantities;
   layout: "RIGHT" | "DOWN";
+  /** Show frequency and share in the recipe rectangles (Nina 2026-11-24: optional). */
+  frequencies: boolean;
+  /** Lifetime in the ellipses: none, the median, or the median and the IQR (Nina 2026-11-24). */
+  lifetime: Lifetime;
 };
 
-const DEFAULTS: GraphSettings = { coverage: 100, quantities: "exact", layout: "RIGHT" };
+type Lifetime = "off" | "median" | "iqr";
+
+const DEFAULTS: GraphSettings = { coverage: 100, quantities: "exact", layout: "RIGHT", frequencies: true, lifetime: "off" };
 /** The slider recalculates the graph this long after the last change (ms). */
 const SLIDER_DELAY = 400;
 /** Sizes of the drawing in pixels. */
-const SIZE = { font: 12, small: 10, padX: 10, typeHeight: 36, recipeHeight: 38, minWidth: 60, minArc: 1.2, maxArc: 8 };
+const SIZE = { font: 12, small: 10, padX: 10, typeHeight: 36, recipeHeight: 38, recipeHeightSingle: 28, minWidth: 60, minArc: 1.2, maxArc: 8 };
 const HEIGHT = 520;
 
-/** `exportColour`: the colour in the light scheme, for the downloads (always light). */
-type TypeData = { kind: "type"; objectType: string; consumed: number; produced: number; width: number; height: number; colour: string; exportColour: string };
+/** `lines`: below the name (full lifecycles, lifetime); `exportColour`: the colour in the light scheme, for the downloads. */
+type TypeData = {
+  kind: "type";
+  objectType: string;
+  lines: string[];
+  hover: string;
+  consumed: number;
+  produced: number;
+  width: number;
+  height: number;
+  colour: string;
+  exportColour: string;
+};
 type RecipeData = {
   kind: "recipe";
   id: string;
@@ -65,12 +83,16 @@ type RecipeData = {
   frequency: number;
   share: number;
   recipeKind: string;
+  showFrequency: boolean;
   width: number;
   height: number;
 };
 type NodeData = TypeData | RecipeData;
+/** `path`: ELK's route (for the downloads); `line` and `arrow`: the drawn line, ending inside its arrow head. */
 type EdgeData = {
   path: string;
+  line: string;
+  arrow: string;
   colour: string;
   exportColour: string;
   width: number;
@@ -86,9 +108,9 @@ const Handles = () => (
   </>
 );
 
-/** An object type: ellipse in the colour of the type. */
+/** An object type: ellipse in the colour of the type, with its name and lines (full lifecycles, lifetime). */
 const TypeNodeView = memo(({ data }: NodeProps<Node<TypeData>>) => (
-  <Tooltip label={`${data.objectType}: ${num(data.consumed)} handling units consumed, ${num(data.produced)} produced by the shown recipes`} withinPortal>
+  <Tooltip label={data.hover} multiline maw={360} withinPortal>
     <Box
       style={{
         width: data.width,
@@ -97,14 +119,21 @@ const TypeNodeView = memo(({ data }: NodeProps<Node<TypeData>>) => (
         border: `1.5px solid ${data.colour}`,
         background: `${data.colour}26`,
         display: "flex",
+        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
+        lineHeight: DRAWING_SIZES.lineHeight,
       }}
     >
       <Handles />
-      <Text fz={SIZE.font} fw={600}>
+      <Text fz={SIZE.font} fw={600} lh={DRAWING_SIZES.lineHeight}>
         {data.objectType}
       </Text>
+      {data.lines.map((line) => (
+        <Text key={line} fz={SIZE.small} c="dimmed" lh={DRAWING_SIZES.lineHeight}>
+          {line}
+        </Text>
+      ))}
     </Box>
   </Tooltip>
 ));
@@ -130,19 +159,25 @@ const RecipeNodeView = memo(({ data }: NodeProps<Node<RecipeData>>) => (
       <Text fz={SIZE.font} fw={600}>
         {data.activity}
       </Text>
-      <Text fz={SIZE.small} c="dimmed">
-        {num(data.frequency)}× · {pct(data.share)}
-      </Text>
+      {data.showFrequency && (
+        <Text fz={SIZE.small} c="dimmed">
+          {num(data.frequency)}× · {pct(data.share)}
+        </Text>
+      )}
     </Box>
   </Tooltip>
 ));
 
-/** An arc: ELK's route, width by the handling units that flowed along it, labelled with the quantity. */
-const ArcView = memo(({ id, data, markerEnd }: EdgeProps<Edge<EdgeData>>) => {
+/**
+ * An arc: ELK's route, width by the handling units that flowed along it, labelled with the quantity. The arrow head
+ * grows with the width (`arcArrow`), and the line ends inside it, so thick arcs keep a visible point.
+ */
+const ArcView = memo(({ id, data }: EdgeProps<Edge<EdgeData>>) => {
   if (!data?.path) return null;
   return (
     <>
-      <BaseEdge id={id} path={data.path} markerEnd={markerEnd} style={{ stroke: data.colour, strokeWidth: data.width, strokeOpacity: 0.85 }} />
+      <BaseEdge id={id} path={data.line} style={{ stroke: data.colour, strokeWidth: data.width, strokeOpacity: 0.85 }} />
+      {data.arrow && <path d={data.arrow} fill={data.colour} stroke={data.colour} strokeWidth={1} strokeLinejoin="round" />}
       {data.labelPosition && (
         <EdgeLabelRenderer>
           <Box
@@ -175,21 +210,67 @@ const elk = new ELK();
 const quantityLabel = (a: TypeArc) => (a.quantity_min === a.quantity_max ? num(a.quantity_min) : `${num(a.quantity_min)}–${num(a.quantity_max)}`);
 
 /**
+ * The lines below an object type's name: its handling units with a full lifecycle (produced and finally consumed in
+ * the log) and, if chosen, the median lifetime and the IQR (Q3 − Q1) of these handling units.
+ * Example (running example, coil, "iqr"): ["1 full lifecycle", "median 12 h · IQR 0"].
+ *
+ * @param t The object type from the backend (`type_lifecycles`).
+ * @param lifetime What to show of the lifetime.
+ * @returns The lines.
+ */
+export const typeLines = (t: TypeNode, lifetime: Lifetime): string[] => {
+  const full = t.full_lifecycle ?? 0;
+  const lines = [`${num(full)} full ${full === 1 ? "lifecycle" : "lifecycles"}`];
+  if (lifetime === "off" || t.lifetime_median == null) return lines;
+  const iqr = t.lifetime_q1 != null && t.lifetime_q3 != null ? t.lifetime_q3 - t.lifetime_q1 : null;
+  lines.push(lifetime === "iqr" ? `median ${duration(t.lifetime_median)} · IQR ${duration(iqr)}` : `median ${duration(t.lifetime_median)}`);
+  return lines;
+};
+
+/** Hover text of an object type: handling units, full lifecycles, lifetime quartiles, flow in the shown recipes. */
+const typeHover = (t: TypeNode) =>
+  [
+    `${t.object_type}: ${num(t.handling_units ?? 0)} handling units in the log, ${num(t.full_lifecycle ?? 0)} with a full lifecycle (produced and finally consumed in the log)`,
+    t.lifetime_median != null
+      ? `Lifetime (production to final consumption) of these: median ${duration(t.lifetime_median)}, Q1 ${duration(t.lifetime_q1)}, Q3 ${duration(t.lifetime_q3)}`
+      : "",
+    `${num(t.consumed)} handling units consumed, ${num(t.produced)} produced by the shown recipes`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+/**
  * Lay out the type graph with ELK (layered, Ocelescope's DFG options) and turn it into React Flow nodes and edges.
  *
  * @param graph The graph from the backend.
  * @param direction Layout direction.
  * @param colours Colour per object type on the page (`useObjectTypeColours`: the same on every page).
  * @param exportColours Colour per object type in the light scheme, for the downloads.
+ * @param show What the nodes show: recipe frequencies and the lifetime in the ellipses.
  */
-const layoutTypeGraph = async (graph: TypeGraph, direction: "RIGHT" | "DOWN", colours: Map<string, string>, exportColours: Map<string, string>) => {
+const layoutTypeGraph = async (
+  graph: TypeGraph,
+  direction: "RIGHT" | "DOWN",
+  colours: Map<string, string>,
+  exportColours: Map<string, string>,
+  show: { frequencies: boolean; lifetime: Lifetime },
+) => {
   const sizes = new Map<string, { width: number; height: number }>();
-  for (const t of graph.object_types)
-    sizes.set(t.node, { width: Math.ceil(Math.max(SIZE.minWidth, textWidth(t.object_type, SIZE.font, 600) + 2 * SIZE.padX) * 1.3), height: SIZE.typeHeight });
+  const lines = new Map(graph.object_types.map((t) => [t.node, typeLines(t, show.lifetime)]));
+  const line = DRAWING_SIZES.lineHeight;
+  for (const t of graph.object_types) {
+    const own = lines.get(t.node) ?? [];
+    const textW = Math.max(textWidth(t.object_type, SIZE.font, 600), ...own.map((l) => textWidth(l, SIZE.small)));
+    const textH = SIZE.font * line + own.length * SIZE.small * line;
+    // An ellipse fits its text if it is about 1.3 times as wide and 1.35 times as high as the text block.
+    sizes.set(t.node, { width: Math.ceil(Math.max(SIZE.minWidth, textW + 2 * SIZE.padX) * 1.3), height: Math.ceil(Math.max(SIZE.typeHeight, (textH + 8) * 1.35)) });
+  }
   for (const r of graph.recipes)
     sizes.set(r.node, {
-      width: Math.ceil(Math.max(SIZE.minWidth, textWidth(r.activity, SIZE.font, 600), textWidth(`${r.frequency}× · 100 %`, SIZE.small)) + 2 * SIZE.padX),
-      height: SIZE.recipeHeight,
+      width: Math.ceil(
+        Math.max(SIZE.minWidth, textWidth(r.activity, SIZE.font, 600), show.frequencies ? textWidth(`${r.frequency}× · 100 %`, SIZE.small) : 0) + 2 * SIZE.padX,
+      ),
+      height: show.frequencies ? SIZE.recipeHeight : SIZE.recipeHeightSingle,
     });
   const maxHus = Math.max(1, ...graph.arcs.map((a) => a.hus));
   const root: ElkNode = {
@@ -213,6 +294,8 @@ const layoutTypeGraph = async (graph: TypeGraph, direction: "RIGHT" | "DOWN", co
       data: {
         kind: "type" as const,
         objectType: t.object_type,
+        lines: lines.get(t.node) ?? [],
+        hover: typeHover(t),
         consumed: t.consumed,
         produced: t.produced,
         colour: colours.get(t.object_type) ?? OTHER.light,
@@ -233,6 +316,7 @@ const layoutTypeGraph = async (graph: TypeGraph, direction: "RIGHT" | "DOWN", co
         frequency: r.frequency,
         share: r.share,
         recipeKind: r.kind,
+        showFrequency: show.frequencies,
         ...(sizes.get(r.node) as { width: number; height: number }),
       },
       style: { pointerEvents: "all" as const },
@@ -245,21 +329,25 @@ const layoutTypeGraph = async (graph: TypeGraph, direction: "RIGHT" | "DOWN", co
     const colour = colours.get(a.object_type) ?? OTHER.light;
     const recipe = recipes.get(a.recipe);
     const events = recipe?.frequency ?? 0;
+    const path = section ? sectionPath(section) : "";
+    const width = SIZE.minArc + ((SIZE.maxArc - SIZE.minArc) * a.hus) / maxHus;
+    const drawn = path ? arcPaths(path, width) : { line: "", arrow: "" };
     return {
       id: `a${i}`,
       source: a.source,
       target: a.target,
       type: "arc",
       data: {
-        path: section ? sectionPath(section) : "",
+        path,
+        line: drawn.line,
+        arrow: drawn.arrow,
         colour,
         exportColour: exportColours.get(a.object_type) ?? OTHER.light,
-        width: SIZE.minArc + ((SIZE.maxArc - SIZE.minArc) * a.hus) / maxHus,
+        width,
         label: quantityLabel(a),
         hover: `${recipe?.recipe ?? a.recipe}: ${quantityLabel(a)} ${a.object_type} per event ${a.role === "consumed" ? "consumed" : "produced"}; ${num(a.hus)} handling units over ${num(events)} events`,
         labelPosition: label?.x != null && label?.y != null ? { x: label.x + (label.width ?? 0) / 2, y: label.y + (label.height ?? 0) / 2 } : null,
       },
-      markerEnd: { type: MarkerType.ArrowClosed, color: colour, width: 18, height: 18, markerUnits: "userSpaceOnUse" },
     };
   });
   return { nodes, edges };
@@ -287,7 +375,15 @@ export const typeDrawing = (nodes: Node<NodeData>[], edges: Edge<EdgeData>[], or
   const rank = (t: string) => (order.indexOf(t) + 1 || Infinity);
   const ranked = [...types].sort((a, b) => rank(a.data.objectType) - rank(b.data.objectType) || a.data.objectType.localeCompare(b.data.objectType));
   return {
-    types: types.map(({ position, data: d }) => ({ ...position, width: d.width, height: d.height, objectType: d.objectType, consumed: d.consumed, produced: d.produced, colour: d.exportColour ?? d.colour })),
+    types: types.map(({ position, data: d }) => ({
+      ...position,
+      width: d.width,
+      height: d.height,
+      objectType: d.objectType,
+      lines: d.lines ?? [],
+      hover: d.hover ?? d.objectType,
+      colour: d.exportColour ?? d.colour,
+    })),
     recipes: recipes.map(({ position, data: d }) => ({
       ...position,
       width: d.width,
@@ -298,10 +394,14 @@ export const typeDrawing = (nodes: Node<NodeData>[], edges: Edge<EdgeData>[], or
       frequency: d.frequency,
       share: d.share,
       kind: d.recipeKind,
+      showFrequency: d.showFrequency ?? true,
     })),
     arcs: edges.flatMap((e) => (e.data ? [{ path: e.data.path, colour: e.data.exportColour ?? e.data.colour, width: e.data.width, label: e.data.label, labelPosition: e.data.labelPosition, hover: e.data.hover }] : [])),
     colours: new Map(ranked.map((n) => [n.data.objectType, n.data.exportColour ?? n.data.colour])),
     kindLabels: KIND_LABELS,
+    keys: types.some((t) => (t.data.lines ?? []).length)
+      ? ["number in an ellipse: handling units with a full lifecycle (produced and finally consumed in the log)", "lifetime: from production to final consumption"]
+      : [],
   };
 };
 
@@ -315,7 +415,9 @@ const MARKS = [0, 50, 100].map((value) => ({ value, label: `${value} %` }));
  * @param filter The page filters (select whole transformation events).
  */
 export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; filter: TransformationFilter }) => {
-  const [settings, setSettings] = usePageState<GraphSettings>(`transformations.graph.${ocelId}`, DEFAULTS);
+  const [kept, setSettings] = usePageState<GraphSettings>(`transformations.graph.${ocelId}`, DEFAULTS);
+  // Settings kept before an option existed lack it: fill in its default.
+  const settings: GraphSettings = { ...DEFAULTS, ...kept };
   const [coverage] = useDebounced(settings.coverage, SLIDER_DELAY);
   const scheme = useScheme();
   const typeColours = useObjectTypeColours(ocelId);
@@ -327,12 +429,16 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
   const data = query.data;
   const { layout: flow, error: layoutError } = useKeptLayout(
     `transformations.graph.layout.${ocelId}`,
-    [data, settings.layout, scheme, typeColours],
-    () => layoutTypeGraph(data!, settings.layout, typeColours.colours, typeColours.exportColours),
+    [data, settings.layout, scheme, typeColours, settings.frequencies, settings.lifetime],
+    () =>
+      layoutTypeGraph(data!, settings.layout, typeColours.colours, typeColours.exportColours, {
+        frequencies: settings.frequencies,
+        lifetime: settings.lifetime,
+      }),
     !!data && typeColours.loaded,
   );
   const { skipFit, ...viewport } = useKeptViewport(`transformations.graph.viewport.${ocelId}`, flow);
-  const set = (change: Partial<GraphSettings>) => setSettings((s) => ({ ...s, ...change }));
+  const set = (change: Partial<GraphSettings>) => setSettings((s) => ({ ...DEFAULTS, ...s, ...change }));
 
   return (
     <Stack gap={6}>
@@ -397,6 +503,36 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
             ]}
           />
         </div>
+        <div>
+          <Tooltip
+            label="Lifetime of the handling units of a type with a full lifecycle (produced and finally consumed in the log): from production to final consumption. Median, and optionally the IQR (Q3 − Q1); hover an ellipse for Q1 and Q3. Over the whole log, not only the shown recipes."
+            multiline
+            maw={360}
+            withArrow
+            openDelay={300}
+          >
+            <Text size="xs" fw={500}>
+              Lifetime
+            </Text>
+          </Tooltip>
+          <SegmentedControl
+            size="xs"
+            value={settings.lifetime}
+            onChange={(v) => set({ lifetime: v as Lifetime })}
+            data={[
+              { value: "off", label: "off" },
+              { value: "median", label: "median" },
+              { value: "iqr", label: "median + IQR" },
+            ]}
+          />
+        </div>
+        <Checkbox
+          size="xs"
+          mb={6}
+          label="Recipe frequencies"
+          checked={settings.frequencies}
+          onChange={(e) => set({ frequencies: e.currentTarget.checked })}
+        />
       </Group>
       {data && (
         <Text size="xs" c="dimmed">
@@ -406,8 +542,9 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
         </Text>
       )}
       <Text fz={11} lh={1.3} c="dimmed">
-        Ellipse: object type · rectangle: recipe (activity, frequency and share of the transformation events; hover for input
-        and output) · arrow object type → recipe: input, recipe → object type: output, labelled with the handling units per event,
+        Ellipse: object type with its handling units with a full lifecycle (produced and finally consumed in the log) ·
+        rectangle: recipe (activity{settings.frequencies ? ", frequency and share of the transformation events" : ""}; hover for
+        input and output) · arrow object type → recipe: input, recipe → object type: output, labelled with the handling units per event,
         as wide as the handling units that flowed along it (hover the label)
       </Text>
       {query.isError ? (

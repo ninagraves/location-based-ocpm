@@ -40,7 +40,7 @@ export const solid = (colour: string): string => {
 };
 
 /** Length and half width of an arc's arrow head, in pixels. */
-const ARROW = { length: 8, halfWidth: 4 };
+export const ARROW = { length: 8, halfWidth: 4 };
 /** White space around the drawing, in pixels. */
 export const MARGIN = 12;
 
@@ -126,10 +126,17 @@ export const parsePath = (path: string): Segment[] => {
  * instead of at its tip) and return the arrow head: a triangle with its tip at the original end point.
  *
  * @param d The path.
- * @param by How far to pull the end back.
+ * @param by How far to pull the end back (default: 70 % of the arrow's length).
+ * @param size Length and half width of the arrow (default `ARROW`; larger for thick arcs, e.g. `arcArrow` in
+ *   lib/typeGraphDrawing.ts).
  * @returns The shortened path and the arrow triangle (null for a path without direction).
  */
-export const arrowHead = (d: Segment[], by: number = ARROW.length * 0.7): { path: Segment[]; arrow: Segment[] | null } => {
+export const arrowHead = (
+  d: Segment[],
+  by?: number,
+  size: { length: number; halfWidth: number } = ARROW,
+): { path: Segment[]; arrow: Segment[] | null } => {
+  const pull = by ?? size.length * 0.7;
   const drawn = d.filter((s): s is Exclude<Segment, { op: "Z" }> => s.op !== "Z");
   if (drawn.length < 2) return { path: d, arrow: null };
   const last = drawn[drawn.length - 1];
@@ -139,14 +146,14 @@ export const arrowHead = (d: Segment[], by: number = ARROW.length * 0.7): { path
   const ux = (last.p.x - before.x) / length;
   const uy = (last.p.y - before.y) / length;
   const tip = last.p;
-  const base = { x: tip.x - ux * ARROW.length, y: tip.y - uy * ARROW.length };
+  const base = { x: tip.x - ux * size.length, y: tip.y - uy * size.length };
   const arrow: Segment[] = [
     { op: "M", p: tip },
-    { op: "L", p: { x: base.x - uy * ARROW.halfWidth, y: base.y + ux * ARROW.halfWidth } },
-    { op: "L", p: { x: base.x + uy * ARROW.halfWidth, y: base.y - ux * ARROW.halfWidth } },
+    { op: "L", p: { x: base.x - uy * size.halfWidth, y: base.y + ux * size.halfWidth } },
+    { op: "L", p: { x: base.x + uy * size.halfWidth, y: base.y - ux * size.halfWidth } },
     { op: "Z" },
   ];
-  const back = (p: Point) => ({ x: p.x - ux * by, y: p.y - uy * by });
+  const back = (p: Point) => ({ x: p.x - ux * pull, y: p.y - uy * pull });
   const path = d.map((s) => (s === last ? (s.op === "C" ? { ...s, c2: back(s.c2), p: back(s.p) } : { ...s, p: back(s.p) }) : s));
   return { path, arrow };
 };
@@ -426,8 +433,8 @@ const xml = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;"
 /** Round to two decimals (smaller files). */
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
-/** SVG path data of segments. */
-const pathData = (d: Segment[]) =>
+/** SVG path data of segments (also the arcs of the transformation type graph on the page). */
+export const pathData = (d: Segment[]) =>
   d.map((s) => (s.op === "Z" ? "Z" : s.op === "C" ? `C${r2(s.c1.x)},${r2(s.c1.y)} ${r2(s.c2.x)},${r2(s.c2.y)} ${r2(s.p.x)},${r2(s.p.y)}` : `${s.op}${r2(s.p.x)},${r2(s.p.y)}`)).join(" ");
 
 /** SVG of one shape. */

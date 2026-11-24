@@ -79,7 +79,9 @@ One row per transformation type: type, kind, events, transformations, lineage re
 ## Transformation type graph
 ### What it shows
 Bipartite graph: object types (ellipses, each in its colour of the whole module, `useObjectTypeColours`, `docs/resources/object-type-colours.md`; legend of the download in that order) and recipes (rectangles: activity, frequency, share of the transformation events; hover: id, recipe, kind). Arcs object type → recipe (input) and recipe → object type (output), labelled with the handling units of the type per event of the recipe, coloured by object type, as wide as the handling units that flowed along them (hover the label).
-Settings: frequency slider, quantities (exact | as sets), layout (left to right | top to bottom).
+Object types also show the handling units of the type with a **full lifecycle** (produced and finally consumed in the log, lifecycle class "both" of the HU profile) and, optionally, the **median lifetime** (and the **IQR**, Q3 − Q1) of these handling units, their lifespan $last(hu) - first(hu)$ = production to final consumption (Nina 2026-11-24). Both are over the whole log, independent of the page filters and the slider; hover an ellipse for Q1, Q3 and the number of handling units.
+Arrow heads grow with the arc width (`arcArrow`: length $8 + 1.5w$, half width $4 + 0.75w$), and the line ends inside the head, so thick arcs keep a visible point (Nina 2026-11-24).
+Settings: frequency slider, quantities (exact | as sets), layout (left to right | top to bottom), lifetime (off | median | median + IQR), recipe frequencies (on | off).
 Download (Nina 2026-11-23: "export button for the gozinto graph"): button at the top right of the graph, as on the DFG page: PDF (vector), SVG (vector), HTML (interactive), PNG; option "With legend" (object types and the key of the symbols, on by default). The file shows the whole graph in light colours, whatever part is zoomed in on. File name `transformation-type-graph.<ext>`.
 ### How it is calculated
 `type_graph.py`, one function per step:
@@ -88,20 +90,23 @@ Download (Nina 2026-11-23: "export button for the gozinto graph"): button at the
 3. `recipe_table` (frequency, stable ids r1, r2, … by frequency, then label) and `recipe_arcs` (per recipe, side and object type: smallest and largest quantity, handling units over all events).
 4. `min_frequency`: the slider value $p$ is a share of the kept transformation events; recipes are ranked by frequency and taken until they cover $p$; every recipe at least as frequent as the last one taken is shown, so the slider sets a minimum frequency.
 5. `type_graph`: the recipes with at least that frequency, their object types and arcs (node ids "recipe:r1", "type:coil").
+6. `type_lifecycles` (of `instance_routes.cached_profile`, the HU profile of the instance page, cached per derivation): per object type the handling units, those with a full lifecycle and the quartiles (linear interpolation) of their lifetimes; `type_graph(..., lifecycles=...)` adds them to the object types.
 ### Example
 Running example, 100 %: r1 "cast slab: ∅ → 1 slab", r2 "cut: 1 coil → 1 coil", r3 "roll: 1 slab → 2 coil"; arcs r1 → slab (1), coil → r2 (1), r2 → coil (1), slab → r3 (1), r3 → coil (2).
+Full lifecycles (test `test_type_lifecycles_of_the_running_example`): coil 1 of 5 (c2, 12 h; c1 and c4 are not finally consumed, c3 and c5 not produced), slab 1 of 1 (s1, 2 h); so coil shows "1 full lifecycle" and, with median + IQR, "median 12 h · IQR 0".
 With a second roll producing 3 coils (test `test_type_graph_quantities`): exact gives two roll recipes; as sets gives one, "roll: slab → coil", frequency 2, output arc "2–3", 5 handling units.
 Slider: frequencies 5, 3, 1, 1 and 80 % give minimum frequency 3 (two recipes, 8 of 10 events); 81 % gives 1 (all).
 ### Filtering
 Follows the page filters (the share and the slider refer to the kept events).
 ### Settings and defaults
-Slider 100 % (all recipes), quantities exact, left to right; kept per log (`transformations.graph.<log>`); the slider recalculates 0.4 s after the last move (`SLIDER_DELAY`).
+Slider 100 % (all recipes), quantities exact, left to right, lifetime off, recipe frequencies on; kept per log (`transformations.graph.<log>`); the slider recalculates 0.4 s after the last move (`SLIDER_DELAY`).
 ### Where it lives in the code
 `transformations/type_graph.py`; route `GET /{ocel_id}/transformations/type-graph` (`coverage` in [0, 1], `quantities`); frontend `components/TransformationTypeGraph.tsx` (ELK layered with `ELK_OPTIONS` of `lib/dfgLayout.ts`, React Flow, layout and zoom kept with `lib/keptView.ts`).
 Download: `typeDrawing` (in `TransformationTypeGraph.tsx`: the laid-out nodes and arcs with their light colours) → `typeGraphScene` (`lib/typeGraphDrawing.ts`: plain shapes, ellipses as four Bézier curves, legend) → `downloadScene` (`lib/dfgDownload.ts`, shared with the DFG); menu `components/GraphDownloadMenu.tsx`.
 ### How to change it
 - Other slider semantics (e.g. a plain minimum frequency or share of recipes): `min_frequency`, and the slider text in `TransformationTypeGraph`.
-- Arc width: `SIZE.minArc`/`SIZE.maxArc` and the formula in `layoutTypeGraph` (linear in handling units).
+- Arc width: `SIZE.minArc`/`SIZE.maxArc` and the formula in `layoutTypeGraph` (linear in handling units); arrow size `arcArrow` (`lib/typeGraphDrawing.ts`, page and downloads).
+- Lifetime over all handling units of a type (not only those with a full lifecycle): drop the `full` filter in `type_lifecycles`; lines of the ellipses: `typeLines` in `TransformationTypeGraph.tsx`.
 - Other recipe definitions: `recipe_keys`.
 - Download: look of the file in `lib/typeGraphDrawing.ts` (sizes `SIZES`, legend texts in `legendGroups`); formats and the PDF, PNG and HTML writers are shared with the DFG (`lib/dfgDownload.ts`). The PDF uses Helvetica, which has no "→" or "∅", so texts drawn into the file avoid them (hover texts may use them).
 ### Alternatives

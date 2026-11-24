@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from ocelescope_module_location_based_ocpm.configuration_routes import CurrentDerivation, State
 from ocelescope_module_location_based_ocpm.derivation import columns as c
 from ocelescope_module_location_based_ocpm.derivation.pipeline import Derivation
+from ocelescope_module_location_based_ocpm.instance_routes import cached_profile
 from ocelescope_module_location_based_ocpm.overview.overview_charts import BarChart, End
 from ocelescope_module_location_based_ocpm.transformations.charts import (
     DiversityPer,
@@ -39,6 +40,7 @@ from ocelescope_module_location_based_ocpm.transformations.type_graph import (
     Quantities,
     TypeGraph,
     type_graph,
+    type_lifecycles,
 )
 
 router = APIRouter()
@@ -162,5 +164,12 @@ def get_transformation_type_graph(
     coverage: Annotated[float, Query(ge=0, le=1)] = DEFAULT_COVERAGE,
     quantities: Quantities = "exact",
 ) -> TypeGraph:
-    """The transformation type graph of the recipes the frequency slider keeps."""
-    return type_graph(kept_events(ocel_id, derivation, state, page_filter), coverage=coverage, quantities=quantities)
+    """The transformation type graph of the recipes the frequency slider keeps.
+
+    The object types carry the full lifecycles and lifetimes of the whole log (`type_lifecycles` of the HU profile,
+    cached with the instance page's profile).
+    """
+    lifecycles = type_lifecycles(cached_profile(state.cache[ocel_id].key, derivation))
+    return type_graph(
+        kept_events(ocel_id, derivation, state, page_filter), coverage=coverage, quantities=quantities, lifecycles=lifecycles
+    )

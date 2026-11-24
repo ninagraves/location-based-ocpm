@@ -8,11 +8,20 @@
 // legend "Object types: ⬭ coil ⬭ slab" with the key of the symbols.
 
 import { num, pct } from "./format";
-import { arrowHead, bounds, EXPORT_COLOURS, type Group, MARGIN, parsePath, type Scene, type Segment, type Shape, shift, solid, text } from "./dfgDrawing";
+import { arrowHead, bounds, EXPORT_COLOURS, type Group, MARGIN, parsePath, pathData, type Scene, type Segment, type Shape, shift, solid, text } from "./dfgDrawing";
 import { textWidth } from "./dfgLayout";
 
-/** An object type as drawn (position = top left corner). */
-export type DrawnType = { x: number; y: number; width: number; height: number; objectType: string; consumed: number; produced: number; colour: string };
+/** An object type as drawn (position = top left corner): name, then `lines` (full lifecycles, lifetime) below it. */
+export type DrawnType = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  objectType: string;
+  lines: string[];
+  hover: string;
+  colour: string;
+};
 
 /** A recipe as drawn (position = top left corner). */
 export type DrawnRecipe = {
@@ -26,16 +35,48 @@ export type DrawnRecipe = {
   frequency: number;
   share: number;
   kind: string;
+  /** Show the frequency and share below the activity. */
+  showFrequency: boolean;
 };
 
 /** An arc as drawn: its path (`M x,y C …`), colour, stroke width, quantity label and hover text. */
 export type DrawnTypeArc = { path: string; colour: string; width: number; label: string; labelPosition: { x: number; y: number } | null; hover: string };
 
 /** Everything needed to draw the type graph; `colours` per object type in the order of the legend. */
-export type TypeDrawing = { types: DrawnType[]; recipes: DrawnRecipe[]; arcs: DrawnTypeArc[]; colours: Map<string, string>; kindLabels: Record<string, string> };
+export type TypeDrawing = {
+  types: DrawnType[];
+  recipes: DrawnRecipe[];
+  arcs: DrawnTypeArc[];
+  colours: Map<string, string>;
+  kindLabels: Record<string, string>;
+  /** Extra lines of the legend's key (e.g. what the numbers in the ellipses mean). */
+  keys: string[];
+};
 
-/** Font sizes and fill opacity of the ellipses, as on the page (`SIZE` in components/TransformationTypeGraph.tsx). */
-const SIZES = { font: 12, small: 10, ellipseFill: "26" };
+/** Font sizes, line height and fill opacity of the ellipses, as on the page (`SIZE` in components/TransformationTypeGraph.tsx). */
+export const SIZES = { font: 12, small: 10, lineHeight: 1.2, ellipseFill: "26" };
+
+/**
+ * Size of the arrow head of an arc of stroke width `width`, so that thick arcs get arrow heads wider than the line
+ * (Nina 2026-11-24: "arrow heads don't show properly for thick arcs").
+ *
+ * @param width Stroke width in pixels.
+ * @returns Length and half width, e.g. width 1.2 → 9.8 × 4.9, width 8 → 20 × 10.
+ */
+export const arcArrow = (width: number) => ({ length: 8 + 1.5 * width, halfWidth: 4 + 0.75 * width });
+
+/**
+ * The line and arrow head of an arc as SVG path data, for the page: the line ends inside the arrow head
+ * (`arrowHead` with `arcArrow`), the same geometry as in the downloads.
+ *
+ * @param path The arc's path (`M x,y C …`).
+ * @param width Its stroke width.
+ * @returns `line` and `arrow` ("" if the path has no direction).
+ */
+export const arcPaths = (path: string, width: number) => {
+  const { path: line, arrow } = arrowHead(parsePath(path), undefined, arcArrow(width));
+  return { line: pathData(line), arrow: arrow ? pathData(arrow) : "" };
+};
 
 /** Bézier constant for a quarter ellipse. */
 const KAPPA = 0.5523;
@@ -63,25 +104,35 @@ export const ellipsePath = (cx: number, cy: number, rx: number, ry: number): Seg
   ];
 };
 
-/** The shapes of an object type: ellipse in a pale fill of its colour with a border in its colour, the name centred. */
-const typeGroup = (t: DrawnType): Group => ({
-  shapes: [
-    { kind: "path", d: ellipsePath(t.x + t.width / 2, t.y + t.height / 2, t.width / 2 - 0.75, t.height / 2 - 0.75), fill: solid(`${t.colour}${SIZES.ellipseFill}`), stroke: t.colour, strokeWidth: 1.5 },
-    text(t.objectType, t.x + t.width / 2, t.y + t.height / 2, SIZES.font, { weight: 600 }),
-  ],
-  hover: `${t.objectType}: ${num(t.consumed)} handling units consumed, ${num(t.produced)} produced by the shown recipes`,
-  className: "node",
-});
+/** The shapes of an object type: ellipse in a pale fill of its colour with a border in its colour, the name and its lines centred. */
+const typeGroup = (t: DrawnType): Group => {
+  const nameHeight = SIZES.font * SIZES.lineHeight;
+  const lineHeight = SIZES.small * SIZES.lineHeight;
+  const top = t.y + (t.height - nameHeight - t.lines.length * lineHeight) / 2;
+  const centreX = t.x + t.width / 2;
+  return {
+    shapes: [
+      { kind: "path", d: ellipsePath(centreX, t.y + t.height / 2, t.width / 2 - 0.75, t.height / 2 - 0.75), fill: solid(`${t.colour}${SIZES.ellipseFill}`), stroke: t.colour, strokeWidth: 1.5 },
+      text(t.objectType, centreX, top + nameHeight / 2, SIZES.font, { weight: 600 }),
+      ...t.lines.map((line, i) => text(line, centreX, top + nameHeight + (i + 0.5) * lineHeight, SIZES.small, { fill: EXPORT_COLOURS.secondaryText })),
+    ],
+    hover: t.hover,
+    className: "node",
+  };
+};
 
 /** The shapes of a recipe: rectangle, activity in bold, below it the frequency and share. */
 const recipeGroup = (r: DrawnRecipe, kindLabels: Record<string, string>): Group => {
   const line = SIZES.font * 1.15;
-  const top = r.y + (r.height - line - SIZES.small * 1.15) / 2;
+  const second = r.showFrequency ? SIZES.small * 1.15 : 0;
+  const top = r.y + (r.height - line - second) / 2;
   return {
     shapes: [
       { kind: "rect", x: r.x + 0.5, y: r.y + 0.5, w: r.width - 1, h: r.height - 1, r: 3, fill: EXPORT_COLOURS.background, stroke: EXPORT_COLOURS.circleOutline, strokeWidth: 1 },
       text(r.activity, r.x + r.width / 2, top + line / 2, SIZES.font, { weight: 600 }),
-      text(`${num(r.frequency)}× · ${pct(r.share)}`, r.x + r.width / 2, top + line + (SIZES.small * 1.15) / 2, SIZES.small, { fill: EXPORT_COLOURS.secondaryText }),
+      ...(r.showFrequency
+        ? [text(`${num(r.frequency)}× · ${pct(r.share)}`, r.x + r.width / 2, top + line + second / 2, SIZES.small, { fill: EXPORT_COLOURS.secondaryText })]
+        : []),
     ],
     hover: `${r.id} · ${r.recipe} · ${kindLabels[r.kind] ?? r.kind} · ${num(r.frequency)} events (${pct(r.share, 1)})`,
     className: "node",
@@ -91,7 +142,7 @@ const recipeGroup = (r: DrawnRecipe, kindLabels: Record<string, string>): Group 
 /** The shapes of an arc: an invisible wide line for hovering, the line, its arrow head and the quantity on a white box. */
 const arcGroup = (a: DrawnTypeArc): Group => {
   const colour = solid(a.colour);
-  const { path, arrow } = arrowHead(parsePath(a.path));
+  const { path, arrow } = arrowHead(parsePath(a.path), undefined, arcArrow(a.width));
   const shapes: Shape[] = [
     { kind: "path", d: path, stroke: colour, strokeWidth: 12, hit: true },
     { kind: "path", d: path, stroke: colour, strokeWidth: a.width },
@@ -114,7 +165,7 @@ const arcGroup = (a: DrawnTypeArc): Group => {
  * @param width Width available.
  * @returns The groups, starting at y = 0.
  */
-const legendGroups = (colours: Map<string, string>, width: number): Group[] => {
+const legendGroups = (colours: Map<string, string>, width: number, extraKeys: string[], showFrequency: boolean): Group[] => {
   const size = SIZES.small + 1;
   const rowHeight = 16;
   const groups: Group[] = [];
@@ -146,7 +197,8 @@ const legendGroups = (colours: Map<string, string>, width: number): Group[] => {
   y += rowHeight;
   const key = (label: string) => groups.push({ shapes: [text(label, place(textWidth(label, SIZES.small)), y, SIZES.small, { fill: EXPORT_COLOURS.dimmed, anchor: "start" })] });
   key("ellipse: object type");
-  key("rectangle: recipe (activity, events × · share of the transformation events)");
+  key(showFrequency ? "rectangle: recipe (activity, events × · share of the transformation events)" : "rectangle: recipe (activity)");
+  extraKeys.forEach(key);
   // No "→" here: the PDF's Helvetica has no arrow glyph.
   key("arrow into a recipe: input, arrow out of a recipe: output");
   key("number on an arc: handling units per event");
@@ -176,7 +228,7 @@ export const typeGraphScene = (drawing: TypeDrawing, options: { legend: boolean;
   let width = graphWidth;
   let height = box.bottom - box.top;
   if (options.legend) {
-    const legend = legendGroups(colours, Math.max(graphWidth, 360));
+    const legend = legendGroups(colours, Math.max(graphWidth, 360), drawing.keys, drawing.recipes.some((r) => r.showFrequency));
     const legendBox = bounds(legend);
     const top = MARGIN + height + 18;
     groups = [...groups, ...legend.map((g) => shift(g, MARGIN - Math.min(0, legendBox.left), top - legendBox.top) as Group)];
