@@ -27,7 +27,7 @@ import {
   type TypeNode,
   useGetTransformationTypeGraph,
 } from "../api/locationBasedOcpm";
-import { ELK_OPTIONS, sectionPath, textWidth } from "../lib/dfgLayout";
+import { COMPACT_OPTIONS, ELK_OPTIONS, sectionPath, textWidth } from "../lib/dfgLayout";
 import { errorText } from "../lib/errors";
 import { num, pct } from "../lib/format";
 import { useKeptLayout, useKeptViewport } from "../lib/keptView";
@@ -37,10 +37,9 @@ import { emphasisColourMap, OTHER, type Scheme } from "../lib/palette";
 import { KIND_LABELS, listRequest, type TransformationFilter } from "../lib/transformations";
 import { useDebounced } from "../lib/useDebounced";
 import { arcPaths, SIZES as DRAWING_SIZES, type TypeDrawing, typeGraphScene } from "../lib/typeGraphDrawing";
-import { typeSankey } from "../lib/typeSankey";
 import { duration } from "./HuProfileTable";
 import { GraphDownloadMenu } from "./GraphDownloadMenu";
-import { plotConfig, ThemedPlot, useScheme } from "./plots";
+import { useScheme } from "./plots";
 
 /** Settings of the type graph (kept per log). */
 type GraphSettings = {
@@ -50,17 +49,18 @@ type GraphSettings = {
   layout: "RIGHT" | "DOWN";
   /** Show the share of the transformation events next to a recipe's frequency (Nina 2026-11-24: only the share is optional). */
   shares: boolean;
-  /** Gozinto graph or Sankey diagram of the same recipes (Nina 2026-11-24). */
-  view: View;
+  /** Compact layout: little white space (`COMPACT_OPTIONS` of the DFG page; Nina 2026-11-24). */
+  compact: boolean;
+  /** Add the handling units over all executions of the recipe in brackets behind an arc's quantity (Nina 2026-11-24). */
+  totals: boolean;
   /** Lifetime in the ellipses: none, the median, or the median and the interval [Q1, Q3] (Nina 2026-11-24). */
   lifetime: Lifetime;
 };
 
 type Lifetime = "off" | "median" | "quartiles";
-type View = "graph" | "sankey";
 const LIFETIMES: Lifetime[] = ["off", "median", "quartiles"];
 
-const DEFAULTS: GraphSettings = { coverage: 100, quantities: "exact", layout: "RIGHT", view: "graph", shares: true, lifetime: "off" };
+const DEFAULTS: GraphSettings = { coverage: 100, quantities: "exact", layout: "RIGHT", compact: false, totals: false, shares: true, lifetime: "off" };
 /** The slider recalculates the graph this long after the last change (ms). */
 const SLIDER_DELAY = 400;
 /** Sizes of the drawing in pixels. */
@@ -212,8 +212,15 @@ const NODE_TYPES = { type: TypeNodeView, recipe: RecipeNodeView };
 const EDGE_TYPES = { arc: ArcView };
 const elk = new ELK();
 
-/** The quantity label of an arc: "2", or "2–3" if the merged recipes differ ("as sets"). */
+/** The quantity of an arc: "2", or "2–3" if the merged recipes differ ("as sets"). */
 const quantityLabel = (a: TypeArc) => (a.quantity_min === a.quantity_max ? num(a.quantity_min) : `${num(a.quantity_min)}–${num(a.quantity_max)}`);
+
+/**
+ * The label of an arc: its quantity and, with `totals`, the handling units that went along it over all executions of
+ * the recipe in brackets (Nina 2026-11-24). Example: roll → coil, 2 coils per event, 3 events: "2", with totals "2 (6)";
+ * as sets with 2 and 3 coils: "2–3 (5)".
+ */
+export const arcLabel = (a: TypeArc, totals: boolean) => (totals ? `${quantityLabel(a)} (${num(a.hus)})` : quantityLabel(a));
 
 /**
  * The lines below an object type's name: its handling units with a full lifecycle (produced and finally consumed in
@@ -249,7 +256,7 @@ const SHADE_ALPHA: Record<Scheme, string> = { light: "14", dark: "24" };
  *
  * @param recipes The shown recipes.
  * @param scheme Light or dark.
- * @param alpha Opacity as two hex digits (default `SHADE_ALPHA`; the Sankey's recipe nodes use a stronger one).
+ * @param alpha Opacity as two hex digits (default `SHADE_ALPHA`).
  * @returns Shade per activity (8-digit hex).
  */
 export const activityShades = (
@@ -283,14 +290,15 @@ const typeHover = (t: TypeNode) =>
  * @param direction Layout direction.
  * @param colours Colour per object type on the page (`useObjectTypeColours`: the same on every page).
  * @param exportColours Colour per object type in the light scheme, for the downloads.
- * @param show What the nodes show: the recipes' shares and the lifetime in the ellipses.
+ * @param show What the graph shows: the recipes' shares, the lifetime in the ellipses, totals on the arcs, and whether
+ *   the layout is compact (`COMPACT_OPTIONS`).
  */
 const layoutTypeGraph = async (
   graph: TypeGraph,
   direction: "RIGHT" | "DOWN",
   colours: Map<string, string>,
   exportColours: Map<string, string>,
-  show: { shares: boolean; lifetime: Lifetime },
+  show: { shares: boolean; lifetime: Lifetime; compact: boolean; totals: boolean },
   scheme: Scheme,
 ) => {
   const shades = activityShades(graph.recipes, scheme);
@@ -315,10 +323,10 @@ const layoutTypeGraph = async (
   const maxHus = Math.max(1, ...graph.arcs.map((a) => a.hus));
   const root: ElkNode = {
     id: "root",
-    layoutOptions: { ...ELK_OPTIONS, "elk.direction": direction },
+    layoutOptions: { ...ELK_OPTIONS, ...(show.compact ? COMPACT_OPTIONS : {}), "elk.direction": direction },
     children: [...graph.object_types.map((t) => t.node), ...graph.recipes.map((r) => r.node)].map((id) => ({ id, ...sizes.get(id) })),
     edges: graph.arcs.map((a, i) => {
-      const label = quantityLabel(a);
+      const label = arcLabel(a, show.totals);
       return { id: `a${i}`, sources: [a.source], targets: [a.target], labels: [{ text: label, width: textWidth(label, SIZE.small, 600) + 8, height: SIZE.small + 4 }] };
     }),
   };
@@ -386,7 +394,7 @@ const layoutTypeGraph = async (
         colour,
         exportColour: exportColours.get(a.object_type) ?? OTHER.light,
         width,
-        label: quantityLabel(a),
+        label: arcLabel(a, show.totals),
         hover: `${recipe?.recipe ?? a.recipe}: ${quantityLabel(a)} ${a.object_type} per event ${a.role === "consumed" ? "consumed" : "produced"}; ${num(a.hus)} handling units over ${num(events)} events`,
         labelPosition: label?.x != null && label?.y != null ? { x: label.x + (label.width ?? 0) / 2, y: label.y + (label.height ?? 0) / 2 } : null,
       },
@@ -449,72 +457,6 @@ export const typeDrawing = (nodes: Node<NodeData>[], edges: Edge<EdgeData>[], or
 };
 
 /**
- * The Sankey view of the type graph (`typeSankey`): Plotly, with the chart toolbar's PNG and SVG download.
- *
- * @param graph The type graph from the backend.
- * @param colours Colour per object type (`useObjectTypeColours`).
- * @param scheme Light or dark.
- * @param vertical Top to bottom instead of left to right (the Layout setting).
- * @param showShare Add the shares to the recipe labels.
- * @param dimmed Paler while a new graph is loading.
- */
-const TypeSankeyView = ({
-  graph,
-  colours,
-  scheme,
-  vertical,
-  showShare,
-  dimmed,
-}: {
-  graph: TypeGraph;
-  colours: Map<string, string>;
-  scheme: Scheme;
-  vertical: boolean;
-  showShare: boolean;
-  dimmed: boolean;
-}) => {
-  const { nodes, links } = useMemo(
-    () => typeSankey(graph, colours, activityShades(graph.recipes, scheme, "99"), OTHER[scheme], showShare),
-    [graph, colours, scheme, showShare],
-  );
-  // About 28 px per node of the fullest column, at least the graph's height.
-  const height = Math.max(HEIGHT, 28 * Math.max(graph.recipes.length, graph.object_types.length));
-  return (
-    <Box style={{ opacity: dimmed ? 0.6 : 1 }}>
-      <ThemedPlot
-        data={[
-          {
-            type: "sankey",
-            orientation: vertical ? "v" : "h",
-            arrangement: "snap",
-            node: {
-              label: nodes.map((n) => n.label),
-              color: nodes.map((n) => n.colour),
-              customdata: nodes.map((n) => n.hover),
-              hovertemplate: "%{customdata}<extra></extra>",
-              pad: 14,
-              thickness: 16,
-              line: { width: 0.5, color: OTHER[scheme] },
-            },
-            link: {
-              source: links.map((l) => l.source),
-              target: links.map((l) => l.target),
-              value: links.map((l) => l.value),
-              color: links.map((l) => l.colour),
-              customdata: links.map((l) => l.hover),
-              hovertemplate: "%{customdata}<extra></extra>",
-            },
-          },
-        ]}
-        layout={{ height, margin: { l: 8, r: 8, t: 8, b: 8 }, font: { size: 11 } }}
-        config={plotConfig("transformation sankey")}
-        style={{ width: "100%" }}
-      />
-    </Box>
-  );
-};
-
-/**
  * The numbers below a recipe's activity: its frequency and, optionally, its share of the transformation events.
  * Example: (5, 0.25, true) → "5× · 25 %"; (5, 0.25, false) → "5×".
  */
@@ -547,7 +489,7 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
   const data = query.data;
   const { layout: flow, error: layoutError } = useKeptLayout(
     `transformations.graph.layout.${ocelId}`,
-    [data, settings.layout, scheme, typeColours, settings.shares, settings.lifetime],
+    [data, settings.layout, scheme, typeColours, settings.shares, settings.lifetime, settings.compact, settings.totals],
     () =>
       layoutTypeGraph(
         data!,
@@ -557,10 +499,12 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
         {
           shares: settings.shares,
           lifetime: settings.lifetime,
+          compact: settings.compact,
+          totals: settings.totals,
         },
         scheme,
       ),
-    !!data && typeColours.loaded && settings.view === "graph",
+    !!data && typeColours.loaded,
   );
   const { skipFit, ...viewport } = useKeptViewport(`transformations.graph.viewport.${ocelId}`, flow);
   const set = (change: Partial<GraphSettings>) => setSettings((s) => ({ ...DEFAULTS, ...s, ...change }));
@@ -568,28 +512,6 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
   return (
     <Stack gap={6}>
       <Group gap="xl" align="flex-end" wrap="wrap">
-        <div>
-          <Tooltip
-            label="Gozinto graph: object types and recipes as a graph (cycles such as coil → cut → coil stay cycles). Sankey: the same recipes in three columns, input object types → recipes → output object types, links as wide as the handling units that flowed."
-            multiline
-            maw={360}
-            withArrow
-            openDelay={300}
-          >
-            <Text size="xs" fw={500}>
-              View
-            </Text>
-          </Tooltip>
-          <SegmentedControl
-            size="xs"
-            value={settings.view}
-            onChange={(v) => set({ view: v as View })}
-            data={[
-              { value: "graph", label: "Gozinto graph" },
-              { value: "sankey", label: "Sankey" },
-            ]}
-          />
-        </div>
         <Box w={320}>
           <Tooltip
             label="Recipes are ranked by frequency; the most frequent ones are shown until they cover this share of the transformation events. Recipes as frequent as the last one shown are shown too, so the slider sets a minimum frequency."
@@ -664,7 +586,6 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
           </Tooltip>
           <SegmentedControl
             size="xs"
-            disabled={settings.view === "sankey"}
             value={settings.lifetime}
             onChange={(v) => set({ lifetime: v as Lifetime })}
             data={[
@@ -681,6 +602,12 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
           checked={settings.shares}
           onChange={(e) => set({ shares: e.currentTarget.checked })}
         />
+        <Tooltip label="Handling units that went along an arc over all executions of its recipe, in brackets behind the quantity per execution, e.g. 2 (6)." multiline maw={320} withArrow openDelay={300}>
+          <Checkbox size="xs" mb={6} label="Totals on arcs" checked={settings.totals} onChange={(e) => set({ totals: e.currentTarget.checked })} />
+        </Tooltip>
+        <Tooltip label="Little white space between nodes and layers, as on the directly-follows graph page (e.g. for a figure)." multiline maw={320} withArrow openDelay={300}>
+          <Checkbox size="xs" mb={6} label="Compact" checked={settings.compact} onChange={(e) => set({ compact: e.currentTarget.checked })} />
+        </Tooltip>
       </Group>
       {data && (
         <Text size="xs" c="dimmed">
@@ -689,34 +616,23 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
           {pct(data.events_shown / Math.max(data.events_total, 1))})
         </Text>
       )}
-      {settings.view === "sankey" ? (
-        <Text fz={11} lh={1.3} c="dimmed">
-          Left: input object types · middle: recipes (one colour per activity; hover for input and output) · right: output object
-          types · link width: handling units that flowed · grey ∅: recipes without input (production only) or output (consumption
-          only) · download via the chart's toolbar
-        </Text>
-      ) : (
       <Text fz={11} lh={1.3} c="dimmed">
         Ellipse: object type with its handling units with a full lifecycle (produced and finally consumed in the log) ·
         rectangle: recipe (shaded per activity; activity, frequency{settings.shares ? " and share of the transformation events" : ""}; hover for
-        input and output) · arrow object type → recipe: input, recipe → object type: output, labelled with the handling units per event,
+        input and output) · arrow object type → recipe: input, recipe → object type: output, labelled with the handling units per event{settings.totals ? " (in brackets: over all executions)" : ""},
         as wide as the handling units that flowed along it (hover the label)
       </Text>
-      )}
       {query.isError ? (
         <Alert color="red">{errorText(query.error)}</Alert>
-      ) : settings.view === "sankey" && data?.recipes.length ? (
-        <TypeSankeyView graph={data} colours={typeColours.colours} scheme={scheme} vertical={settings.layout === "DOWN"} showShare={settings.shares} dimmed={query.isFetching} />
       ) : layoutError ? (
         <Alert color="red">Layout failed: {layoutError}</Alert>
-      ) : !data || (!flow && settings.view === "graph") ? (
+      ) : !data || !flow ? (
         <Loader size="sm" />
       ) : !data.recipes.length ? (
         <Text size="xs" c="dimmed">
           No transformation events to show.
         </Text>
       ) : (
-        flow && (
         <Box
           style={{
             height: HEIGHT,
@@ -754,7 +670,6 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
             </ReactFlow>
           </ReactFlowProvider>
         </Box>
-        )
       )}
     </Stack>
   );
