@@ -13,7 +13,7 @@ import pytest
 
 from ocelescope_module_location_based_ocpm.dfg.graph import TypeSetting, directly_follows_graph
 
-from test_dfg import _pallet_example, every_activity
+from test_dfg import _pallet_example, _pallet_example_with_activities_without_handling_units, every_activity, frames  # noqa: F401
 
 DFG_ARCS = Path(__file__).parents[3] / "frontend-modules" / "location-ocpm" / "src" / "lib" / "dfgArcs.ts"
 RUNNER = """
@@ -157,3 +157,131 @@ def test_exact_projection_thresholds_match_python(tmp_path):
         assert activity in drawn(value)
         if value > 0.001:
             assert activity not in drawn(round(value - 0.001, 3))
+
+
+DFG_SEARCH = Path(__file__).parents[3] / "frontend-modules" / "location-ocpm" / "src" / "lib" / "dfgActivitySearch.ts"
+SEARCH_RUNNER = """
+const { activitiesOfType, matchingObjectTypes } = await import(process.argv[2]);
+const { options, types } = JSON.parse(await new Promise((ok) => { let s = ""; process.stdin.on("data", (d) => (s += d)); process.stdin.on("end", () => ok(s)); }));
+const out = {
+  byType: Object.fromEntries(types.map((t) => [t, activitiesOfType(options, t).map((o) => o.activity)])),
+  hits: Object.fromEntries(["o", "op", "TRU", "TRUC", " pall ", "truck", "x"].map((q) => [q, matchingObjectTypes(types, q)])),
+  short: ["bo", "box", "BOX ", "boxe"].map((q) => matchingObjectTypes(["boxes", "box"], q)),
+};
+console.log(JSON.stringify(out));
+"""
+
+
+def _run_search(tmp_path, graph) -> dict:
+    """Runs `activitiesOfType` and `matchingObjectTypes` of `lib/dfgActivitySearch.ts` on the route's activity list."""
+    node = _node()
+    runner = tmp_path / "search.mjs"
+    runner.write_text(SEARCH_RUNNER)
+    payload = {"options": [o.model_dump() for o in graph.activity_options], "types": [t.object_type for t in graph.object_types]}
+    result = subprocess.run([node, str(runner), DFG_SEARCH.as_uri()], input=json.dumps(payload), capture_output=True, text=True, check=True)
+    return json.loads(result.stdout)
+
+
+def test_object_type_search_lists_the_activities_of_the_type_by_its_events(tmp_path, frames):
+    """Object type search (Nina, 2026-11-24): every activity the type is involved in, most events of the type first
+    (ties: events with a handling unit, events in the log, name). Running example, as in the module note."""
+    graph = directly_follows_graph(frames)
+    by_type = _run_search(tmp_path, graph)["byType"]
+    assert by_type["coil"] == ["crane move", "quality check", "load truck", "unload truck", "cut", "label", "roll"]
+    assert by_type["slab"] == ["cast slab", "inspect slab", "roll"]
+
+
+def test_object_type_search_matches_python_ordering(tmp_path):
+    """The same on the pallets with trucks and operators (activities without handling units): the order agrees with a
+    Python sort of the route's counts. Type names are matched case-insensitively by a part from 4 letters on, below
+    only by their full name (Nina, 2026-11-24)."""
+    frames = _pallet_example_with_activities_without_handling_units()
+    graph = directly_follows_graph(frames)
+    out = _run_search(tmp_path, graph)
+    types = [t.object_type for t in graph.object_types]
+    for t in types:
+        events = {o.activity: next((x.events for x in o.object_types if x.object_type == t), 0) for o in graph.activity_options}
+        expected = sorted(
+            (o for o in graph.activity_options if events[o.activity] > 0),
+            key=lambda o: (-events[o.activity], -o.hu_events, -o.log_events, o.activity),
+        )
+        assert out["byType"][t] == [o.activity for o in expected]
+    assert out["byType"]["operator"]
+    assert out["hits"]["o"] == []
+    assert out["hits"]["op"] == []
+    assert out["hits"]["TRU"] == []
+    assert out["hits"]["TRUC"] == ["truck"]
+    assert out["hits"][" pall "] == ["pallet"]
+    assert out["hits"]["truck"] == ["truck"]
+    assert out["hits"]["x"] == []
+    assert out["short"] == [[], ["box"], ["box"], ["boxes"]]
+
+
+CHIP_RUNNER = """
+const { activitiesOf, chipCount, matchingCategories } = await import(process.argv[2]);
+const { options, categories, cases, queries } = JSON.parse(await new Promise((ok) => { let s = ""; process.stdin.on("data", (d) => (s += d)); process.stdin.on("end", () => ok(s)); }));
+const out = {
+  lists: cases.map(([types, cats]) => activitiesOf(options, types, cats).map((o) => [o.activity, chipCount(o, types, cats)])),
+  hits: Object.fromEntries(queries.map((q) => [q, matchingCategories(categories, q).map((c) => c.key)])),
+};
+console.log(JSON.stringify(out));
+"""
+
+#: Picked chips (types, categories) of the running example (Nina, 2026-11-24: chips stack).
+CHIP_CASES = [
+    (["coil"], ["processing"]),
+    ([], ["processing"]),
+    ([], ["to_vehicle", "other_movement"]),
+    (["coil", "slab"], []),
+    (["slab"], ["transformation"]),
+    (["coil"], ["to_storage", "processing"]),
+]
+
+
+def _chip_count(option, types, categories) -> int:
+    """Python version of `chipCount` (the smallest of the pair counts) for the expectations."""
+    entries = {t.object_type: t for t in option.object_types}
+    if not types:
+        counts = [option.categories.get(c, 0) for c in categories]
+    elif not categories:
+        counts = [entries[t].events if t in entries else 0 for t in types]
+    else:
+        counts = [entries[t].categories.get(c, 0) if t in entries else 0 for t in types for c in categories]
+    return min(counts)
+
+
+def test_stacked_chips_list_the_activities_matching_all_of_them(tmp_path, frames):
+    """Category chips (from 4 letters of a category word) and stacked chips: only activities matching all picked chips,
+    ordered by the smallest pair count, ties by events with a handling unit, events in the log, name."""
+    node = _node()
+    graph = directly_follows_graph(frames)
+    runner = tmp_path / "chips.mjs"
+    runner.write_text(CHIP_RUNNER)
+    payload = {
+        "options": [o.model_dump() for o in graph.activity_options],
+        "categories": [c.model_dump() for c in graph.event_categories],
+        "cases": CHIP_CASES,
+        "queries": ["vehic", "move", "Movements", "proc", "pro", "transforming", "stor", "other"],
+    }
+    result = subprocess.run([node, str(runner), DFG_SEARCH.as_uri()], input=json.dumps(payload), capture_output=True, text=True, check=True)
+    out = json.loads(result.stdout)
+    for (types, categories), got in zip(CHIP_CASES, out["lists"], strict=True):
+        counted = [(o, _chip_count(o, types, categories)) for o in graph.activity_options]
+        expected = sorted(((o, n) for o, n in counted if n > 0), key=lambda p: (-p[1], -p[0].hu_events, -p[0].log_events, p[0].activity))
+        assert got == [[o.activity, n] for o, n in expected], (types, categories)
+    assert out["lists"][0] == [["cut", 1], ["roll", 1]]  # coil + Processing
+    assert out["lists"][1] == [["cast slab", 1], ["cut", 1], ["roll", 1]]  # Processing
+    assert out["lists"][2] == []  # no activity moves to a vehicle and elsewhere
+    assert out["lists"][3] == [["roll", 1]]  # coil + slab
+    assert out["lists"][3] == [["roll", 1]]
+    assert out["hits"] == {
+        "vehic": ["to_vehicle"],
+        "move": ["to_vehicle", "to_storage", "other_movement"],
+        "Movements": ["to_vehicle", "to_storage", "other_movement"],
+        "proc": ["processing"],
+        "pro": [],
+        "transforming": ["transformation"],
+        "stor": ["to_storage"],
+        "other": ["other_movement"],
+    }
+

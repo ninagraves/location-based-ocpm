@@ -22,6 +22,7 @@ import {
 import { ChevronDownIcon, ChevronRightIcon, InfoIcon, SearchIcon, XIcon } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { DfgActivityOption, DfgActivityTypeOption, DfgObjectType, DfgRequest, DirectlyFollowsGraph } from "../api/locationBasedOcpm";
+import { activitiesOf, activityMatches, chipCount, matchingCategories, matchingObjectTypes } from "../lib/dfgActivitySearch";
 import { type ArcSettings, type BaseArc, neededArcThresholds } from "../lib/dfgArcs";
 import type { ArcLabel, Direction, PaperRatio } from "../lib/dfgLayout";
 import { num } from "../lib/format";
@@ -136,7 +137,11 @@ export const INFO = {
   categories:
     "Event categories: an event is removed from the traces (before anything else, like deselecting an activity) only when all categories it belongs to are deselected. Move to vehicle / storage: movements whose target location is a vehicle / storage unit. Other movements: all other movements (target location neither, or not given). Every movement is in exactly one of these three; it stays while a processing or transforming chip it also belongs to is on. Events in no category are not affected by the chips (the activity selection still applies).",
   activities:
-    "Activities by number of events that involve a handling unit (in brackets). The events of an unchecked activity are removed from the traces before anything else (as in Ocelescope): a trace a, b, c without b becomes a, c. Unfold an activity for its events per object type and to (de)select it for single selected types. Default per type: its most frequent 40 % of activities (at least 3, at most 10) among those with events left after the event categories, plus every activity preselected for another selected handling-unit type. Upper part: the activities in the graph. Lower part: the others, each with the value it needs: in blue the smallest Arcs (projection) that would show it (it is on an included trace, but none of its arcs is kept), in grey the smallest variant threshold that would put it on an included trace. Unfold for the values per type. Search for movements, vehicles, storage, processing or transformation to find the activities with these events too.",
+    "Activities by number of events that involve a handling unit (in brackets). The events of an unchecked activity are removed from the traces before anything else (as in Ocelescope): a trace a, b, c without b becomes a, c. Unfold an activity for its events per object type and to (de)select it for single selected types. Default per type: its most frequent 40 % of activities (at least 3, at most 10) among those with events left after the event categories, plus every activity preselected for another selected handling-unit type. Upper part: the activities in the graph. Lower part: the others, each with the value it needs: in blue the smallest Arcs (projection) that would show it (it is on an included trace, but none of its arcs is kept), in grey the smallest variant threshold that would put it on an included trace. Unfold for the values per type. The search finds activities by name. It also offers chips below the search box: object types (at least 4 letters of the name, or the full name) and event categories (at least 4 letters of movement(s), vehicle(s), storage, other, processing, transformation(s) / transforming). Click a chip to list every activity the type is involved in, or with events in the category, most such events first; further chips stack (only activities matching all of them).",
+  chips:
+    "Event categories the search text names (at least 4 letters of one of their words, e.g. “vehic”, “move”, “proc”) and object types whose name contains it (at least 4 letters, or the full name). Click one to list every activity with events in the category, or that the type is involved in, most such events first. Chips stack: search again and click another one to keep only the activities matching all picked chips.",
+  picked:
+    "The activities matching all picked chips, most first. The number in brackets: for an object type its events involving an object of the type (for a handling-unit type: one of its handling units), for a category its events in the category among those with a handling unit (activities without a handling unit have none), for a type and a category the type's events in the category. With two types or two categories the list has no number of events shared by both, so the smaller of their numbers is shown and used. Ties: events with a handling unit, then events in the log, then name. One list, without the parts; activities not in the graph keep their value on the right. The search text narrows the list further; a chip's cross removes it, the cross above all of them goes back to all activities.",
   outside:
     "Activities not in the graph. Blue: on an included trace, but none of its arcs is kept; the number is the smallest Arcs (projection) (of any selected type) that keeps one, \"display\" if Arcs (projection) keeps one but Arcs (display) or a removal by hand hides it. Grey: on no included trace; the number is the smallest variant threshold (of any selected type) that would put it on one (for an unchecked activity: if it were checked). Without a number, no threshold helps: “removed by an event category” means all its events were removed by the event category chips above the graph (each of them is only in categories that are switched off), checked or not, e.g. “load truck” with Move to vehicle off; “type not selected” means only unselected types have it. Unfold for each selected type.",
   withoutHu:
@@ -498,6 +503,30 @@ const CategoryBadges = ({ categories, events }: { categories?: Record<string, nu
   );
 };
 
+/** The letter of a category as in the badges (for the chips of the activity search). */
+const CategoryLetter = ({ category }: { category: string }) => (
+  <Box
+    component="span"
+    style={{
+      fontSize: 9,
+      lineHeight: "11px",
+      padding: "0 2px",
+      borderRadius: 2,
+      color: "var(--mantine-color-dimmed)",
+      background: "var(--mantine-color-default-hover)",
+    }}
+  >
+    {CATEGORY_BADGE[category]?.letter ?? "?"}
+  </Box>
+);
+
+/** A clickable chip below the activity search (an object type or an event category to list the activities by). */
+const SearchChip = ({ children, icon, onClick }: { children: ReactNode; icon: ReactNode; onClick: () => void }) => (
+  <Badge size="sm" variant="light" color="gray" tt="none" style={{ cursor: "pointer" }} leftSection={icon} onClick={onClick}>
+    {children}
+  </Badge>
+);
+
 /** "≥ 81 %": the smallest variant threshold that puts an activity on an included trace (null: none does). */
 const neededText = (needed: number | null | undefined) => (needed == null ? null : `≥ ${num(needed)} %`);
 
@@ -545,32 +574,8 @@ const PROJECTION_COLOUR = "blue.7";
 const TYPE_LIST_HEIGHT = 160;
 /** Smallest height of the activity list in px; it takes all the rest of the sidebar (Nina, 2026-11-19, before 320). */
 const ACTIVITY_LIST_MIN_HEIGHT = 360;
-
-/** Words that find the activities with events of a category in the activity search (Nina, 2026-11-16). */
-const CATEGORY_WORDS: Record<string, string[]> = {
-  to_vehicle: ["vehicles", "vehicle", "movements", "movement", "move"],
-  to_storage: ["storage", "movements", "movement", "move"],
-  other_movement: ["other", "movements", "movement", "move"],
-  processing: ["processing", "process"],
-  transformation: ["transformations", "transformation", "transforming", "transform"],
-};
-
-/**
- * True if an activity matches the search: its name contains the query, or the query (at least 3 letters) starts one of
- * the words of a category the activity has events of (or one of these words starts the query). E.g. "vehic" finds
- * "load truck" when loads go to a vehicle.
- *
- * @param option The activity.
- * @param query The search text.
- */
-export const activityMatches = (option: DfgActivityOption, query: string) => {
-  const q = query.trim().toLowerCase();
-  if (option.activity.toLowerCase().includes(q)) return true;
-  if (q.length < 3) return false;
-  return Object.entries(CATEGORY_WORDS).some(
-    ([k, words]) => (option.categories?.[k] ?? 0) > 0 && words.some((w) => w.startsWith(q) || q.startsWith(w)),
-  );
-};
+/** Object types offered below the activity search at most (the others: "+n more, type more letters"). */
+const TYPE_HITS_SHOWN = 6;
 
 /**
  * One activity in the list: a checkbox for all selected types (indeterminate if selected for some of them), its
@@ -586,6 +591,7 @@ const ActivityRow = ({
   projectionExact,
   withoutHu,
   missingTypes,
+  countBy,
   openKey,
 }: {
   option: DfgActivityOption;
@@ -602,10 +608,20 @@ const ActivityRow = ({
   withoutHu?: boolean;
   /** Upper part: the selected types without a drawn arc of the activity; their unfold shows the values as below. */
   missingTypes?: Set<string>;
+  /** Chips picked in the activity search: the number in brackets is `chipCount` instead of the events with a handling
+   * unit; with exactly one type picked, the badges count that type's events. */
+  countBy?: ListFilter[];
   /** Where the row keeps whether it is unfolded (`usePageState`). */
   openKey: string;
 }) => {
   const [open, setOpen] = usePageState(openKey, false);
+  const pickedTypes = (countBy ?? []).filter((f) => f.kind === "type").map((f) => f.key);
+  const pickedCategories = (countBy ?? []).filter((f) => f.kind === "category").map((f) => f.key);
+  const count = countBy && countBy.length > 0 ? chipCount(option, pickedTypes, pickedCategories) : option.hu_events;
+  // Badges: with exactly one type picked of its events, else of the events with a handling unit.
+  const byType = pickedTypes.length === 1 ? option.object_types.find((t) => t.object_type === pickedTypes[0]) : undefined;
+  const badgeCategories = byType ? byType.categories : option.categories;
+  const badgeEvents = byType ? byType.events : option.hu_events;
   const selectable = option.object_types.filter((t) => selectedTypes.has(t.object_type));
   const included = selectable.filter((t) => t.included).length;
   // Per type (unfold, exact values with up to 3 decimals): the Arcs (projection) needed (blue), "in the graph", or the
@@ -640,8 +656,8 @@ const ActivityRow = ({
           label={
             <Group gap={5} wrap="nowrap">
               <Text size="xs">{option.activity}</Text>
-              <Text size="xs" c="dimmed">({num(option.hu_events)})</Text>
-              <CategoryBadges categories={option.categories} events={option.hu_events} />
+              <Text size="xs" c="dimmed">({num(count)})</Text>
+              <CategoryBadges categories={badgeCategories} events={badgeEvents} />
             </Group>
           }
         />
@@ -687,6 +703,9 @@ const ActivityRow = ({
   );
 };
 
+/** A picked chip of the activity search: an object type or an event category (key, e.g. "to_vehicle"). */
+export type ListFilter = { kind: "type" | "category"; key: string };
+
 /** Short text of an arc, e.g. "pallet: pick → pack" (▶ / ■ for start and end). */
 const arcText = (a: ArcKey) => `${a.object_type}: ${a.source ?? "▶"} → ${a.target ?? "■"}`;
 
@@ -722,6 +741,8 @@ export const DfgSettings = ({
 }) => {
   const [typeQuery, setTypeQuery] = usePageState(`${stateKey}.typeQuery`, "");
   const [activityQuery, setActivityQuery] = usePageState(`${stateKey}.activityQuery`, "");
+  /** Picked chips (Nina, 2026-11-24, they stack): the activities matching all of them are listed, most first. */
+  const [activityFilters, setActivityFilters] = usePageState<ListFilter[]>(`${stateKey}.activityFilters`, []);
   const sidebarScroll = useKeptScrollOf<HTMLDivElement>(`${stateKey}.scroll`);
   const typeScroll = useKeptScrollOf<HTMLDivElement>(`${stateKey}.types.scroll`);
   const activityScroll = useKeptScrollOf<HTMLDivElement>(`${stateKey}.activities.scroll`);
@@ -761,7 +782,24 @@ export const DfgSettings = ({
   // Upper part: the activities in the graph; lower part: the others (Nina, 2026-11-17; before: upper part = on an
   // included trace). Lower part: first those on an included trace (Arcs (projection) needed, in blue), then the
   // others (variant threshold needed), least first.
-  const listed = activityOptions.filter((a) => activityMatches(a, activityQuery));
+  // Object type and category chips (Nina, 2026-11-24; they stack): with chips picked, the list holds every activity
+  // matching all of them, most such events first (`chipCount`), in one part (the search text narrows it further).
+  const categories = (graph.event_categories ?? []).filter((c) => c.events > 0);
+  const listFilters = activityFilters.filter((f) =>
+    f.kind === "type" ? objectTypes.some((t) => t.object_type === f.key) : categories.some((c) => c.key === f.key),
+  );
+  const pickedTypes = listFilters.filter((f) => f.kind === "type").map((f) => f.key);
+  const pickedCategories = listFilters.filter((f) => f.kind === "category").map((f) => f.key);
+  const chipLabel = (f: ListFilter) => (f.kind === "category" ? (categories.find((c) => c.key === f.key)?.label ?? f.key) : f.key);
+  const listed = activitiesOf(activityOptions, pickedTypes, pickedCategories).filter((a) => activityMatches(a, activityQuery));
+  const typeHits = matchingObjectTypes(listedTypes.map((t) => t.object_type), activityQuery).filter((t) => !pickedTypes.includes(t));
+  const categoryHits = matchingCategories(categories, activityQuery).filter((c) => !pickedCategories.includes(c.key));
+  const addFilter = (filter: ListFilter) => {
+    setActivityFilters((fs) => [...fs, filter]);
+    setActivityQuery("");
+  };
+  const dropFilter = (filter: ListFilter) =>
+    setActivityFilters((fs) => fs.filter((f) => !(f.kind === filter.kind && f.key === filter.key)));
   const needed = useMemo(() => neededArcThresholds(baseArcs), [baseArcs]);
   const neededExact = useMemo(() => neededArcThresholds(baseArcs, 3), [baseArcs]);
   const shownActivities = new Set(graph.activities.map((a) => a.activity));
@@ -808,6 +846,28 @@ export const DfgSettings = ({
     .filter((a) => a.hu_events === 0)
     .sort((x, y) => rank(x) - rank(y) || (x.variant_threshold_needed_exact ?? 1000) - (y.variant_threshold_needed_exact ?? 1000));
   const removedInfo = new Map((graph.removed_arcs ?? []).map((a) => [arcText(a), a]));
+  /** One row of the activity list, with the values of its part (in the graph, not in the graph, without handling units). */
+  const activityRow = (a: DfgActivityOption) => {
+    const inGraphRow = shownActivities.has(a.activity);
+    const missing = inGraphRow ? missingTypes(a) : undefined;
+    const needs = projectionNeeds(a, missing);
+    return (
+      <ActivityRow
+        key={a.activity}
+        openKey={`${stateKey}.open.activity.${a.activity}`}
+        option={a}
+        colours={colours}
+        selectedTypes={selectedSet}
+        setIncluded={setIncluded}
+        projection={needs}
+        projectionExact={projectionExact(a, needs)}
+        missingTypes={missing}
+        outside={!inGraphRow}
+        withoutHu={!inGraphRow && a.hu_events === 0}
+        countBy={listFilters}
+      />
+    );
+  };
 
   return (
     <Card withBorder padding="xs" h="100%" style={{ display: "flex", flexDirection: "column" }}>
@@ -906,9 +966,9 @@ export const DfgSettings = ({
         </Group>
         <Group gap={4} wrap="nowrap">
           <Box style={{ flex: 1 }}>
-            <Search value={activityQuery} onChange={setActivityQuery} placeholder="Search activities or movements, vehicles, …" />
+            <Search value={activityQuery} onChange={setActivityQuery} placeholder="Search activities, object types, movements, …" />
           </Box>
-          {activityQuery.trim() !== "" && listed.length > 0 && (
+          {(activityQuery.trim() !== "" || listFilters.length > 0) && listed.length > 0 && (
             <Tooltip label="Select every activity found, for every selected object type with events of it" withinPortal multiline w={220}>
               <Button size="compact-xs" variant="light" onClick={() => selectAll(listed)}>
                 Select all ({listed.length})
@@ -916,74 +976,84 @@ export const DfgSettings = ({
             </Tooltip>
           )}
         </Group>
+        {(typeHits.length > 0 || categoryHits.length > 0) && (
+          <Group gap={4} wrap="wrap">
+            <Tooltip label={INFO.chips} withinPortal multiline w={260}>
+              <Text size="xs" c="dimmed">List by:</Text>
+            </Tooltip>
+            {categoryHits.map((c) => (
+              <SearchChip key={c.key} onClick={() => addFilter({ kind: "category", key: c.key })} icon={<CategoryLetter category={c.key} />}>
+                {c.label}
+              </SearchChip>
+            ))}
+            {typeHits.slice(0, TYPE_HITS_SHOWN).map((t) => (
+              <SearchChip key={t} onClick={() => addFilter({ kind: "type", key: t })} icon={<Swatch colour={colours.get(t)} circle />}>
+                {t}
+              </SearchChip>
+            ))}
+            {typeHits.length > TYPE_HITS_SHOWN && (
+              <Text size="xs" c="dimmed">+{typeHits.length - TYPE_HITS_SHOWN} more types, type more letters</Text>
+            )}
+          </Group>
+        )}
+        {listFilters.length > 0 && (
+          <Stack gap={2}>
+            <Group gap={4} wrap="nowrap" justify="space-between">
+              <Heading info={INFO.picked}>
+                {listed.length} {listed.length === 1 ? "activity" : "activities"} with {listFilters.length === 1 ? "this chip" : `all ${listFilters.length} chips`}, most first
+              </Heading>
+              <Tooltip label="Back to all activities" withinPortal>
+                <ActionIcon size="xs" variant="subtle" color="gray" aria-label="Back to all activities" onClick={() => setActivityFilters([])}>
+                  <XIcon size={12} />
+                </ActionIcon>
+              </Tooltip>
+            </Group>
+            <Group gap={4} wrap="wrap">
+              {listFilters.map((f) => (
+                <Badge
+                  key={`${f.kind}:${f.key}`}
+                  size="sm"
+                  variant="outline"
+                  color="gray"
+                  tt="none"
+                  leftSection={f.kind === "type" ? <Swatch colour={colours.get(f.key)} circle /> : <CategoryLetter category={f.key} />}
+                  rightSection={
+                    <XIcon size={10} style={{ cursor: "pointer" }} aria-label={`Remove ${chipLabel(f)}`} onClick={() => dropFilter(f)} />
+                  }
+                >
+                  {chipLabel(f)}
+                </Badge>
+              ))}
+            </Group>
+          </Stack>
+        )}
         <ScrollArea viewportRef={activityScroll} type="auto" offsetScrollbars style={{ flex: "1 1 0", minHeight: ACTIVITY_LIST_MIN_HEIGHT }}>
           <Stack gap={2}>
-            {inGraph.map((a) => {
-              const missing = missingTypes(a);
-              const needs = projectionNeeds(a, missing);
-              return (
-                <ActivityRow
-                  key={a.activity}
-                  openKey={`${stateKey}.open.activity.${a.activity}`}
-                  option={a}
-                  colours={colours}
-                  selectedTypes={selectedSet}
-                  setIncluded={setIncluded}
-                  projection={needs}
-                  projectionExact={projectionExact(a, needs)}
-                  missingTypes={missing}
-                />
-              );
-            })}
-            {outsideGraph.length > 0 && (
-              <Divider
-                my={2}
-                label={<Heading info={INFO.outside}>Not in the graph ({outsideGraph.length})</Heading>}
-                labelPosition="left"
-                variant="dashed"
-              />
+            {listFilters.length > 0 ? (
+              listed.map(activityRow)
+            ) : (
+              <>
+                {inGraph.map(activityRow)}
+                {outsideGraph.length > 0 && (
+                  <Divider
+                    my={2}
+                    label={<Heading info={INFO.outside}>Not in the graph ({outsideGraph.length})</Heading>}
+                    labelPosition="left"
+                    variant="dashed"
+                  />
+                )}
+                {outsideGraph.map(activityRow)}
+                {withoutHu.length > 0 && (
+                  <Divider
+                    my={2}
+                    label={<Heading info={INFO.withoutHu}>Without handling units ({withoutHu.length})</Heading>}
+                    labelPosition="left"
+                    variant="dashed"
+                  />
+                )}
+                {withoutHu.map(activityRow)}
+              </>
             )}
-            {outsideGraph.map((a) => {
-              const needs = projectionNeeds(a);
-              return (
-                <ActivityRow
-                  key={a.activity}
-                  openKey={`${stateKey}.open.activity.${a.activity}`}
-                  option={a}
-                  colours={colours}
-                  selectedTypes={selectedSet}
-                  setIncluded={setIncluded}
-                  projection={needs}
-                  projectionExact={projectionExact(a, needs)}
-                  outside
-                />
-              );
-            })}
-            {withoutHu.length > 0 && (
-              <Divider
-                my={2}
-                label={<Heading info={INFO.withoutHu}>Without handling units ({withoutHu.length})</Heading>}
-                labelPosition="left"
-                variant="dashed"
-              />
-            )}
-            {withoutHu.map((a) => {
-              const needs = projectionNeeds(a);
-              return (
-                <ActivityRow
-                  key={a.activity}
-                  openKey={`${stateKey}.open.activity.${a.activity}`}
-                  option={a}
-                  colours={colours}
-                  selectedTypes={selectedSet}
-                  setIncluded={setIncluded}
-                  projection={needs}
-                  projectionExact={projectionExact(a, needs)}
-                  outside
-                  withoutHu
-                />
-              );
-            })}
           </Stack>
         </ScrollArea>
       </Stack>
