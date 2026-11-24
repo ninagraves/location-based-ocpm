@@ -165,7 +165,8 @@ const { activitiesOfType, matchingObjectTypes } = await import(process.argv[2]);
 const { options, types } = JSON.parse(await new Promise((ok) => { let s = ""; process.stdin.on("data", (d) => (s += d)); process.stdin.on("end", () => ok(s)); }));
 const out = {
   byType: Object.fromEntries(types.map((t) => [t, activitiesOfType(options, t).map((o) => o.activity)])),
-  hits: Object.fromEntries(["o", "op", "TRU", " pal ", "x"].map((q) => [q, matchingObjectTypes(types, q)])),
+  hits: Object.fromEntries(["o", "op", "TRU", "TRUC", " pall ", "truck", "x"].map((q) => [q, matchingObjectTypes(types, q)])),
+  short: ["bo", "box", "BOX ", "boxe"].map((q) => matchingObjectTypes(["boxes", "box"], q)),
 };
 console.log(JSON.stringify(out));
 """
@@ -192,7 +193,8 @@ def test_object_type_search_lists_the_activities_of_the_type_by_its_events(tmp_p
 
 def test_object_type_search_matches_python_ordering(tmp_path):
     """The same on the pallets with trucks and operators (activities without handling units): the order agrees with a
-    Python sort of the route's counts, and the type names are matched case-insensitively from 2 letters on."""
+    Python sort of the route's counts. Type names are matched case-insensitively by a part from 4 letters on, below
+    only by their full name (Nina, 2026-11-24)."""
     frames = _pallet_example_with_activities_without_handling_units()
     graph = directly_follows_graph(frames)
     out = _run_search(tmp_path, graph)
@@ -206,7 +208,10 @@ def test_object_type_search_matches_python_ordering(tmp_path):
         assert out["byType"][t] == [o.activity for o in expected]
     assert out["byType"]["operator"]
     assert out["hits"]["o"] == []
-    assert out["hits"]["op"] == ["operator"]
-    assert out["hits"]["TRU"] == ["truck"]
-    assert out["hits"][" pal "] == ["pallet"]
+    assert out["hits"]["op"] == []
+    assert out["hits"]["TRU"] == []
+    assert out["hits"]["TRUC"] == ["truck"]
+    assert out["hits"][" pall "] == ["pallet"]
+    assert out["hits"]["truck"] == ["truck"]
     assert out["hits"]["x"] == []
+    assert out["short"] == [[], ["box"], ["box"], ["boxes"]]

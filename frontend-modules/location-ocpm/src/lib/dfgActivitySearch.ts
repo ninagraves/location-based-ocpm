@@ -21,8 +21,11 @@ export const CATEGORY_WORDS: Record<string, string[]> = {
   transformation: ["transformations", "transformation", "transforming", "transform"],
 };
 
-/** Shortest query (letters, after trimming) that suggests object types (one letter would match nearly every type). */
-export const TYPE_QUERY_MIN_LENGTH = 2;
+/**
+ * Shortest query (letters, after trimming) that suggests object types by a part of their name; a shorter query only
+ * suggests a type whose full name it is (Nina, 2026-11-24: fewer letters are not selective enough).
+ */
+export const TYPE_QUERY_MIN_LENGTH = 4;
 
 /**
  * True if an activity matches the search: its name contains the query, or the query (at least 3 letters) starts one of
@@ -43,15 +46,16 @@ export const activityMatches = (option: SearchableActivity, query: string) => {
 
 /**
  * The object types whose name contains the query (case-insensitive), in the order given (the sidebar's order: types
- * with handling units first, then by objects). Nothing below `TYPE_QUERY_MIN_LENGTH` letters. E.g. "co" in
- * ["slab", "coil", "operator"] gives ["coil"].
+ * with handling units first, then by objects). Below `TYPE_QUERY_MIN_LENGTH` letters only a type whose full name is
+ * the query. E.g. in ["slab", "coil", "operator", "box"]: "oper" gives ["operator"], "coi" nothing, "box" ["box"].
  *
  * @param types The object types.
  * @param query The search text.
  */
 export const matchingObjectTypes = (types: string[], query: string) => {
   const q = query.trim().toLowerCase();
-  if (q.length < TYPE_QUERY_MIN_LENGTH) return [];
+  if (q === "") return [];
+  if (q.length < TYPE_QUERY_MIN_LENGTH) return types.filter((t) => t.toLowerCase() === q);
   return types.filter((t) => t.toLowerCase().includes(q));
 };
 
