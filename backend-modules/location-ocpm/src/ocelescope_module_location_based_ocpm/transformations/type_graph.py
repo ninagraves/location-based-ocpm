@@ -33,7 +33,7 @@ from ocelescope_module_location_based_ocpm.transformations.events import ARROW, 
 Quantities = Literal["exact", "sets"]
 
 #: Default share of transformation events covered by the shown recipes.
-DEFAULT_COVERAGE = 1.0
+DEFAULT_COVERAGE = 0.8
 #: Prefixes of the node ids, so that an object type and a recipe never share an id.
 TYPE_NODE = "type:"
 RECIPE_NODE = "recipe:"

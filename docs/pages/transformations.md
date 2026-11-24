@@ -103,7 +103,7 @@ Slider: frequencies 5, 3, 1, 1 and 80 % give minimum frequency 3 (two recipes, 8
 ### Filtering
 Follows the page filters (the share and the slider refer to the kept events).
 ### Settings and defaults
-Slider 100 % (all recipes), quantities exact, left to right, lifetime off, recipe frequencies on; kept per log (`transformations.graph.<log>`); the slider recalculates 0.4 s after the last move (`SLIDER_DELAY`).
+Slider 80 % (Nina 2026-11-24; `DEFAULT_COVERAGE` in `type_graph.py` and `DEFAULTS` in `TransformationTypeGraph.tsx`; in the running example 80 % still shows all three recipes, as each has 1 of 3 events), quantities exact, left to right, lifetime off, recipe frequencies on; kept per log (`transformations.graph.v2.<log>`; v2 since the default changed to 80 %); the slider recalculates 0.4 s after the last move (`SLIDER_DELAY`).
 ### Where it lives in the code
 `transformations/type_graph.py`; route `GET /{ocel_id}/transformations/type-graph` (`coverage` in [0, 1], `quantities`); frontend `components/TransformationTypeGraph.tsx` (ELK layered with `ELK_OPTIONS` of `lib/dfgLayout.ts`, React Flow, layout and zoom kept with `lib/keptView.ts`).
 Download: `typeDrawing` (in `TransformationTypeGraph.tsx`: the laid-out nodes and arcs with their light colours) → `typeGraphScene` (`lib/typeGraphDrawing.ts`: plain shapes, ellipses as four Bézier curves, legend) → `downloadScene` (`lib/dfgDownload.ts`, shared with the DFG); menu `components/GraphDownloadMenu.tsx`.

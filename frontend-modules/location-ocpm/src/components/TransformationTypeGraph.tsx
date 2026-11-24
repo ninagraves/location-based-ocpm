@@ -60,7 +60,7 @@ type GraphSettings = {
 type Lifetime = "off" | "median" | "quartiles";
 const LIFETIMES: Lifetime[] = ["off", "median", "quartiles"];
 
-const DEFAULTS: GraphSettings = { coverage: 100, quantities: "exact", layout: "RIGHT", compact: false, totals: false, shares: true, lifetime: "off" };
+const DEFAULTS: GraphSettings = { coverage: 80, quantities: "exact", layout: "RIGHT", compact: false, totals: false, shares: true, lifetime: "off" };
 /** The slider recalculates the graph this long after the last change (ms). */
 const SLIDER_DELAY = 400;
 /** Sizes of the drawing in pixels. */
@@ -473,7 +473,7 @@ const MARKS = [0, 50, 100].map((value) => ({ value, label: `${value} %` }));
  * @param filter The page filters (select whole transformation events).
  */
 export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; filter: TransformationFilter }) => {
-  const [kept, setSettings] = usePageState<GraphSettings>(`transformations.graph.${ocelId}`, DEFAULTS);
+  const [kept, setSettings] = usePageState<GraphSettings>(`transformations.graph.v2.${ocelId}`, DEFAULTS);
   // Settings kept before an option existed lack it: fill in its default.
   const merged: GraphSettings = { ...DEFAULTS, ...kept };
   // ... and a value an option no longer has (e.g. "iqr" before [Q1, Q3]) falls back to the default.
