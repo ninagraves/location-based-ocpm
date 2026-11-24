@@ -215,3 +215,73 @@ def test_object_type_search_matches_python_ordering(tmp_path):
     assert out["hits"]["truck"] == ["truck"]
     assert out["hits"]["x"] == []
     assert out["short"] == [[], ["box"], ["box"], ["boxes"]]
+
+
+CHIP_RUNNER = """
+const { activitiesOf, chipCount, matchingCategories } = await import(process.argv[2]);
+const { options, categories, cases, queries } = JSON.parse(await new Promise((ok) => { let s = ""; process.stdin.on("data", (d) => (s += d)); process.stdin.on("end", () => ok(s)); }));
+const out = {
+  lists: cases.map(([types, cats]) => activitiesOf(options, types, cats).map((o) => [o.activity, chipCount(o, types, cats)])),
+  hits: Object.fromEntries(queries.map((q) => [q, matchingCategories(categories, q).map((c) => c.key)])),
+};
+console.log(JSON.stringify(out));
+"""
+
+#: Picked chips (types, categories) of the running example (Nina, 2026-11-24: chips stack).
+CHIP_CASES = [
+    (["coil"], ["processing"]),
+    ([], ["processing"]),
+    ([], ["to_vehicle", "other_movement"]),
+    (["coil", "slab"], []),
+    (["slab"], ["transformation"]),
+    (["coil"], ["to_storage", "processing"]),
+]
+
+
+def _chip_count(option, types, categories) -> int:
+    """Python version of `chipCount` (the smallest of the pair counts) for the expectations."""
+    entries = {t.object_type: t for t in option.object_types}
+    if not types:
+        counts = [option.categories.get(c, 0) for c in categories]
+    elif not categories:
+        counts = [entries[t].events if t in entries else 0 for t in types]
+    else:
+        counts = [entries[t].categories.get(c, 0) if t in entries else 0 for t in types for c in categories]
+    return min(counts)
+
+
+def test_stacked_chips_list_the_activities_matching_all_of_them(tmp_path, frames):
+    """Category chips (from 4 letters of a category word) and stacked chips: only activities matching all picked chips,
+    ordered by the smallest pair count, ties by events with a handling unit, events in the log, name."""
+    node = _node()
+    graph = directly_follows_graph(frames)
+    runner = tmp_path / "chips.mjs"
+    runner.write_text(CHIP_RUNNER)
+    payload = {
+        "options": [o.model_dump() for o in graph.activity_options],
+        "categories": [c.model_dump() for c in graph.event_categories],
+        "cases": CHIP_CASES,
+        "queries": ["vehic", "move", "Movements", "proc", "pro", "transforming", "stor", "other"],
+    }
+    result = subprocess.run([node, str(runner), DFG_SEARCH.as_uri()], input=json.dumps(payload), capture_output=True, text=True, check=True)
+    out = json.loads(result.stdout)
+    for (types, categories), got in zip(CHIP_CASES, out["lists"], strict=True):
+        counted = [(o, _chip_count(o, types, categories)) for o in graph.activity_options]
+        expected = sorted(((o, n) for o, n in counted if n > 0), key=lambda p: (-p[1], -p[0].hu_events, -p[0].log_events, p[0].activity))
+        assert got == [[o.activity, n] for o, n in expected], (types, categories)
+    assert out["lists"][0] == [["cut", 1], ["roll", 1]]  # coil + Processing
+    assert out["lists"][1] == [["cast slab", 1], ["cut", 1], ["roll", 1]]  # Processing
+    assert out["lists"][2] == []  # no activity moves to a vehicle and elsewhere
+    assert out["lists"][3] == [["roll", 1]]  # coil + slab
+    assert out["lists"][3] == [["roll", 1]]
+    assert out["hits"] == {
+        "vehic": ["to_vehicle"],
+        "move": ["to_vehicle", "to_storage", "other_movement"],
+        "Movements": ["to_vehicle", "to_storage", "other_movement"],
+        "proc": ["processing"],
+        "pro": [],
+        "transforming": ["transformation"],
+        "stor": ["to_storage"],
+        "other": ["other_movement"],
+    }
+
