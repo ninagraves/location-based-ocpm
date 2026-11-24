@@ -13,7 +13,7 @@ import pytest
 
 from ocelescope_module_location_based_ocpm.dfg.graph import TypeSetting, directly_follows_graph
 
-from test_dfg import _pallet_example, every_activity
+from test_dfg import _pallet_example, _pallet_example_with_activities_without_handling_units, every_activity, frames  # noqa: F401
 
 DFG_ARCS = Path(__file__).parents[3] / "frontend-modules" / "location-ocpm" / "src" / "lib" / "dfgArcs.ts"
 RUNNER = """
@@ -157,3 +157,56 @@ def test_exact_projection_thresholds_match_python(tmp_path):
         assert activity in drawn(value)
         if value > 0.001:
             assert activity not in drawn(round(value - 0.001, 3))
+
+
+DFG_SEARCH = Path(__file__).parents[3] / "frontend-modules" / "location-ocpm" / "src" / "lib" / "dfgActivitySearch.ts"
+SEARCH_RUNNER = """
+const { activitiesOfType, matchingObjectTypes } = await import(process.argv[2]);
+const { options, types } = JSON.parse(await new Promise((ok) => { let s = ""; process.stdin.on("data", (d) => (s += d)); process.stdin.on("end", () => ok(s)); }));
+const out = {
+  byType: Object.fromEntries(types.map((t) => [t, activitiesOfType(options, t).map((o) => o.activity)])),
+  hits: Object.fromEntries(["o", "op", "TRU", " pal ", "x"].map((q) => [q, matchingObjectTypes(types, q)])),
+};
+console.log(JSON.stringify(out));
+"""
+
+
+def _run_search(tmp_path, graph) -> dict:
+    """Runs `activitiesOfType` and `matchingObjectTypes` of `lib/dfgActivitySearch.ts` on the route's activity list."""
+    node = _node()
+    runner = tmp_path / "search.mjs"
+    runner.write_text(SEARCH_RUNNER)
+    payload = {"options": [o.model_dump() for o in graph.activity_options], "types": [t.object_type for t in graph.object_types]}
+    result = subprocess.run([node, str(runner), DFG_SEARCH.as_uri()], input=json.dumps(payload), capture_output=True, text=True, check=True)
+    return json.loads(result.stdout)
+
+
+def test_object_type_search_lists_the_activities_of_the_type_by_its_events(tmp_path, frames):
+    """Object type search (Nina, 2026-11-24): every activity the type is involved in, most events of the type first
+    (ties: events with a handling unit, events in the log, name). Running example, as in the module note."""
+    graph = directly_follows_graph(frames)
+    by_type = _run_search(tmp_path, graph)["byType"]
+    assert by_type["coil"] == ["crane move", "quality check", "load truck", "unload truck", "cut", "label", "roll"]
+    assert by_type["slab"] == ["cast slab", "inspect slab", "roll"]
+
+
+def test_object_type_search_matches_python_ordering(tmp_path):
+    """The same on the pallets with trucks and operators (activities without handling units): the order agrees with a
+    Python sort of the route's counts, and the type names are matched case-insensitively from 2 letters on."""
+    frames = _pallet_example_with_activities_without_handling_units()
+    graph = directly_follows_graph(frames)
+    out = _run_search(tmp_path, graph)
+    types = [t.object_type for t in graph.object_types]
+    for t in types:
+        events = {o.activity: next((x.events for x in o.object_types if x.object_type == t), 0) for o in graph.activity_options}
+        expected = sorted(
+            (o for o in graph.activity_options if events[o.activity] > 0),
+            key=lambda o: (-events[o.activity], -o.hu_events, -o.log_events, o.activity),
+        )
+        assert out["byType"][t] == [o.activity for o in expected]
+    assert out["byType"]["operator"]
+    assert out["hits"]["o"] == []
+    assert out["hits"]["op"] == ["operator"]
+    assert out["hits"]["TRU"] == ["truck"]
+    assert out["hits"][" pal "] == ["pallet"]
+    assert out["hits"]["x"] == []

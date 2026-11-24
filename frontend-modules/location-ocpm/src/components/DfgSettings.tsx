@@ -22,6 +22,7 @@ import {
 import { ChevronDownIcon, ChevronRightIcon, InfoIcon, SearchIcon, XIcon } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { DfgActivityOption, DfgActivityTypeOption, DfgObjectType, DfgRequest, DirectlyFollowsGraph } from "../api/locationBasedOcpm";
+import { activitiesOfType, activityMatches, matchingObjectTypes, typeEvents } from "../lib/dfgActivitySearch";
 import { type ArcSettings, type BaseArc, neededArcThresholds } from "../lib/dfgArcs";
 import type { ArcLabel, Direction, PaperRatio } from "../lib/dfgLayout";
 import { num } from "../lib/format";
@@ -136,7 +137,11 @@ export const INFO = {
   categories:
     "Event categories: an event is removed from the traces (before anything else, like deselecting an activity) only when all categories it belongs to are deselected. Move to vehicle / storage: movements whose target location is a vehicle / storage unit. Other movements: all other movements (target location neither, or not given). Every movement is in exactly one of these three; it stays while a processing or transforming chip it also belongs to is on. Events in no category are not affected by the chips (the activity selection still applies).",
   activities:
-    "Activities by number of events that involve a handling unit (in brackets). The events of an unchecked activity are removed from the traces before anything else (as in Ocelescope): a trace a, b, c without b becomes a, c. Unfold an activity for its events per object type and to (de)select it for single selected types. Default per type: its most frequent 40 % of activities (at least 3, at most 10) among those with events left after the event categories, plus every activity preselected for another selected handling-unit type. Upper part: the activities in the graph. Lower part: the others, each with the value it needs: in blue the smallest Arcs (projection) that would show it (it is on an included trace, but none of its arcs is kept), in grey the smallest variant threshold that would put it on an included trace. Unfold for the values per type. Search for movements, vehicles, storage, processing or transformation to find the activities with these events too.",
+    "Activities by number of events that involve a handling unit (in brackets). The events of an unchecked activity are removed from the traces before anything else (as in Ocelescope): a trace a, b, c without b becomes a, c. Unfold an activity for its events per object type and to (de)select it for single selected types. Default per type: its most frequent 40 % of activities (at least 3, at most 10) among those with events left after the event categories, plus every activity preselected for another selected handling-unit type. Upper part: the activities in the graph. Lower part: the others, each with the value it needs: in blue the smallest Arcs (projection) that would show it (it is on an included trace, but none of its arcs is kept), in grey the smallest variant threshold that would put it on an included trace. Unfold for the values per type. Search for movements, vehicles, storage, processing or transformation to find the activities with these events too. Search for an object type (at least 2 letters) and click it below the search box to list every activity it is involved in, most events of the type first.",
+  typeHits:
+    "Object types whose name contains the search text. Click one to list every activity it is involved in, most events of the type first.",
+  activityType:
+    "Every activity with at least one event involving an object of this type (for a handling-unit type: one of its handling units), most such events first (the number in brackets; ties: events with a handling unit, then events in the log, then name). One list, without the parts; activities not in the graph keep their value on the right. The search text narrows the list further; the cross goes back to all activities.",
   outside:
     "Activities not in the graph. Blue: on an included trace, but none of its arcs is kept; the number is the smallest Arcs (projection) (of any selected type) that keeps one, \"display\" if Arcs (projection) keeps one but Arcs (display) or a removal by hand hides it. Grey: on no included trace; the number is the smallest variant threshold (of any selected type) that would put it on one (for an unchecked activity: if it were checked). Without a number, no threshold helps: “removed by an event category” means all its events were removed by the event category chips above the graph (each of them is only in categories that are switched off), checked or not, e.g. “load truck” with Move to vehicle off; “type not selected” means only unselected types have it. Unfold for each selected type.",
   withoutHu:
@@ -545,32 +550,8 @@ const PROJECTION_COLOUR = "blue.7";
 const TYPE_LIST_HEIGHT = 160;
 /** Smallest height of the activity list in px; it takes all the rest of the sidebar (Nina, 2026-11-19, before 320). */
 const ACTIVITY_LIST_MIN_HEIGHT = 360;
-
-/** Words that find the activities with events of a category in the activity search (Nina, 2026-11-16). */
-const CATEGORY_WORDS: Record<string, string[]> = {
-  to_vehicle: ["vehicles", "vehicle", "movements", "movement", "move"],
-  to_storage: ["storage", "movements", "movement", "move"],
-  other_movement: ["other", "movements", "movement", "move"],
-  processing: ["processing", "process"],
-  transformation: ["transformations", "transformation", "transforming", "transform"],
-};
-
-/**
- * True if an activity matches the search: its name contains the query, or the query (at least 3 letters) starts one of
- * the words of a category the activity has events of (or one of these words starts the query). E.g. "vehic" finds
- * "load truck" when loads go to a vehicle.
- *
- * @param option The activity.
- * @param query The search text.
- */
-export const activityMatches = (option: DfgActivityOption, query: string) => {
-  const q = query.trim().toLowerCase();
-  if (option.activity.toLowerCase().includes(q)) return true;
-  if (q.length < 3) return false;
-  return Object.entries(CATEGORY_WORDS).some(
-    ([k, words]) => (option.categories?.[k] ?? 0) > 0 && words.some((w) => w.startsWith(q) || q.startsWith(w)),
-  );
-};
+/** Object types offered below the activity search at most (the others: "+n more, type more letters"). */
+const TYPE_HITS_SHOWN = 6;
 
 /**
  * One activity in the list: a checkbox for all selected types (indeterminate if selected for some of them), its
@@ -586,6 +567,7 @@ const ActivityRow = ({
   projectionExact,
   withoutHu,
   missingTypes,
+  countType,
   openKey,
 }: {
   option: DfgActivityOption;
@@ -602,10 +584,17 @@ const ActivityRow = ({
   withoutHu?: boolean;
   /** Upper part: the selected types without a drawn arc of the activity; their unfold shows the values as below. */
   missingTypes?: Set<string>;
+  /** Object type search: the number in brackets and the badges count the events of this type instead of those with a
+   * handling unit. */
+  countType?: string;
   /** Where the row keeps whether it is unfolded (`usePageState`). */
   openKey: string;
 }) => {
   const [open, setOpen] = usePageState(openKey, false);
+  const count = countType ? typeEvents(option, countType) : option.hu_events;
+  const countCategories = countType
+    ? option.object_types.find((t) => t.object_type === countType)?.categories
+    : option.categories;
   const selectable = option.object_types.filter((t) => selectedTypes.has(t.object_type));
   const included = selectable.filter((t) => t.included).length;
   // Per type (unfold, exact values with up to 3 decimals): the Arcs (projection) needed (blue), "in the graph", or the
@@ -640,8 +629,8 @@ const ActivityRow = ({
           label={
             <Group gap={5} wrap="nowrap">
               <Text size="xs">{option.activity}</Text>
-              <Text size="xs" c="dimmed">({num(option.hu_events)})</Text>
-              <CategoryBadges categories={option.categories} events={option.hu_events} />
+              <Text size="xs" c="dimmed">({num(count)})</Text>
+              <CategoryBadges categories={countCategories} events={count} />
             </Group>
           }
         />
@@ -722,6 +711,8 @@ export const DfgSettings = ({
 }) => {
   const [typeQuery, setTypeQuery] = usePageState(`${stateKey}.typeQuery`, "");
   const [activityQuery, setActivityQuery] = usePageState(`${stateKey}.activityQuery`, "");
+  /** Object type search (Nina, 2026-11-24): the type whose activities are listed, most events of the type first. */
+  const [activityType, setActivityType] = usePageState<string | null>(`${stateKey}.activityType`, null);
   const sidebarScroll = useKeptScrollOf<HTMLDivElement>(`${stateKey}.scroll`);
   const typeScroll = useKeptScrollOf<HTMLDivElement>(`${stateKey}.types.scroll`);
   const activityScroll = useKeptScrollOf<HTMLDivElement>(`${stateKey}.activities.scroll`);
@@ -761,7 +752,17 @@ export const DfgSettings = ({
   // Upper part: the activities in the graph; lower part: the others (Nina, 2026-11-17; before: upper part = on an
   // included trace). Lower part: first those on an included trace (Arcs (projection) needed, in blue), then the
   // others (variant threshold needed), least first.
-  const listed = activityOptions.filter((a) => activityMatches(a, activityQuery));
+  // Object type search (Nina, 2026-11-24): with a type picked, the list holds every activity the type is involved in,
+  // most events of the type first, in one part (the search text narrows it further).
+  const listType = activityType !== null && objectTypes.some((t) => t.object_type === activityType) ? activityType : null;
+  const listed = (listType ? activitiesOfType(activityOptions, listType) : activityOptions).filter((a) =>
+    activityMatches(a, activityQuery),
+  );
+  const typeHits = matchingObjectTypes(listedTypes.map((t) => t.object_type), activityQuery).filter((t) => t !== listType);
+  const pickType = (type: string | null) => {
+    setActivityType(type);
+    setActivityQuery("");
+  };
   const needed = useMemo(() => neededArcThresholds(baseArcs), [baseArcs]);
   const neededExact = useMemo(() => neededArcThresholds(baseArcs, 3), [baseArcs]);
   const shownActivities = new Set(graph.activities.map((a) => a.activity));
@@ -808,6 +809,28 @@ export const DfgSettings = ({
     .filter((a) => a.hu_events === 0)
     .sort((x, y) => rank(x) - rank(y) || (x.variant_threshold_needed_exact ?? 1000) - (y.variant_threshold_needed_exact ?? 1000));
   const removedInfo = new Map((graph.removed_arcs ?? []).map((a) => [arcText(a), a]));
+  /** One row of the activity list, with the values of its part (in the graph, not in the graph, without handling units). */
+  const activityRow = (a: DfgActivityOption) => {
+    const inGraphRow = shownActivities.has(a.activity);
+    const missing = inGraphRow ? missingTypes(a) : undefined;
+    const needs = projectionNeeds(a, missing);
+    return (
+      <ActivityRow
+        key={a.activity}
+        openKey={`${stateKey}.open.activity.${a.activity}`}
+        option={a}
+        colours={colours}
+        selectedTypes={selectedSet}
+        setIncluded={setIncluded}
+        projection={needs}
+        projectionExact={projectionExact(a, needs)}
+        missingTypes={missing}
+        outside={!inGraphRow}
+        withoutHu={!inGraphRow && a.hu_events === 0}
+        countType={listType ?? undefined}
+      />
+    );
+  };
 
   return (
     <Card withBorder padding="xs" h="100%" style={{ display: "flex", flexDirection: "column" }}>
@@ -908,7 +931,7 @@ export const DfgSettings = ({
           <Box style={{ flex: 1 }}>
             <Search value={activityQuery} onChange={setActivityQuery} placeholder="Search activities or movements, vehicles, …" />
           </Box>
-          {activityQuery.trim() !== "" && listed.length > 0 && (
+          {(activityQuery.trim() !== "" || listType !== null) && listed.length > 0 && (
             <Tooltip label="Select every activity found, for every selected object type with events of it" withinPortal multiline w={220}>
               <Button size="compact-xs" variant="light" onClick={() => selectAll(listed)}>
                 Select all ({listed.length})
@@ -916,74 +939,70 @@ export const DfgSettings = ({
             </Tooltip>
           )}
         </Group>
+        {typeHits.length > 0 && (
+          <Group gap={4} wrap="wrap">
+            <Tooltip label={INFO.typeHits} withinPortal multiline w={260}>
+              <Text size="xs" c="dimmed">Object type:</Text>
+            </Tooltip>
+            {typeHits.slice(0, TYPE_HITS_SHOWN).map((t) => (
+              <Badge
+                key={t}
+                size="sm"
+                variant="light"
+                color="gray"
+                tt="none"
+                style={{ cursor: "pointer" }}
+                leftSection={<Swatch colour={colours.get(t)} circle />}
+                onClick={() => pickType(t)}
+              >
+                {t}
+              </Badge>
+            ))}
+            {typeHits.length > TYPE_HITS_SHOWN && (
+              <Text size="xs" c="dimmed">+{typeHits.length - TYPE_HITS_SHOWN} more, type more letters</Text>
+            )}
+          </Group>
+        )}
+        {listType && (
+          <Group gap={4} wrap="nowrap" justify="space-between">
+            <Group gap={5} wrap="nowrap" style={{ minWidth: 0 }}>
+              <Swatch colour={colours.get(listType)} circle />
+              <Heading info={INFO.activityType}>
+                {listed.length} {listed.length === 1 ? "activity" : "activities"} of {listType}, most events first
+              </Heading>
+            </Group>
+            <ActionIcon size="xs" variant="subtle" color="gray" aria-label="Back to all activities" onClick={() => pickType(null)}>
+              <XIcon size={12} />
+            </ActionIcon>
+          </Group>
+        )}
         <ScrollArea viewportRef={activityScroll} type="auto" offsetScrollbars style={{ flex: "1 1 0", minHeight: ACTIVITY_LIST_MIN_HEIGHT }}>
           <Stack gap={2}>
-            {inGraph.map((a) => {
-              const missing = missingTypes(a);
-              const needs = projectionNeeds(a, missing);
-              return (
-                <ActivityRow
-                  key={a.activity}
-                  openKey={`${stateKey}.open.activity.${a.activity}`}
-                  option={a}
-                  colours={colours}
-                  selectedTypes={selectedSet}
-                  setIncluded={setIncluded}
-                  projection={needs}
-                  projectionExact={projectionExact(a, needs)}
-                  missingTypes={missing}
-                />
-              );
-            })}
-            {outsideGraph.length > 0 && (
-              <Divider
-                my={2}
-                label={<Heading info={INFO.outside}>Not in the graph ({outsideGraph.length})</Heading>}
-                labelPosition="left"
-                variant="dashed"
-              />
+            {listType ? (
+              listed.map(activityRow)
+            ) : (
+              <>
+                {inGraph.map(activityRow)}
+                {outsideGraph.length > 0 && (
+                  <Divider
+                    my={2}
+                    label={<Heading info={INFO.outside}>Not in the graph ({outsideGraph.length})</Heading>}
+                    labelPosition="left"
+                    variant="dashed"
+                  />
+                )}
+                {outsideGraph.map(activityRow)}
+                {withoutHu.length > 0 && (
+                  <Divider
+                    my={2}
+                    label={<Heading info={INFO.withoutHu}>Without handling units ({withoutHu.length})</Heading>}
+                    labelPosition="left"
+                    variant="dashed"
+                  />
+                )}
+                {withoutHu.map(activityRow)}
+              </>
             )}
-            {outsideGraph.map((a) => {
-              const needs = projectionNeeds(a);
-              return (
-                <ActivityRow
-                  key={a.activity}
-                  openKey={`${stateKey}.open.activity.${a.activity}`}
-                  option={a}
-                  colours={colours}
-                  selectedTypes={selectedSet}
-                  setIncluded={setIncluded}
-                  projection={needs}
-                  projectionExact={projectionExact(a, needs)}
-                  outside
-                />
-              );
-            })}
-            {withoutHu.length > 0 && (
-              <Divider
-                my={2}
-                label={<Heading info={INFO.withoutHu}>Without handling units ({withoutHu.length})</Heading>}
-                labelPosition="left"
-                variant="dashed"
-              />
-            )}
-            {withoutHu.map((a) => {
-              const needs = projectionNeeds(a);
-              return (
-                <ActivityRow
-                  key={a.activity}
-                  openKey={`${stateKey}.open.activity.${a.activity}`}
-                  option={a}
-                  colours={colours}
-                  selectedTypes={selectedSet}
-                  setIncluded={setIncluded}
-                  projection={needs}
-                  projectionExact={projectionExact(a, needs)}
-                  outside
-                  withoutHu
-                />
-              );
-            })}
           </Stack>
         </ScrollArea>
       </Stack>
