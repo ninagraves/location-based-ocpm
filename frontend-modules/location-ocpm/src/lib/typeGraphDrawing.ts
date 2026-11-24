@@ -35,8 +35,8 @@ export type DrawnRecipe = {
   frequency: number;
   share: number;
   kind: string;
-  /** Show the frequency and share below the activity. */
-  showFrequency: boolean;
+  /** Show the share next to the frequency below the activity (the frequency is always shown). */
+  showShare: boolean;
   /** Faint background shared by the recipes of the same activity (8-digit hex, blended onto white). */
   shade: string;
 };
@@ -123,18 +123,18 @@ const typeGroup = (t: DrawnType): Group => {
   };
 };
 
-/** The shapes of a recipe: rectangle, activity in bold, below it the frequency and share. */
+/** The shapes of a recipe: rectangle, activity in bold, below it the frequency and (optional) share. */
 const recipeGroup = (r: DrawnRecipe, kindLabels: Record<string, string>): Group => {
   const line = SIZES.font * 1.15;
-  const second = r.showFrequency ? SIZES.small * 1.15 : 0;
+  const second = SIZES.small * 1.15;
   const top = r.y + (r.height - line - second) / 2;
   return {
     shapes: [
       { kind: "rect", x: r.x + 0.5, y: r.y + 0.5, w: r.width - 1, h: r.height - 1, r: 3, fill: solid(r.shade), stroke: EXPORT_COLOURS.circleOutline, strokeWidth: 1 },
       text(r.activity, r.x + r.width / 2, top + line / 2, SIZES.font, { weight: 600 }),
-      ...(r.showFrequency
-        ? [text(`${num(r.frequency)}× · ${pct(r.share)}`, r.x + r.width / 2, top + line + second / 2, SIZES.small, { fill: EXPORT_COLOURS.secondaryText })]
-        : []),
+      text(r.showShare ? `${num(r.frequency)}× · ${pct(r.share)}` : `${num(r.frequency)}×`, r.x + r.width / 2, top + line + second / 2, SIZES.small, {
+        fill: EXPORT_COLOURS.secondaryText,
+      }),
     ],
     hover: `${r.id} · ${r.recipe} · ${kindLabels[r.kind] ?? r.kind} · ${num(r.frequency)} events (${pct(r.share, 1)})`,
     className: "node",
@@ -167,7 +167,7 @@ const arcGroup = (a: DrawnTypeArc): Group => {
  * @param width Width available.
  * @returns The groups, starting at y = 0.
  */
-const legendGroups = (colours: Map<string, string>, width: number, extraKeys: string[], showFrequency: boolean): Group[] => {
+const legendGroups = (colours: Map<string, string>, width: number, extraKeys: string[], showShare: boolean): Group[] => {
   const size = SIZES.small + 1;
   const rowHeight = 16;
   const groups: Group[] = [];
@@ -199,7 +199,7 @@ const legendGroups = (colours: Map<string, string>, width: number, extraKeys: st
   y += rowHeight;
   const key = (label: string) => groups.push({ shapes: [text(label, place(textWidth(label, SIZES.small)), y, SIZES.small, { fill: EXPORT_COLOURS.dimmed, anchor: "start" })] });
   key("ellipse: object type");
-  key(showFrequency ? "rectangle: recipe (activity, events × · share of the transformation events)" : "rectangle: recipe (activity)");
+  key(showShare ? "rectangle: recipe (activity, events × · share of the transformation events)" : "rectangle: recipe (activity, events ×)");
   key("same shade: same activity");
   extraKeys.forEach(key);
   // No "→" here: the PDF's Helvetica has no arrow glyph.
@@ -231,7 +231,7 @@ export const typeGraphScene = (drawing: TypeDrawing, options: { legend: boolean;
   let width = graphWidth;
   let height = box.bottom - box.top;
   if (options.legend) {
-    const legend = legendGroups(colours, Math.max(graphWidth, 360), drawing.keys, drawing.recipes.some((r) => r.showFrequency));
+    const legend = legendGroups(colours, Math.max(graphWidth, 360), drawing.keys, drawing.recipes.some((r) => r.showShare));
     const legendBox = bounds(legend);
     const top = MARGIN + height + 18;
     groups = [...groups, ...legend.map((g) => shift(g, MARGIN - Math.min(0, legendBox.left), top - legendBox.top) as Group)];
