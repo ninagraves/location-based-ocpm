@@ -37,6 +37,8 @@ export type DrawnRecipe = {
   kind: string;
   /** Show the frequency and share below the activity. */
   showFrequency: boolean;
+  /** Faint background shared by the recipes of the same activity (8-digit hex, blended onto white). */
+  shade: string;
 };
 
 /** An arc as drawn: its path (`M x,y C …`), colour, stroke width, quantity label and hover text. */
@@ -128,7 +130,7 @@ const recipeGroup = (r: DrawnRecipe, kindLabels: Record<string, string>): Group 
   const top = r.y + (r.height - line - second) / 2;
   return {
     shapes: [
-      { kind: "rect", x: r.x + 0.5, y: r.y + 0.5, w: r.width - 1, h: r.height - 1, r: 3, fill: EXPORT_COLOURS.background, stroke: EXPORT_COLOURS.circleOutline, strokeWidth: 1 },
+      { kind: "rect", x: r.x + 0.5, y: r.y + 0.5, w: r.width - 1, h: r.height - 1, r: 3, fill: solid(r.shade), stroke: EXPORT_COLOURS.circleOutline, strokeWidth: 1 },
       text(r.activity, r.x + r.width / 2, top + line / 2, SIZES.font, { weight: 600 }),
       ...(r.showFrequency
         ? [text(`${num(r.frequency)}× · ${pct(r.share)}`, r.x + r.width / 2, top + line + second / 2, SIZES.small, { fill: EXPORT_COLOURS.secondaryText })]
@@ -198,6 +200,7 @@ const legendGroups = (colours: Map<string, string>, width: number, extraKeys: st
   const key = (label: string) => groups.push({ shapes: [text(label, place(textWidth(label, SIZES.small)), y, SIZES.small, { fill: EXPORT_COLOURS.dimmed, anchor: "start" })] });
   key("ellipse: object type");
   key(showFrequency ? "rectangle: recipe (activity, events × · share of the transformation events)" : "rectangle: recipe (activity)");
+  key("same shade: same activity");
   extraKeys.forEach(key);
   // No "→" here: the PDF's Helvetica has no arrow glyph.
   key("arrow into a recipe: input, arrow out of a recipe: output");

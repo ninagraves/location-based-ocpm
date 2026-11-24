@@ -33,7 +33,7 @@ import { num, pct } from "../lib/format";
 import { useKeptLayout, useKeptViewport } from "../lib/keptView";
 import { usePageState } from "../lib/pageState";
 import { useObjectTypeColours } from "../lib/objectTypeColours";
-import { OTHER } from "../lib/palette";
+import { emphasisColourMap, OTHER, type Scheme } from "../lib/palette";
 import { KIND_LABELS, listRequest, type TransformationFilter } from "../lib/transformations";
 import { useDebounced } from "../lib/useDebounced";
 import { arcPaths, SIZES as DRAWING_SIZES, type TypeDrawing, typeGraphScene } from "../lib/typeGraphDrawing";
@@ -49,11 +49,12 @@ type GraphSettings = {
   layout: "RIGHT" | "DOWN";
   /** Show frequency and share in the recipe rectangles (Nina 2026-11-24: optional). */
   frequencies: boolean;
-  /** Lifetime in the ellipses: none, the median, or the median and the IQR (Nina 2026-11-24). */
+  /** Lifetime in the ellipses: none, the median, or the median and the interval [Q1, Q3] (Nina 2026-11-24). */
   lifetime: Lifetime;
 };
 
-type Lifetime = "off" | "median" | "iqr";
+type Lifetime = "off" | "median" | "quartiles";
+const LIFETIMES: Lifetime[] = ["off", "median", "quartiles"];
 
 const DEFAULTS: GraphSettings = { coverage: 100, quantities: "exact", layout: "RIGHT", frequencies: true, lifetime: "off" };
 /** The slider recalculates the graph this long after the last change (ms). */
@@ -84,6 +85,9 @@ type RecipeData = {
   share: number;
   recipeKind: string;
   showFrequency: boolean;
+  /** Faint background of all recipes of the same activity (`activityShades`), on the page and in the light scheme. */
+  shade: string;
+  exportShade: string;
   width: number;
   height: number;
 };
@@ -147,7 +151,7 @@ const RecipeNodeView = memo(({ data }: NodeProps<Node<RecipeData>>) => (
         height: data.height,
         borderRadius: 3,
         border: "1px solid var(--mantine-color-gray-6)",
-        background: "var(--mantine-color-body)",
+        background: `linear-gradient(${data.shade}, ${data.shade}), var(--mantine-color-body)`,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
@@ -211,8 +215,9 @@ const quantityLabel = (a: TypeArc) => (a.quantity_min === a.quantity_max ? num(a
 
 /**
  * The lines below an object type's name: its handling units with a full lifecycle (produced and finally consumed in
- * the log) and, if chosen, the median lifetime and the IQR (Q3 − Q1) of these handling units.
- * Example (running example, coil, "iqr"): ["1 full lifecycle", "median 12 h · IQR 0"].
+ * the log) and, if chosen, the median lifetime and the interval [Q1, Q3] of the lifetimes of these handling units
+ * (Nina 2026-11-24: an interval instead of the IQR).
+ * Example (running example, coil, "quartiles"): ["1 full lifecycle", "median 12 h · [12 h, 12 h]"].
  *
  * @param t The object type from the backend (`type_lifecycles`).
  * @param lifetime What to show of the lifetime.
@@ -222,9 +227,34 @@ export const typeLines = (t: TypeNode, lifetime: Lifetime): string[] => {
   const full = t.full_lifecycle ?? 0;
   const lines = [`${num(full)} full ${full === 1 ? "lifecycle" : "lifecycles"}`];
   if (lifetime === "off" || t.lifetime_median == null) return lines;
-  const iqr = t.lifetime_q1 != null && t.lifetime_q3 != null ? t.lifetime_q3 - t.lifetime_q1 : null;
-  lines.push(lifetime === "iqr" ? `median ${duration(t.lifetime_median)} · IQR ${duration(iqr)}` : `median ${duration(t.lifetime_median)}`);
+  lines.push(
+    lifetime === "quartiles"
+      ? `median ${duration(t.lifetime_median)} · [${duration(t.lifetime_q1)}, ${duration(t.lifetime_q3)}]`
+      : `median ${duration(t.lifetime_median)}`,
+  );
   return lines;
+};
+
+/** Opacity of the activity shades of the recipe rectangles (hex alpha): very slight (Nina 2026-11-24). */
+const SHADE_ALPHA: Record<Scheme, string> = { light: "14", dark: "24" };
+
+/**
+ * One very slight shade per activity, so that the recipes of the same activity share a background (Nina 2026-11-24).
+ * The colours are the categorical colours without the signature colours of the handling-unit types
+ * (`emphasisColourMap` with no emphasised values), so a shade is not mistaken for an object type; activities are
+ * ranked by the events of their shown recipes (ties by name).
+ * Example: recipes roll (5 events), roll (2), cut (3): roll gets #5291cc14, cut the next colour with alpha 14.
+ *
+ * @param recipes The shown recipes.
+ * @param scheme Light or dark.
+ * @returns Shade per activity (8-digit hex).
+ */
+export const activityShades = (recipes: { activity: string; frequency: number }[], scheme: Scheme): Map<string, string> => {
+  const events = new Map<string, number>();
+  for (const r of recipes) events.set(r.activity, (events.get(r.activity) ?? 0) + r.frequency);
+  const ranked = [...events].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([activity]) => activity);
+  const colours = emphasisColourMap([], ranked, scheme, false);
+  return new Map(ranked.map((a) => [a, `${colours.get(a)}${SHADE_ALPHA[scheme]}`]));
 };
 
 /** Hover text of an object type: handling units, full lifecycles, lifetime quartiles, flow in the shown recipes. */
@@ -254,7 +284,10 @@ const layoutTypeGraph = async (
   colours: Map<string, string>,
   exportColours: Map<string, string>,
   show: { frequencies: boolean; lifetime: Lifetime },
+  scheme: Scheme,
 ) => {
+  const shades = activityShades(graph.recipes, scheme);
+  const exportShades = scheme === "light" ? shades : activityShades(graph.recipes, "light");
   const sizes = new Map<string, { width: number; height: number }>();
   const lines = new Map(graph.object_types.map((t) => [t.node, typeLines(t, show.lifetime)]));
   const line = DRAWING_SIZES.lineHeight;
@@ -317,6 +350,8 @@ const layoutTypeGraph = async (
         share: r.share,
         recipeKind: r.kind,
         showFrequency: show.frequencies,
+        shade: shades.get(r.activity) ?? "transparent",
+        exportShade: exportShades.get(r.activity) ?? "#ffffff",
         ...(sizes.get(r.node) as { width: number; height: number }),
       },
       style: { pointerEvents: "all" as const },
@@ -395,6 +430,7 @@ export const typeDrawing = (nodes: Node<NodeData>[], edges: Edge<EdgeData>[], or
       share: d.share,
       kind: d.recipeKind,
       showFrequency: d.showFrequency ?? true,
+      shade: d.exportShade ?? "#ffffff",
     })),
     arcs: edges.flatMap((e) => (e.data ? [{ path: e.data.path, colour: e.data.exportColour ?? e.data.colour, width: e.data.width, label: e.data.label, labelPosition: e.data.labelPosition, hover: e.data.hover }] : [])),
     colours: new Map(ranked.map((n) => [n.data.objectType, n.data.exportColour ?? n.data.colour])),
@@ -417,7 +453,9 @@ const MARKS = [0, 50, 100].map((value) => ({ value, label: `${value} %` }));
 export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; filter: TransformationFilter }) => {
   const [kept, setSettings] = usePageState<GraphSettings>(`transformations.graph.${ocelId}`, DEFAULTS);
   // Settings kept before an option existed lack it: fill in its default.
-  const settings: GraphSettings = { ...DEFAULTS, ...kept };
+  const merged: GraphSettings = { ...DEFAULTS, ...kept };
+  // ... and a value an option no longer has (e.g. "iqr" before [Q1, Q3]) falls back to the default.
+  const settings: GraphSettings = LIFETIMES.includes(merged.lifetime) ? merged : { ...merged, lifetime: DEFAULTS.lifetime };
   const [coverage] = useDebounced(settings.coverage, SLIDER_DELAY);
   const scheme = useScheme();
   const typeColours = useObjectTypeColours(ocelId);
@@ -431,10 +469,17 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
     `transformations.graph.layout.${ocelId}`,
     [data, settings.layout, scheme, typeColours, settings.frequencies, settings.lifetime],
     () =>
-      layoutTypeGraph(data!, settings.layout, typeColours.colours, typeColours.exportColours, {
-        frequencies: settings.frequencies,
-        lifetime: settings.lifetime,
-      }),
+      layoutTypeGraph(
+        data!,
+        settings.layout,
+        typeColours.colours,
+        typeColours.exportColours,
+        {
+          frequencies: settings.frequencies,
+          lifetime: settings.lifetime,
+        },
+        scheme,
+      ),
     !!data && typeColours.loaded,
   );
   const { skipFit, ...viewport } = useKeptViewport(`transformations.graph.viewport.${ocelId}`, flow);
@@ -505,7 +550,7 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
         </div>
         <div>
           <Tooltip
-            label="Lifetime of the handling units of a type with a full lifecycle (produced and finally consumed in the log): from production to final consumption. Median, and optionally the IQR (Q3 − Q1); hover an ellipse for Q1 and Q3. Over the whole log, not only the shown recipes."
+            label="Lifetime of the handling units of a type with a full lifecycle (produced and finally consumed in the log): from production to final consumption. Median, and optionally the interval [Q1, Q3] of the first and third quartile. Over the whole log, not only the shown recipes."
             multiline
             maw={360}
             withArrow
@@ -522,7 +567,7 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
             data={[
               { value: "off", label: "off" },
               { value: "median", label: "median" },
-              { value: "iqr", label: "median + IQR" },
+              { value: "quartiles", label: "median + [Q1, Q3]" },
             ]}
           />
         </div>
@@ -543,7 +588,7 @@ export const TransformationTypeGraph = ({ ocelId, filter }: { ocelId: string; fi
       )}
       <Text fz={11} lh={1.3} c="dimmed">
         Ellipse: object type with its handling units with a full lifecycle (produced and finally consumed in the log) ·
-        rectangle: recipe (activity{settings.frequencies ? ", frequency and share of the transformation events" : ""}; hover for
+        rectangle: recipe (shaded per activity; activity{settings.frequencies ? ", frequency and share of the transformation events" : ""}; hover for
         input and output) · arrow object type → recipe: input, recipe → object type: output, labelled with the handling units per event,
         as wide as the handling units that flowed along it (hover the label)
       </Text>
