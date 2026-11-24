@@ -35,6 +35,7 @@ Worked example with another type: handling-unit types pallet (3 handling units) 
 | Overview | "Handling unit types" with "by none" | each bar in its type's colour ("–" grey) |
 | Directly-follows graph | arcs, start and end nodes, circles, object-type legend, downloads | `useObjectTypeColours(ocelId, true)` (other types paler) |
 | Instances | lineage, object graph, object traces (chevron circles, legend) | `useObjectTypeColours(ocelId)`, handed to the charts by `routes/Instances.tsx` |
+| Transformations (draft) | transformation type graph: ellipses, arcs, download and its legend | `useObjectTypeColours(ocelId)` in `TransformationTypeGraph.tsx` (downloads: `exportColours`) |
 
 Not coloured by object type (status colours): the data overview charts, the HU profile table, the timeline (produced / consumed).
 Notebook figures (`visits/trace_figure.py`, `lineage` `to_dot`) use the Python copy of the palette and are not covered yet.

@@ -4,10 +4,11 @@
 - **Ocelescope instance** (this repo's root): the published `ocelescope-backend` host (Python, uv workspace) and the Next.js app in `app/` (pnpm workspace). Both come from the Ocelescope instance template.
 - **Backend module** `backend-modules/location-ocpm/`: a FastAPI app. `ocelescope-backend` discovers it through the entry point `ocelescope_backend.modules` in its `pyproject.toml` and serves it under `/modules/locationBasedOcpm/v1`.
   - `module.py`: module class `LocationBasedOcpm` (key, version, app creation).
-  - `routes.py`: API routes: `GET /status`, plus the configuration routes of `configuration_routes.py` (tables, options, apply; see `state-and-caching.md`), the settings bar routes of `settings_routes.py` (`global_settings.py`; documented in `docs/pages/settings-bar.md`), the overview routes of `overview_routes.py` the route of the directly-follows graph page (`dfg_routes.py`, with a small LRU cache of the log's frames and the traces of a selection) and the routes of the instance page (`instance_routes.py`, with a small LRU cache of the HU profile per derivation).
+  - `routes.py`: API routes: `GET /status`, plus the configuration routes of `configuration_routes.py` (tables, options, apply; see `state-and-caching.md`), the settings bar routes of `settings_routes.py` (`global_settings.py`; documented in `docs/pages/settings-bar.md`), the overview routes of `overview_routes.py` the route of the directly-follows graph page (`dfg_routes.py`, with a small LRU cache of the log's frames and the traces of a selection) and the routes of the instance page (`instance_routes.py`, with a small LRU cache of the HU profile per derivation) and the routes of the draft transformations page (`transformation_routes.py`, with a small LRU cache of the transformation events per derivation).
   - `overview/`: content of the Configuration and Overview pages, one module per section (documented in `docs/pages/overview.md`).
   - `dfg/`: content of the directly-follows graph page, one module per step (documented in `docs/pages/directly-follows-graph.md`).
   - `instances/`: content of the instance page: `profile.py` (HU profile, one function per step) and `charts.py` (lineage of a selection, HU timeline as Plotly JSON); documented in `docs/pages/instances.md`.
+  - `transformations/`: content of the draft transformations page, one module per step (`events`, `key_numbers`, `charts`, `profile`, `type_graph`); documented in `docs/pages/transformations.md`.
   - `state.py`: per-session state (uploaded tables, applied configuration and settings per log, cache).
   - `api_models.py`: response models of the configuration routes.
   - `derivation/`: location derivation (content; documented in `docs/resources/location-derivation.md`).
@@ -20,6 +21,7 @@
   - `src/components/plots.tsx`: theme-aware Plotly chart (`ThemedPlot`) and the chart toolbar (`plotConfig`: download PNG, download SVG, reset axes).
   - `src/lib/dfgLayout.ts`: ELK layout of the directly-follows graph; `src/components/DfgGraph.tsx` draws it with React Flow (`@xyflow/react`), `src/components/DfgSettings.tsx` is its settings sidebar.
   - `src/routes/Instances.tsx`: the instance page; `src/components/HuProfileTable.tsx` (table), `LineageChart.tsx` (ELK + React Flow, reusing the options and edge paths of `dfgLayout.ts`), `HuTimelineChart.tsx` (Plotly figure from the backend).
+  - `src/routes/Transformations.tsx`: the draft transformations page; `src/components/TransformationOverview.tsx` (page filters, key numbers), `TransformationCharts.tsx` (draws with the stacked bars of `OverviewCharts.tsx`), `TransformationProfile.tsx`, `TransformationTypeGraph.tsx` (ELK + React Flow); page filters in `src/lib/transformations.ts`.
   - `src/lib/palette.ts`: the only source of colours (categorical, sequential, diverging, UI roles); `src/lib/objectTypeColours.ts` (`useObjectTypeColours`): the one colour per object type on every page (`docs/resources/object-type-colours.md`).
   - `src/api/`: typed API client generated from the backend's OpenAPI schema by Orval (`pnpm run build:modules`); not committed.
 

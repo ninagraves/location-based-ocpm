@@ -5,6 +5,7 @@ import Configuration from "./routes/Configuration";
 import DirectlyFollowsGraph from "./routes/DirectlyFollowsGraph";
 import Instances from "./routes/Instances";
 import Overview from "./routes/Overview";
+import Transformations from "./routes/Transformations";
 
 const configurationRoute = defineModuleRoute({
   name: "configuration",
@@ -34,11 +35,19 @@ const instancesRoute = defineModuleRoute({
   component: Instances,
 });
 
+// Draft page (Nina, 2026-11-23): content still being conceptualised.
+const transformationsRoute = defineModuleRoute({
+  name: "transformations",
+  label: "Transformations (draft)",
+  requiresOcel: true,
+  component: Transformations,
+});
+
 export default defineModule({
   name: "locationBasedOcpm",
   label: "Location-based OCPM",
   description: "Location-based object-centric process mining for production and logistics",
   authors: [{ name: "Nina Graves" }],
   icon: MapPinnedIcon,
-  routes: [configurationRoute, overviewRoute, dfgRoute, instancesRoute],
+  routes: [configurationRoute, overviewRoute, dfgRoute, instancesRoute, transformationsRoute],
 });

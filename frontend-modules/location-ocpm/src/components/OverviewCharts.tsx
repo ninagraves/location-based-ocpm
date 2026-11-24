@@ -35,17 +35,17 @@ import { useObjectTypeColours } from "../lib/objectTypeColours";
 import { plotConfig, ScrollLegend, ThemedPlot, useScheme } from "./plots";
 
 /** Labels the backend uses for missing values, the summed rest, and mixed object types. */
-const MISSING = "–";
-const OTHER_LABEL = "other";
+export const MISSING = "–";
+export const OTHER_LABEL = "other";
 const SEVERAL_TYPES = "[several types]";
-const SEVERAL_LOCATIONS = "[several locations]";
+export const SEVERAL_LOCATIONS = "[several locations]";
 /** Values a click adds nothing for. */
 const NO_FILTER: readonly string[] = [OTHER_LABEL, SEVERAL_TYPES, SEVERAL_LOCATIONS];
 
 /** Height of each bar chart in pixels. */
-const HEIGHT = 300;
+export const HEIGHT = 300;
 /** Approximate width of one character of a 12px label, to cut labels to ¼ of the chart width. */
-const CHAR_WIDTH = 6.5;
+export const CHAR_WIDTH = 6.5;
 
 type End = "top" | "bottom";
 type Settings = { measure: GetBarChartMeasure; by: GetBarChartBy; mode: GetBarChartMode };
@@ -220,7 +220,7 @@ const useAddValues = (ocelId: string) => {
  * agreement keep their status colours (`STATUS`); object types their colour of the whole module
  * (`typeColours`, from `useObjectTypeColours`; Nina, 2026-11-23).
  */
-const colourOf = (value: string, colours: string[], scheme: Scheme, by: string, typeColours: Map<string, string>) => {
+export const colourOf = (value: string, colours: string[], scheme: Scheme, by: string, typeColours: Map<string, string>) => {
   if ((EVENT_PROPERTIES.includes(by) || by === "location_type") && value !== OTHER_LABEL && STATUS[scheme][value])
     return STATUS[scheme][value];
   if (by === "object_type" && typeColours.has(value)) return typeColours.get(value)!;
@@ -229,13 +229,13 @@ const colourOf = (value: string, colours: string[], scheme: Scheme, by: string, 
 };
 
 /** A label cut to `chars` characters, with "…". */
-const cut = (label: string, chars: number) => (label.length > chars ? `${label.slice(0, Math.max(1, chars - 1))}…` : label);
+export const cut = (label: string, chars: number) => (label.length > chars ? `${label.slice(0, Math.max(1, chars - 1))}…` : label);
 
 /**
  * Legend beside a chart (at most ¼ of the card width, at most as tall as the chart, scrolling
  * beyond): one swatch per value; long names are cut.
  */
-const Legend = ({ items, width }: { items: { label: string; colour: string; hatched?: boolean }[]; width: number }) => (
+export const Legend = ({ items, width }: { items: { label: string; colour: string; hatched?: boolean }[]; width: number }) => (
   <ScrollLegend height={HEIGHT} maxWidth={width}>
     <Stack gap={2} maw={width} style={{ overflow: "hidden" }}>
       {items.map((item) => (
@@ -267,7 +267,7 @@ const Control = ({ info, children }: { info: string; children: ReactNode }) => (
 );
 
 /** Values drawn grey, in their order after the coloured ones ("–" also hatched). */
-const GREY_VALUES = [OTHER_LABEL, SEVERAL_LOCATIONS, MISSING];
+export const GREY_VALUES = [OTHER_LABEL, SEVERAL_LOCATIONS, MISSING];
 
 /** Hover text of one segment (or of a plain bar). */
 const hoverText = (bar: Bar, unit: string, segment?: { value: string; count: number }, byLabel?: string) => {
@@ -284,9 +284,9 @@ const hoverText = (bar: Bar, unit: string, segment?: { value: string; count: num
  * Without segments, bars of object types (`typeBars`, the chart "Handling unit types") are drawn in their object
  * type's colour (`typeColours`), all other bars in the primary colour.
  */
-const traces = (
+export const traces = (
   data: BarChartData,
-  by: GetBarChartBy,
+  by: string,
   unit: string,
   byLabel: string,
   scheme: Scheme,
